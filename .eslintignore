@@ -1,0 +1,82 @@
+generated.ts
+*.d.ts
+modules/*
+__tests__
+ios/Pods/*
+ios/build/*
+*.test.js
+jest.setup.js
+jest.after-env.setup.ts
+
+# TODO:: figure out wich file is causing lint error
+# OSX
+#
+.DS_Store
+
+# Xcode
+#
+build/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata
+*.xccheckout
+*.moved-aside
+DerivedData
+*.hmap
+*.ipa
+*.xcuserstate
+**/.xcode.env.local
+
+# Android/IntelliJ
+#
+build/
+.idea
+.gradle
+local.properties
+*.iml
+*.hprof
+.cxx/
+*.keystore
+!debug.keystore
+
+# node.js
+#
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Bundle artifact
+*.jsbundle
+
+# Ruby / CocoaPods
+**/Pods/
+/vendor/bundle/
+
+# Snyk
+.dccache
+
+.env
+.env.production
+.env.staging
+.env.test
+.env.development
+
+# IDE
+.vscode/
+
+**/tmp.xcconfig
+
+# testing
+/coverage
+
+# Expo
+.expo
+dist/
+web-build/
+*.tar.gz

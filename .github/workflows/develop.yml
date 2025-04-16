@@ -1,0 +1,187 @@
+name: Develop Deploy Validose Mobile Application
+
+on:
+  push:
+    branches:
+      - unknown
+
+jobs:
+  slack:
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - name: Begin Slack Notification
+        uses: act10ns/slack@v2
+        with:
+          channel: "#10xbeta-github-pipeline"
+          config: .github/config/slack.yml
+          message: "Starting Validose CI/CD Pipeline"
+          status: ${{ job.status }}
+          steps: ${{ toJson(steps) }}
+        if: always()
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.18.1"
+
+      - name: Cache NPM
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.18.1"
+
+      - name: Cache NPM
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: npm audit action
+        uses: oke-py/npm-audit-action@v2
+        with:
+          audit_level: moderate
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          issue_assignees: oke-py
+          issue_labels: vulnerability,test
+          dedupe_issues: true
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.18.1"
+
+      - name: Cache NPM
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test
+
+  version-bump:
+    needs: [lint, audit, test]
+    permissions: write-all
+    name: version-bump
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Version bump and publish release
+        uses: MeilCli/bump-release-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          config_path: "./.github/bumpDevelop.yml"
+          bump: ${{ github.event.inputs.bump }}
+
+  deploy:
+    needs: [lint, audit, test, version-bump]
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.18.1"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Android APK
+        run: |
+          echo "Building Android APK..."
+          npm run build:android 
+          echo "Android APK built successfully!"
+
+      - name: Build iOS IPA
+        run: |
+          echo "Building iOS IPA..."
+          npm run build:ios
+          echo "iOS IPA built successfully!"
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Upload Android APK to S3
+        run: |
+          aws s3 cp ./android/app/build/outputs/apk/release/app-release.apk s3://${{ secrets.AWS_S3_BUCKET }}/android/app-release.apk
+          echo "Android APK uploaded to S3 bucket: ${{ secrets.AWS_S3_BUCKET }}/android/app-release.apk"
+        if: always() # Ensure this step runs even if iOS build fails
+
+      - name: Upload iOS IPA to S3
+        run: |
+          # Replace with the actual path to your IPA file
+          aws s3 cp ./ios/build/Build/Products/Release-iphoneos/YourAppName.ipa s3://${{ secrets.AWS_S3_BUCKET }}/ios/YourAppName.ipa
+          echo "iOS IPA uploaded to S3 bucket: ${{ secrets.AWS_S3_BUCKET }}/ios/YourAppName.ipa"
+        if: always()
+
+      - name: End Slack Notification
+        uses: act10ns/slack@v2
+        with:
+          channel: "#10xbeta-github-pipeline"
+          config: .github/config/slack.yml
+          message: "Ending 10xBeta CI/CD"
+          status: ${{ job.status }}
+          steps: ${{ toJson(steps) }}
+        if: always()
+#  changelog:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: "✏️ Generate changelog"
+#        uses: janheinrichmerker/action-github-changelog-generator@v2.3
+#        with:
+#          token: ${{ secrets.GITHUB_TOKEN }}

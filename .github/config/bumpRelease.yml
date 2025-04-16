@@ -1,0 +1,10 @@
+branch:
+  base-branch: 'release'
+bump:
+  default: 'minor'
+  minor:
+    labels:
+      - 'Minor'
+files:
+  - file-path: 'package.json'
+    line: 4

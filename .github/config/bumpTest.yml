@@ -1,0 +1,10 @@
+branch:
+  base-branch: 'develop'
+bump:
+  default: 'patch'
+  patch:
+    labels:
+      - 'Patch'
+files:
+  - file-path: 'package.json'
+    line: 4
