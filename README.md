@@ -75,38 +75,40 @@ Validose is a mobile application designed to help users manage and track their m
 
 Here's a breakdown of the project's file structure:
 
-validose-mobile-app/
-├── App.js # Main entry point of the application
-├── app.json # Expo configuration file
-├── assets/ # Static assets (images, fonts, etc.)
-│ ├── fonts/ # Custom fonts
-│ ├── images/ # Images used in the app
-│ └── ...
-├── components/ # Reusable UI components
-│ ├── Button.js # Example: Custom button component
-│ ├── Card.js # Example: Card component
-│ └── ...
-├── navigation/ # Navigation configurations
-│ ├── AppNavigator.js # Main app navigator
-│ └── ...
-├── screens/ # Application screens
-│ ├── HomeScreen.js # Home screen
-│ ├── LoginScreen.js # Login screen
-│ ├── MedsScreen.js # Medication List screen
-│ └── ...
-├── services/ # API services and data fetching logic
-│ ├── api.js # API client
-│ └── ...
-├── styles/ # Global styles and themes
-│ ├── colors.js # Color palette
-│ ├── common.js # Common styles
-│ └── ...
-├── utils/ # Utility functions and helpers
-│ ├── dateUtils.js # Date formatting utilities
-│ └── ...
-├── .gitignore # Specifies intentionally untracked files that Git should ignore
-├── README.md # Documentation for the project
-└── package.json # Project dependencies and scripts
+```bash
+ validose-mobile-app/
+ ├── App.js                  # Main entry point of the application
+ ├── app.json                # Expo configuration file
+ ├── assets/                 # Static assets (images, fonts, etc.)
+ │   ├── fonts/              # Custom fonts
+ │   ├── images/             # Images used in the app
+ │   └── ...
+ ├── components/             # Reusable UI components
+ │   ├── Button.js           # Example: Custom button component
+ │   ├── Card.js             # Example: Card component
+ │   └── ...
+ ├── navigation/             # Navigation configurations
+ │   ├── AppNavigator.js     # Main app navigator
+ │   └── ...
+ ├── screens/                # Application screens
+ │   ├── HomeScreen.js       # Home screen
+ │   ├── LoginScreen.js      # Login screen
+ │   ├── MedsScreen.js       # Medication List screen
+ │   └── ...
+ ├── services/               # API services and data fetching logic
+ │   ├── api.js              # API client
+ │   └── ...
+ ├── styles/                 # Global styles and themes
+ │   ├── colors.js           # Color palette
+ │   ├── common.js           # Common styles
+ │   └── ...
+ ├── utils/                  # Utility functions and helpers
+ │   ├── dateUtils.js        # Date formatting utilities
+ │   └── ...
+ ├── .gitignore              # Specifies intentionally untracked files that Git should ignore
+ ├── README.md               # Documentation for the project
+ └── package.json            # Project dependencies and scripts
+```
 
 ## Dependencies
 
