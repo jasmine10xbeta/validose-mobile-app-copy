@@ -16,8 +16,6 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
     npm run android/ios
    ```
 
-
-
 Validose is a mobile application designed to help users manage and track their medications effectively. Built with Expo, it offers a cross-platform solution for both iOS and Android devices.
 
 ## Table of Contents
@@ -31,24 +29,25 @@ Validose is a mobile application designed to help users manage and track their m
 
 ## Features
 
-*   **Medication Tracking:** Log and monitor your medication intake.
-*   **Reminders:** Set up reminders to take medications on time.
-*   **Dosage Information:** Store dosage details for each medication.
-*   **User Authentication:** Secure user accounts with login and registration.
-*   **Data Visualization:** View medication history through charts and graphs.
+- **Medication Tracking:** Log and monitor your medication intake.
+- **Reminders:** Set up reminders to take medications on time.
+- **Dosage Information:** Store dosage details for each medication.
+- **User Authentication:** Secure user accounts with login and registration.
+- **Data Visualization:** View medication history through charts and graphs.
 
 ## Getting Started
 
 1.  **Prerequisites:**
 
-    *   Node.js (>=18)
-    *   npm or yarn
-    *   Expo CLI (`npm install -g expo-cli`)
-    *   Expo Go app on your iOS or Android device (for development)
+    - Node.js (>=18)
+    - npm or yarn
+    - Expo CLI (`npm install -g expo-cli`)
+    - Expo Go app on your iOS or Android device (for development)
 
 2.  **Installation:**
 
     Clone the repository:
+
     ```bash
     git clone <repository-url>
     cd validose-mobile-app
@@ -70,7 +69,7 @@ Validose is a mobile application designed to help users manage and track their m
     yarn start
     ```
 
-    This will start the Expo development server.  You can then scan the QR code with the Expo Go app on your phone or run it in an emulator.
+    This will start the Expo development server. You can then scan the QR code with the Expo Go app on your phone or run it in an emulator.
 
 ## File Structure
 
@@ -94,7 +93,7 @@ validose-mobile-app/
 │ ├── HomeScreen.js # Home screen
 │ ├── LoginScreen.js # Login screen
 │ ├── MedsScreen.js # Medication List screen
-│ ├── ...
+│ └── ...
 ├── services/ # API services and data fetching logic
 │ ├── api.js # API client
 │ └── ...
@@ -113,16 +112,16 @@ validose-mobile-app/
 
 Key dependencies used in this project:
 
-*   expo
-*   react
-*   react-native
-*   @react-navigation/native
-*   @react-navigation/stack
-*   And other dependencies listed in `package.json`
+- expo
+- react
+- react-native
+- @react-navigation/native
+- @react-navigation/stack
+- And other dependencies listed in `package.json`
 
 ## Contributing
 
-Contributions are welcome!  Please follow these steps:
+Contributions are welcome! Please follow these steps:
 
 1.  Fork the repository.
 2.  Create a new branch for your feature or bug fix.
