@@ -11,7 +11,13 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.anonymous.x10xbetamobilemdkpoc",
-      "buildNumber": "13"
+      "buildNumber": "13",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Validose needs access to your camera for QRCode"
+      },
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -24,11 +30,8 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_ADMIN",
-        "android.permission.BLUETOOTH_SCAN",
-        "android.permission.BLUETOOTH_CONNECT",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.BLUETOOTH",
-        "android.permission.BLUETOOTH_ADMIN"
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ],
       "versionCode": 13,
       "package": "com.anonymous.x10xbetamobilemdkpoc"
@@ -41,12 +44,22 @@
     "plugins": [
       "expo-router",
       [
+        "expo-asset"
+      ],
+      [
+        "expo-build-properties"
+      ],
+      [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "image": "./assets/images/Validose-logo.png",
+          "imageWidth": 190,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#252F3B",
+          "dark": {
+            "image": "./assets/images/Validose-logo.png",
+            "backgroundColor": "#252F3B"
+          }
         }
       ],
       [
@@ -59,7 +72,24 @@
           ],
           "bluetoothAlwaysPermission": "Allow Validose to connect to bluetooth devices"
         }
-      ]
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Validose to access your camera",
+          "microphonePermission": "Allow Validose to access your microphone",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true,
+          "faceIDPermission": "Allow Validose to access your face ID."
+        }
+      ],
+      "expo-build-properties",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true
@@ -69,8 +99,9 @@
         "origin": false
       },
       "eas": {
-        "projectId": "c7b79dad-5225-4cab-852b-aa98de5310dc"
+        "projectId": "b992d1be-1263-4cb3-b9ee-6b99c5c49974"
       }
-    }
+    },
+    "owner": "karol10xbeta"
   }
 }

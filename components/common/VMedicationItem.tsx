@@ -1,0 +1,267 @@
+import { useAssets } from "expo-asset";
+import { Image } from "expo-image";
+import { useState } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
+import Toast from "react-native-toast-message";
+import {
+  validoseMedication,
+  validoseMedication1,
+  validoseMedicationError,
+} from "@/constants/Colors";
+import { Device } from "@/store/useDeviceStore";
+import { VDoseItem } from "./VDoseItem";
+import { VDoseLine } from "./VDoseLine";
+import { VText } from "./VText";
+
+interface VMedicationItemProps {
+  item: Device;
+  state: string;
+  color: string;
+}
+
+export function VMedicationItem(props: VMedicationItemProps) {
+  const [assets] = useAssets([
+    require("./../../assets/images/link-broken.png"),
+    require("./../../assets/images/alert-diamond.png"),
+  ]);
+
+  const stylesComputed = StyleSheet.create({
+    medSection: {
+      borderTopLeftRadius: 25,
+      borderBottomLeftRadius: 25,
+      gap: 5,
+      width: 65,
+      backgroundColor: props.color,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+  });
+  const [medicationState, setMedicationState] = useState<number>(0);
+
+  function onPresMedicationItem() {
+    if (medicationState > 5) {
+      setMedicationState(0);
+    } else {
+      if (medicationState === 0) {
+        Toast.show({
+          type: "success",
+          text1: "Successful Dose",
+          text2: "Congratulations you make a first Dose.",
+        });
+      }
+      if (medicationState === 1) {
+        Toast.show({
+          type: "success",
+          text1: "Successful Dose",
+          text2: "Congratulations you make a second Dose.",
+        });
+      }
+      if (medicationState === 2) {
+        Toast.show({
+          type: "success",
+          text1: "Successful Dose",
+          text2: "Congratulations you make a third Dose.",
+        });
+      }
+      if (medicationState === 3) {
+        Toast.show({
+          type: "error",
+          text1: "Missed Dose",
+          text2: "Please take your Dose on time.",
+        });
+      }
+      if (medicationState === 4) {
+        Toast.show({
+          type: "error",
+          text1: "No Connection",
+          text2: "Please Check Connection.",
+        });
+      }
+      if (medicationState === 5) {
+        Toast.show({
+          type: "error",
+          text1: "Device Error",
+          text2: "Contact Support.",
+        });
+      }
+      setMedicationState((prev) => prev + 1);
+    }
+  }
+
+  return (
+    <Pressable onPress={onPresMedicationItem} style={styles.deviceItem}>
+      {medicationState === 0 ? (
+        <>
+          <View style={stylesComputed.medSection}>
+            <VText textVariant="LabelMedicine1">MED</VText>
+            <VText textVariant="LabelMedicine2">{props.item.medicine}</VText>
+          </View>
+          <View style={styles.doseSection}>
+            <VDoseItem color={props.color} doseNumber={1} state={0} />
+            <VDoseLine color={props.color} state={0} />
+            <VDoseItem color={props.color} doseNumber={2} state={1} />
+            <VDoseLine color={props.color} state={1} />
+            <VDoseItem color={props.color} doseNumber={3} state={1} />
+          </View>
+        </>
+      ) : null}
+      {medicationState === 1 ? (
+        <>
+          <View style={stylesComputed.medSection}>
+            <VText textVariant="LabelMedicine1">MED</VText>
+            <VText textVariant="LabelMedicine2">{props.item.medicine}</VText>
+          </View>
+          <View style={styles.doseSection}>
+            <VDoseItem color={props.color} doseNumber={1} state={2} />
+            <VDoseLine color={props.color} state={0} />
+            <VDoseItem color={props.color} doseNumber={2} state={0} />
+            <VDoseLine color={props.color} state={0} />
+            <VDoseItem color={props.color} doseNumber={3} state={1} />
+          </View>
+        </>
+      ) : null}
+      {medicationState === 2 ? (
+        <>
+          <View style={stylesComputed.medSection}>
+            <VText textVariant="LabelMedicine1">MED</VText>
+            <VText textVariant="LabelMedicine2">{props.item.medicine}</VText>
+          </View>
+          <View style={styles.doseSection}>
+            <VDoseItem color={props.color} doseNumber={1} state={2} />
+            <VDoseLine color={props.color} state={0} />
+            <VDoseItem color={props.color} doseNumber={2} state={2} />
+            <VDoseLine color={props.color} state={0} />
+            <VDoseItem color={props.color} doseNumber={3} state={0} />
+          </View>
+        </>
+      ) : null}
+      {medicationState === 3 ? (
+        <>
+          <View style={stylesComputed.medSection}>
+            <VText textVariant="LabelMedicine1">MED</VText>
+            <VText textVariant="LabelMedicine2">{props.item.medicine}</VText>
+          </View>
+          <View style={styles.doseSection}>
+            <VDoseItem color={props.color} doseNumber={1} state={2} />
+            <VDoseLine color={props.color} state={0} />
+            <VDoseItem color={props.color} doseNumber={2} state={2} />
+            <VDoseLine color={props.color} state={0} />
+            <VDoseItem color={props.color} doseNumber={3} state={2} />
+          </View>
+        </>
+      ) : null}
+      {medicationState === 4 ? (
+        <>
+          <View style={stylesComputed.medSection}>
+            <VText textVariant="LabelMedicine1">MED</VText>
+            <VText textVariant="LabelMedicine2">{props.item.medicine}</VText>
+          </View>
+          <View style={styles.doseSection}>
+            <VDoseItem color={props.color} doseNumber={1} state={2} />
+            <VDoseLine color={props.color} state={0} />
+            <VDoseItem color={props.color} doseNumber={2} state={2} />
+            <VDoseLine color={props.color} state={0} />
+            <VDoseItem color={props.color} doseNumber={4} state={0} />
+          </View>
+        </>
+      ) : null}
+      {medicationState === 5 ? (
+        <>
+          <View style={styles.medSectionError}>
+            <VText textVariant="LabelMedicine1Dark">MED</VText>
+            <VText textVariant="LabelMedicine2Dark">
+              {props.item.medicine}
+            </VText>
+          </View>
+          <View style={styles.doseSectionError}>
+            {assets ? <Image source={assets[0]} style={styles.image} /> : null}
+            <View>
+              <VText textVariant="LabelMedicineBold" textAlign="left">
+                No Connection
+              </VText>
+              <VText textVariant="LabelMedicine" textAlign="left">
+                Please Check Connection.
+              </VText>
+            </View>
+          </View>
+        </>
+      ) : null}
+      {medicationState === 6 ? (
+        <>
+          <View style={styles.medSectionError}>
+            <VText textVariant="LabelMedicine1Dark">MED</VText>
+            <VText textVariant="LabelMedicine2Dark">
+              {props.item.medicine}
+            </VText>
+          </View>
+          <View style={styles.doseSectionError}>
+            {assets ? <Image source={assets[1]} style={styles.image} /> : null}
+            <View>
+              <VText textVariant="LabelMedicineBold" textAlign="left">
+                Device Error
+              </VText>
+              <VText textVariant="LabelMedicine" textAlign="left">
+                Contact Support.
+              </VText>
+            </View>
+          </View>
+        </>
+      ) : null}
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  deviceItem: {
+    marginTop: 20,
+    flexDirection: "row",
+    height: 80,
+    backgroundColor: "#FFF",
+    width: "100%",
+  },
+  medSection: {
+    borderTopLeftRadius: 25,
+    borderBottomLeftRadius: 25,
+    gap: 5,
+    width: 65,
+    backgroundColor: validoseMedication1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  medSectionError: {
+    borderTopLeftRadius: 25,
+    borderBottomLeftRadius: 25,
+    gap: 5,
+    width: 65,
+    backgroundColor: validoseMedicationError,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  doseSection: {
+    paddingLeft: 20,
+    flexDirection: "row",
+    borderTopRightRadius: 25,
+    borderBottomRightRadius: 25,
+    height: 80,
+    width: 290,
+    backgroundColor: validoseMedication,
+    justifyContent: "flex-start",
+    alignItems: "center",
+  },
+  doseSectionError: {
+    gap: 10,
+    paddingLeft: 20,
+    flexDirection: "row",
+    borderTopRightRadius: 25,
+    borderBottomRightRadius: 25,
+    height: 80,
+    width: 290,
+    backgroundColor: validoseMedication,
+    justifyContent: "flex-start",
+    alignItems: "center",
+  },
+  image: {
+    height: 30,
+    width: 30,
+  },
+});

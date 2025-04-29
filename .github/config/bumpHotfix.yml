@@ -1,8 +1,8 @@
 branch:
-  base-branch: 'develop'
+  base-branch: 'main'
 bump:
   default: 'patch'
-  patch:
+  minor:
     labels:
       - 'Patch'
 files:

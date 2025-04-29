@@ -54,7 +54,6 @@ module.exports = {
           "object", // Import certain objects
           "type", // Import only types
         ],
-        "newlines-between": "always",
         alphabetize: {
           order: "asc",
           caseInsensitive: true,

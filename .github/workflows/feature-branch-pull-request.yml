@@ -86,3 +86,21 @@ jobs:
 
       - name: Run tests
         run: npm run test
+
+  version-bump:
+    needs: [lint, audit, test]
+    permissions: write-all
+    name: version-bump
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Version bump and publish release
+        uses: "phips28/gh-action-bump-version@master"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          version-type: prerelease
+          preid: "build"
