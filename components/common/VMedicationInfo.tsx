@@ -21,14 +21,14 @@ export function VMedicationInfo(props: VMedicationInfoProps) {
       {props.infoState === 0 ? (
         <View style={styles.info}>
           {assets ? <Image source={assets[0]} style={styles.image} /> : null}
-          <VText textVariant="LabelMedicine">Take medication 1.</VText>
+          <VText textVariant="LabelMedicine">Take medication A.</VText>
         </View>
       ) : null}
       {props.infoState === 1 ? (
         <View style={styles.info}>
           {assets ? <Image source={assets[1]} style={styles.image} /> : null}
           <VText textVariant="LabelMedicine" textAlign="left">
-            You are about to miss a scheduled dose for 1.
+            You are about to miss a scheduled dose for A. Take the dose now.
           </VText>
         </View>
       ) : null}
@@ -54,37 +54,39 @@ export function VMedicationInfo(props: VMedicationInfoProps) {
 
 const styles = StyleSheet.create({
   medicationInfo: {
-    padding: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-around",
-    width: "80%",
-    height: 100,
+    marginTop: 20,
+    width: "90%",
+    height: 90,
+    backgroundColor: "#F3F3F3",
+    borderRadius: 8,
   },
   image: {
     height: 30,
     width: 30,
   },
   info: {
-    gap: 10,
-    borderRadius: 10,
-    padding: 10,
+    padding: 15,
+    gap: 15,
+    height: "100%",
     flexDirection: "row",
     alignItems: "center",
   },
   success: {
-    gap: 10,
+    gap: 15,
+    height: "100%",
+    width: "100%",
     backgroundColor: validoseSuccess,
     borderRadius: 10,
-    padding: 10,
+    padding: 15,
     flexDirection: "row",
     alignItems: "center",
   },
   warning: {
-    gap: 10,
+    gap: 15,
+    height: "100%",
     backgroundColor: validoseWarning,
     borderRadius: 10,
-    padding: 10,
+    padding: 15,
     flexDirection: "row",
     alignItems: "center",
   },

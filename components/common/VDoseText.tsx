@@ -11,11 +11,10 @@ export function VDoseText(
 ) {
   const styles = StyleSheet.create({
     text: {
-      width: "100%",
       color: props.color,
       textAlign: "center",
-      fontSize: 25,
-      fontWeight: "700",
+      fontSize: 22,
+      fontWeight: "600",
     },
   });
 

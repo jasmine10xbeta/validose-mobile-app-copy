@@ -11,7 +11,9 @@ interface VNextDoseInfoProps {
 export function VNextDoseInfo(props: VNextDoseInfoProps) {
   return (
     <View style={styles.nextDoseInfo}>
-      <VText textVariant="LabelDose">Next Dose</VText>
+      <VText textVariant="LabelDose" style={styles.label}>
+        Next Dose
+      </VText>
       {props.infoState === 0 ? (
         <View style={styles.nextDoseInfoSecond}>
           <VText textVariant="Body">{props.mainLabel}</VText>
@@ -44,16 +46,30 @@ export function VNextDoseInfo(props: VNextDoseInfoProps) {
 
 const styles = StyleSheet.create({
   nextDoseInfo: {
+    flexDirection: "column",
     alignItems: "center",
-    backgroundColor: "#FFF",
+    marginTop: 40,
+    paddingTop: 35,
+    paddingBottom: 15,
+    borderColor: "#E6E7E8",
+    borderRadius: 12,
+    borderWidth: 1,
     width: "100%",
-    height: 210,
-    gap: 20,
   },
   nextDoseInfoSecond: {
     alignItems: "center",
     backgroundColor: "#FFF",
     width: "100%",
     gap: 5,
+  },
+  label: {
+    position: "absolute",
+    top: -10,
+    paddingHorizontal: 25,
+    color: "#565F6B",
+    fontSize: 16,
+    fontWeight: "500",
+    // fontFamily: "Inter",
+    backgroundColor: "#FFF",
   },
 });

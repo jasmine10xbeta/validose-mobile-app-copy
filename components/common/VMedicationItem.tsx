@@ -27,13 +27,11 @@ export function VMedicationItem(props: VMedicationItemProps) {
 
   const stylesComputed = StyleSheet.create({
     medSection: {
-      borderTopLeftRadius: 25,
-      borderBottomLeftRadius: 25,
-      gap: 5,
+      borderTopLeftRadius: 12,
+      borderBottomLeftRadius: 12,
       width: 65,
       backgroundColor: props.color,
       justifyContent: "center",
-      alignItems: "center",
     },
   });
   const [medicationState, setMedicationState] = useState<number>(0);
@@ -176,11 +174,19 @@ export function VMedicationItem(props: VMedicationItemProps) {
           <View style={styles.doseSectionError}>
             {assets ? <Image source={assets[0]} style={styles.image} /> : null}
             <View>
-              <VText textVariant="LabelMedicineBold" textAlign="left">
-                No Connection
+              <VText
+                textVariant="LabelMedicineBold"
+                textAlign="left"
+                style={{ color: "#252F3B", fontSize: 16, fontWeight: "600" }}
+              >
+                No connection
               </VText>
-              <VText textVariant="LabelMedicine" textAlign="left">
-                Please Check Connection.
+              <VText
+                textVariant="LabelMedicine"
+                textAlign="left"
+                style={{ color: "#565F6B", fontSize: 16, fontWeight: "400" }}
+              >
+                Please check connection.
               </VText>
             </View>
           </View>
@@ -197,11 +203,19 @@ export function VMedicationItem(props: VMedicationItemProps) {
           <View style={styles.doseSectionError}>
             {assets ? <Image source={assets[1]} style={styles.image} /> : null}
             <View>
-              <VText textVariant="LabelMedicineBold" textAlign="left">
-                Device Error
+              <VText
+                textVariant="LabelMedicineBold"
+                textAlign="left"
+                style={{ color: "#252F3B", fontSize: 16, fontWeight: "600" }}
+              >
+                Device error
               </VText>
-              <VText textVariant="LabelMedicine" textAlign="left">
-                Contact Support.
+              <VText
+                textVariant="LabelMedicine"
+                textAlign="left"
+                style={{ color: "#565F6B", fontSize: 16, fontWeight: "400" }}
+              >
+                Contact support.
               </VText>
             </View>
           </View>
@@ -220,8 +234,8 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   medSection: {
-    borderTopLeftRadius: 25,
-    borderBottomLeftRadius: 25,
+    borderTopLeftRadius: 12,
+    borderBottomLeftRadius: 12,
     gap: 5,
     width: 65,
     backgroundColor: validoseMedication1,
@@ -229,8 +243,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   medSectionError: {
-    borderTopLeftRadius: 25,
-    borderBottomLeftRadius: 25,
+    borderTopLeftRadius: 12,
+    borderBottomLeftRadius: 12,
     gap: 5,
     width: 65,
     backgroundColor: validoseMedicationError,
@@ -240,22 +254,21 @@ const styles = StyleSheet.create({
   doseSection: {
     paddingLeft: 20,
     flexDirection: "row",
-    borderTopRightRadius: 25,
-    borderBottomRightRadius: 25,
+    borderTopRightRadius: 12,
+    borderBottomRightRadius: 12,
     height: 80,
-    width: 290,
+    width: "80%",
     backgroundColor: validoseMedication,
-    justifyContent: "flex-start",
     alignItems: "center",
   },
   doseSectionError: {
-    gap: 10,
+    gap: 15,
     paddingLeft: 20,
     flexDirection: "row",
-    borderTopRightRadius: 25,
-    borderBottomRightRadius: 25,
+    borderTopRightRadius: 12,
+    borderBottomRightRadius: 12,
     height: 80,
-    width: 290,
+    width: "80%",
     backgroundColor: validoseMedication,
     justifyContent: "flex-start",
     alignItems: "center",

@@ -96,17 +96,17 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   textLabelMedicine1: {
-    width: "100%",
     color: validoseWhite,
+    fontSize: 12,
+    fontWeight: "500",
     textAlign: "center",
-    fontSize: 16,
   },
   textLabelMedicine2: {
     width: "100%",
     color: validoseWhite,
     textAlign: "center",
-    fontSize: 25,
-    fontWeight: "bold",
+    fontSize: 32,
+    fontWeight: "600",
   },
   textLabelMedicine1Dark: {
     width: "100%",
@@ -123,11 +123,11 @@ const styles = StyleSheet.create({
   },
   textDeviceItem: {
     color: validoseDarkBlue,
-    fontWeight: "700",
+    fontWeight: "500",
     fontSize: 16,
   },
   textDeviceItemState: {
-    color: validoseAqua,
+    color: validoseAqua3,
     fontWeight: "500",
     fontSize: 16,
   },

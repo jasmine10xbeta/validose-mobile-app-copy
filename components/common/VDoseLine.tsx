@@ -8,7 +8,6 @@ interface VDoseLineProps {
 export function VDoseLine(props: VDoseLineProps) {
   const styles = StyleSheet.create({
     doseItem: {
-      height: 1,
       width: 20,
       borderWidth: 1,
       borderStyle: props.state === 0 ? "solid" : "dashed",
