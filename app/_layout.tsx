@@ -38,7 +38,7 @@ export default function RootLayout() {
     if (loaded) {
       SplashScreen.hideAsync();
       if (isLoggedIn) {
-        router.push("/Dashboard");
+        router.push("/dashboard");
       }
     }
   }, [loaded, router, isLoggedIn]);
@@ -56,81 +56,15 @@ export default function RootLayout() {
           >
             <AuthenticationProvider>
               <Stack>
+                <Stack.Screen name="index" options={{ headerShown: false }} />
+                <Stack.Screen name="pairing" options={{ headerShown: false }} />
                 <Stack.Screen
-                  name="index"
-                  options={{
-                    headerTitle: (props) => <VHeader label="" {...props} />,
-                    headerStyle: {
-                      backgroundColor: "#FFF",
-                    },
-                    headerLeft: () => null,
-                    headerBackVisible: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="Pairing"
-                  options={{
-                    headerTitle: (props) => (
-                      <VHeader label="Pairing" {...props} />
-                    ),
-                    headerStyle: {
-                      backgroundColor: "#FFF",
-                    },
-                    headerLeft: () => null,
-                    headerBackVisible: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="SetupDeviceConnect"
-                  options={{
-                    headerTitle: (props) => (
-                      <VHeader label="Setup" {...props} />
-                    ),
-                    headerStyle: {
-                      backgroundColor: "#FFF",
-                    },
-                    headerLeft: () => null,
-                    headerBackVisible: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="QRCodeScanner"
-                  options={{
-                    headerTitle: (props) => (
-                      <VHeader label="Setup" {...props} />
-                    ),
-                    headerStyle: {
-                      backgroundColor: "#FFF",
-                    },
-                    headerLeft: () => null,
-                    headerBackVisible: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="Dashboard"
-                  options={{
-                    headerTitle: (props) => (
-                      <VHeader label="Dashboard" {...props} />
-                    ),
-                    headerStyle: {
-                      backgroundColor: "#FFF",
-                    },
-                    headerLeft: () => null,
-                    headerBackVisible: false,
-                  }}
+                  name="dashboard"
+                  options={{ headerShown: false }}
                 />
                 <Stack.Screen
                   name="+not-found"
-                  options={{
-                    headerTitle: (props) => (
-                      <VHeader label="Not Found" {...props} />
-                    ),
-                    headerStyle: {
-                      backgroundColor: "#FFF",
-                    },
-                    headerLeft: () => null,
-                    headerBackVisible: false,
-                  }}
+                  options={{ headerShown: false }}
                 />
               </Stack>
             </AuthenticationProvider>
