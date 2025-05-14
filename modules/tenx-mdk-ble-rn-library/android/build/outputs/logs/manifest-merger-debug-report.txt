@@ -1,0 +1,16 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /Users/jasminesodhi/Work/MDK/mdk-expo-app/node_modules/react-native-tenx-mdk-ble/android/src/main/AndroidManifestNew.xml:1:1-2:12
+INJECTED from /Users/jasminesodhi/Work/MDK/mdk-expo-app/node_modules/react-native-tenx-mdk-ble/android/src/main/AndroidManifestNew.xml:1:1-2:12
+	package
+		INJECTED from /Users/jasminesodhi/Work/MDK/mdk-expo-app/node_modules/react-native-tenx-mdk-ble/android/src/main/AndroidManifestNew.xml
+	xmlns:android
+		ADDED from /Users/jasminesodhi/Work/MDK/mdk-expo-app/node_modules/react-native-tenx-mdk-ble/android/src/main/AndroidManifestNew.xml:1:11-69
+uses-sdk
+INJECTED from /Users/jasminesodhi/Work/MDK/mdk-expo-app/node_modules/react-native-tenx-mdk-ble/android/src/main/AndroidManifestNew.xml reason: use-sdk injection requested
+INJECTED from /Users/jasminesodhi/Work/MDK/mdk-expo-app/node_modules/react-native-tenx-mdk-ble/android/src/main/AndroidManifestNew.xml
+INJECTED from /Users/jasminesodhi/Work/MDK/mdk-expo-app/node_modules/react-native-tenx-mdk-ble/android/src/main/AndroidManifestNew.xml
+	android:targetSdkVersion
+		INJECTED from /Users/jasminesodhi/Work/MDK/mdk-expo-app/node_modules/react-native-tenx-mdk-ble/android/src/main/AndroidManifestNew.xml
+	android:minSdkVersion
+		INJECTED from /Users/jasminesodhi/Work/MDK/mdk-expo-app/node_modules/react-native-tenx-mdk-ble/android/src/main/AndroidManifestNew.xml

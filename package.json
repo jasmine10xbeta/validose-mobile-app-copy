@@ -59,7 +59,8 @@
     "react-native-webview": "13.12.5",
     "zod": "^3.24.3",
     "zustand": "^5.0.3",
-    "@react-native-async-storage/async-storage": "1.23.1"
+    "@react-native-async-storage/async-storage": "1.23.1",
+    "react-native-tenx-mdk-ble": "file:modules/tenx-mdk-ble-rn-library"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
@@ -78,7 +79,8 @@
     "jest-expo": "~52.0.6",
     "prettier": "^3.5.3",
     "react-test-renderer": "18.3.1",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "@react-native-community/cli": "latest"
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx,json,md,css,scss}": [
