@@ -1,22 +1,35 @@
-import { CameraType, CameraView, useCameraPermissions } from "expo-camera";
+import { useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import {
+  FlatList,
+  StyleSheet,
+  View,
+  Dimensions,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
+
 import { VButton } from "@/components/common/VButton";
+import { VDeviceItem } from "@/components/common/VDeviceItem";
+import { QRCodeScanner } from "@/components/common/VQRCodeScanner";
 import { VText } from "@/components/common/VText";
 import useDeviceStore from "@/store/useDeviceStore";
-import { QRCodeReturnData } from "@/utils/qrcode/qrCodeValidation";
+import { bondDevice } from "../modules/tenx-mdk-ble-rn-library/src/index";
 
 export default function PairingScreen() {
   const router = useRouter();
-  const { removeAll } = useDeviceStore();
-  const [qrCodeValidation, setQrCodeValidation] = useState<QRCodeReturnData>({
-    validation: false,
-  });
-  const [facing, setFacing] = useState<CameraType>("back");
+  const { addDevice } = useDeviceStore();
+
+  const [hasScanned, setHasScanned] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
+
+  const [contentHeight, setContentHeight] = useState(0);
+  const screenHeight = Dimensions.get("window").height;
+
+  const devices = useDeviceStore((s) => s.devices);
+  const isDevicesConnected = devices.length > 0;
 
   if (!permission) {
     return <View />;
@@ -35,58 +48,130 @@ export default function PairingScreen() {
     );
   }
 
-  function toggleCameraFacing() {
-    setFacing((current) => (current === "back" ? "front" : "back"));
-    Toast.show({
-      type: "success",
-      text1: "Success",
-      text2: "Change Camera 📷",
-    });
+  const handleDeviceQrScan = async (scanningResult: { data: string }) => {
+    if (hasScanned) return;
+    setHasScanned(true);
+
+    try {
+      // TODO: Update parsing logic. For now, assuming QR contains plain JSON {"deviceId":"abc123"}
+      const parsed = JSON.parse(scanningResult.data);
+      const deviceId = parsed?.deviceId;
+
+      if (deviceId) {
+        // await scanLeDevice(1);
+        const connectResponse = await bondDevice(deviceId);
+
+        if (connectResponse) {
+          // TODO: Send device details to backend, on success
+          // TODO: Inform backend about attempted failed connections?
+          // TODO: Get dose schedule for this device
+
+          const connectedDevice = {
+            id: connectResponse?.deviceId,
+            name: connectResponse?.deviceName,
+            medicine: connectResponse?.deviceName.charAt(0),
+            modicineState: 0,
+            color: "#5D9BFF", // TODO: Set primary and bg color based on medicine
+            status: "Connected" as const,
+          };
+
+          addDevice(connectedDevice);
+          Toast.show({
+            type: "success",
+            text1: "Device connected",
+            visibilityTime: 2000,
+            autoHide: true,
+            topOffset: 50,
+          });
+          setHasScanned(false);
+          setShowCamera(false);
+        } else {
+          Toast.show({
+            type: "error",
+            text1: "Connection failed",
+            text2: "Either incorrect QR code or device is already bonded",
+          });
+        }
+      } else {
+        Toast.show({
+          type: "error",
+          text1: "Invalid QR Code",
+        });
+      }
+    } catch (err) {
+      Toast.show({
+        type: "error",
+        text1: "Invalid QR Code",
+        text2: `${err}`,
+      });
+    }
+
+    setHasScanned(false);
+  };
+
+  if (showCamera) {
+    return (
+      <QRCodeScanner
+        onBarcodeScanned={handleDeviceQrScan}
+        onClose={() => setShowCamera(false)}
+      />
+    );
   }
 
-  function onPairingPress() {
-    removeAll();
-    //router.push("/SetupDeviceConnect");
+  function onContinuePress() {
+    router.push("/dashboard");
   }
 
   return (
     <SafeAreaView style={styles.alignContent}>
-      <View style={styles.pairingContainer}>
-        <VText textVariant="Body">Pairing with QR Code</VText>
-        <Pressable onPress={toggleCameraFacing}>
-          <CameraView
-            style={styles.camera}
-            barcodeScannerSettings={{
-              barcodeTypes: ["qr"],
-            }}
-            onBarcodeScanned={(scanningResult) => {
-              //TODO: QRcode validation with api call should be here to proper logged into app
-              if (scanningResult.data === "ValidosePairing") {
-                setQrCodeValidation({ validation: true });
-                Toast.show({
-                  type: "success",
-                  text1: "Success",
-                  text2: "Proper QR code 🂾",
-                });
-                onPairingPress();
-              } else {
-                setQrCodeValidation({ validation: false });
-                Toast.show({
-                  type: "error",
-                  text1: "Error",
-                  text2: "Wrong QR code 🂾",
-                });
-              }
-            }}
-            facing={facing}
+      <View
+        style={[
+          styles.setupContainer,
+          contentHeight > screenHeight ? { height: screenHeight } : {},
+        ]}
+        onLayout={(e) => setContentHeight(e.nativeEvent.layout.height)}
+      >
+        <VText style={styles.setupLabel} textVariant="Label">
+          Setup
+        </VText>
+        <VText style={styles.setupMessage} textVariant="Label">
+          {isDevicesConnected
+            ? "Device connection successful"
+            : "Let's connect\nyour device"}
+        </VText>
+        <VButton onPress={() => setShowCamera(true)} label="+ Scan device" />
+        {isDevicesConnected && (
+          <VButton
+            onPress={() => onContinuePress()}
+            label="Continue"
+            style={styles.continueButton}
+            labelStyle={{ color: "#252F3B", fontWeight: "500" }}
           />
-        </Pressable>
-        <VButton label="Flip camera" onPress={toggleCameraFacing} />
+        )}
         <VButton
-          disabled={!qrCodeValidation.validation}
-          label="Pair"
-          onPress={onPairingPress}
+          onPress={() => {}} // TODO: Add manual pairing
+          style={{ borderWidth: 0, marginTop: 5 }}
+          label="Enter device ID manually"
+          labelStyle={styles.manualPairingLabel}
         />
+        <View
+          style={{
+            maxHeight: screenHeight * 0.35,
+            width: "100%",
+            marginTop: 70,
+          }}
+        >
+          {isDevicesConnected ? (
+            <FlatList
+              data={devices}
+              renderItem={({ item }) => (
+                <VDeviceItem item={item} state={item?.status || ""} />
+              )}
+              keyExtractor={(item) => item.id}
+              showsVerticalScrollIndicator={false}
+            />
+          ) : null}
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -94,45 +179,72 @@ export default function PairingScreen() {
 
 const styles = StyleSheet.create({
   alignContent: {
-    height: "100%",
-    justifyContent: "center",
-    alignContent: "center",
+    flex: 1,
     backgroundColor: "#FFF",
   },
+
+  // Setup Container Styles
+  setupContainer: {
+    flexDirection: "column",
+    position: "relative",
+    alignItems: "center",
+    marginHorizontal: 24,
+    marginTop: 40,
+    paddingHorizontal: 22,
+    paddingTop: 45,
+    paddingBottom: 20,
+    borderColor: "#E6E7E8",
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  setupLabel: {
+    position: "absolute",
+    top: -10,
+    paddingHorizontal: 25,
+    color: "#565F6B",
+    fontSize: 16,
+    fontWeight: "500",
+    // fontFamily: "Inter",
+    backgroundColor: "#FFF",
+  },
+  setupMessage: {
+    marginBottom: 20,
+    textAlign: "center",
+    fontSize: 32,
+    color: "#252F3B",
+    fontWeight: "600",
+    // fontFamily: "Inter",
+  },
+
+  // Pairing Container Styles
   pairingContainer: {
     padding: 20,
     flexDirection: "column",
     alignItems: "center",
     gap: 25,
   },
-  textInput: {
-    height: 50,
-    width: 250,
+  manualPairingLabel: {
+    color: "#000",
+    fontSize: 16,
+    fontWeight: "300",
+    fontStyle: "italic",
+    textDecorationColor: "#000",
+    textDecorationLine: "underline",
   },
-  camera: {
-    height: 250,
-    width: 250,
+  secretContainer: {
+    position: "absolute",
+    bottom: 0,
+    height: "20%",
+    width: "100%",
+  },
+
+  // Continue Button Styles
+  continueButton: {
+    marginTop: 10,
+    borderColor: "#252F3B",
+    borderWidth: 2,
+    width: "100%",
+    padding: 5,
     borderRadius: 25,
-  },
-  container: {
-    flex: 1,
-    justifyContent: "center",
-  },
-  message: {
-    textAlign: "center",
-    paddingBottom: 10,
-  },
-  buttonContainer: {
-    flexDirection: "row",
-  },
-  button: {
-    flex: 1,
-    alignSelf: "flex-end",
-    alignItems: "center",
-  },
-  text: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "white",
   },
 });

@@ -20,8 +20,13 @@ const styles = StyleSheet.create({
   deviceItem: {
     flexDirection: "row",
     justifyContent: "space-between",
-    height: 50,
-    backgroundColor: "#FFF",
+    alignContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 18,
+    backgroundColor: "#F8F8F8",
     width: "100%",
+    paddingVertical: 14,
+    borderRadius: 8,
+    marginTop: 12,
   },
 });

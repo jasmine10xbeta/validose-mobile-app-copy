@@ -21,6 +21,7 @@ export interface Device {
   medicine: string;
   modicineState: number;
   color: string;
+  status?: "Connected" | "Disconnected";
 }
 
 interface DeviceState {
@@ -29,6 +30,7 @@ interface DeviceState {
   removeDevice: (deviceId: string) => void;
   getDeviceList: () => Device[];
   removeAll: () => void;
+  updateDeviceStatus: (deviceId: string, status: "Connected" | "Disconnected") => void;
 }
 
 const useDeviceStore = create<DeviceState>()(
@@ -61,6 +63,12 @@ const useDeviceStore = create<DeviceState>()(
       removeAll: () => {
         set({ devices: [] }); // Clear the array
       },
+      updateDeviceStatus: (deviceId, status) =>
+        set((state) => ({
+          devices: state.devices.map((d) =>
+            d.id === deviceId ? { ...d, status } : d
+          ),
+        })),
     }),
     {
       name: "device-storage",
