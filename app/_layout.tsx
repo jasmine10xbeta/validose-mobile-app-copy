@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   DarkTheme,
   DefaultTheme,
@@ -13,11 +14,15 @@ import "react-native-reanimated";
 import { PaperProvider } from "react-native-paper";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
-import { VHeader } from "@/components/common/VHeader";
+
 import { useColorScheme } from "@/hooks/useColorScheme";
-import { useAuthStore } from "@/store/authStore";
+import useDeviceStore from "@/store/useDeviceStore";
 import { AuthenticationProvider } from "@/utils/provider/AuthenticationProvider";
 import { queryClient } from "@/utils/tanstackQuery/tanstackQuery";
+import {
+  scanLeDevice,
+  bondDevice,
+} from "../modules/tenx-mdk-ble-rn-library/src/index";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -28,20 +33,66 @@ SplashScreen.setOptions({
 
 export default function RootLayout() {
   const router = useRouter();
-  const { isLoggedIn } = useAuthStore();
   const colorScheme = useColorScheme();
+  const { updateDeviceStatus } = useDeviceStore();
   const [loaded] = useFonts({
     Inter: require("../assets/fonts/Inter_28pt-Regular.ttf"),
   });
 
   useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
-      if (isLoggedIn) {
-        router.push("/dashboard");
+    const initializeApp = async () => {
+      if (!loaded) return;
+
+      await scanLeDevice(2);
+      const userId = await AsyncStorage.getItem("userId");
+
+      if (!userId) {
+        router.replace("/");
+        await SplashScreen.hideAsync();
+        return;
       }
-    }
-  }, [loaded, router, isLoggedIn]);
+
+      // TODO: Check if token exists and is valid
+
+      const storedDevices = useDeviceStore.getState().devices;
+      if (!storedDevices || storedDevices.length === 0) {
+        router.replace("/pairing");
+        await SplashScreen.hideAsync();
+        return;
+      }
+
+      let allConnected = true;
+      await new Promise((res) => setTimeout(res, 1000));
+
+      for (const device of storedDevices) {
+        try {
+          const result = await bondDevice(device.id);
+          const isConnected = !!result;
+
+          updateDeviceStatus(
+            device.id,
+            isConnected ? "Connected" : "Disconnected"
+          );
+          if (!isConnected) allConnected = false;
+        } catch (err) {
+          console.log("Failed to connect to device:", device.id, err);
+          updateDeviceStatus(device.id, "Disconnected");
+          allConnected = false;
+        }
+
+        await new Promise((res) => setTimeout(res, 500));
+      }
+
+      if (allConnected) {
+        router.replace("/dashboard");
+      } else {
+        router.replace("/pairing");
+      }
+      await SplashScreen.hideAsync();
+    };
+
+    initializeApp();
+  }, [loaded, router, updateDeviceStatus]);
 
   if (!loaded) {
     return null;
