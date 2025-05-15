@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { FlatList, Pressable, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import Toast from "react-native-toast-message";
 import { VButton } from "@/components/common/VButton";
 import { VMedicationItem } from "@/components/common/VMedicationItem";
 import { VNextDoseInfo } from "@/components/common/VNextDoseInfo";
 import useDeviceStore from "@/store/useDeviceStore";
+import { showToast } from "@/utils/toastUtils";
 
 export default function DashboardScreen() {
   const { getDeviceList } = useDeviceStore();
@@ -16,32 +16,21 @@ export default function DashboardScreen() {
       setDoseInfoState(0);
     } else {
       if (doseInfoState === 1) {
-        Toast.show({
-          type: "success",
-          text1: "Successful Dose",
-          text2: "Congratulations you make a Dose.",
-          topOffset: 50,
-        });
+        showToast(
+          "success",
+          "Successful dose",
+          "Congratulations you make a dose."
+        );
       }
       if (doseInfoState === 2) {
-        Toast.show({
-          type: "error",
-          text1: "Missed Dose",
-          text2: "Please take your Dose on time.",
-          topOffset: 50,
-        });
+        showToast("error", "Missed dose", "Please take your dose on time.");
       }
       setDoseInfoState((prev) => prev + 1);
     }
   }
 
   function onHelpPress() {
-    Toast.show({
-      type: "success",
-      text1: "Notification Sent",
-      text2: "Someone will be in touch soon 📞",
-      topOffset: 50,
-    });
+    showToast("success", "Notification sent", "Someone will be in touch soon.");
   }
 
   const isDevicesConnected = getDeviceList().length > 0;

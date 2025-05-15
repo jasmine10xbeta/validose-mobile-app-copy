@@ -8,13 +8,13 @@ import {
   Dimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import Toast from "react-native-toast-message";
 
 import { VButton } from "@/components/common/VButton";
 import { VDeviceItem } from "@/components/common/VDeviceItem";
 import { QRCodeScanner } from "@/components/common/VQRCodeScanner";
 import { VText } from "@/components/common/VText";
 import useDeviceStore from "@/store/useDeviceStore";
+import { showToast } from "@/utils/toastUtils";
 import { bondDevice } from "../modules/tenx-mdk-ble-rn-library/src/index";
 
 export default function PairingScreen() {
@@ -76,34 +76,21 @@ export default function PairingScreen() {
           };
 
           addDevice(connectedDevice);
-          Toast.show({
-            type: "success",
-            text1: "Device connected",
-            visibilityTime: 2000,
-            autoHide: true,
-            topOffset: 50,
-          });
+          showToast("success", "Device connected");
           setHasScanned(false);
           setShowCamera(false);
         } else {
-          Toast.show({
-            type: "error",
-            text1: "Connection failed",
-            text2: "Either incorrect QR code or device is already bonded",
-          });
+          showToast(
+            "error",
+            "Connection failed",
+            "Either incorrect QR code or device is already bonded"
+          );
         }
       } else {
-        Toast.show({
-          type: "error",
-          text1: "Invalid QR Code",
-        });
+        showToast("error", "Invalid QR Code");
       }
     } catch (err) {
-      Toast.show({
-        type: "error",
-        text1: "Invalid QR Code",
-        text2: `${err}`,
-      });
+      showToast("error", "Invalid QR Code", `${err}`);
     }
 
     setHasScanned(false);

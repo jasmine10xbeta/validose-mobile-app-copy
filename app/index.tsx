@@ -4,12 +4,11 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import Toast from "react-native-toast-message";
-
 
 import { VButton } from "@/components/common/VButton";
 import { QRCodeScanner } from "@/components/common/VQRCodeScanner";
 import { VText } from "@/components/common/VText";
+import { showToast } from "@/utils/toastUtils";
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -50,24 +49,11 @@ export default function LoginScreen() {
         await AsyncStorage.setItem("userId", userId);
         router.replace("/pairing");
       } else {
-        Toast.show({
-          type: "error",
-          text1: "Invalid QR Code",
-          visibilityTime: 2000,
-          autoHide: true,
-          topOffset: 50,
-        });
+        showToast("error", "Invalid QR Code");
         setHasScanned(false);
       }
     } catch (err) {
-      Toast.show({
-        type: "error",
-        text1: "Invalid QR Code",
-        text2: `${err}`,
-        visibilityTime: 2000,
-        autoHide: true,
-        topOffset: 50,
-      });
+      showToast("error", "Invalid QR Code", `${err}`);
       setHasScanned(false);
     }
   };

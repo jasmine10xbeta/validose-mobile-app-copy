@@ -12,6 +12,7 @@ import { Device } from "@/store/useDeviceStore";
 import { VDoseItem } from "./VDoseItem";
 import { VDoseLine } from "./VDoseLine";
 import { VText } from "./VText";
+import { showToast } from "@/utils/toastUtils";
 
 interface VMedicationItemProps {
   item: Device;
@@ -41,46 +42,22 @@ export function VMedicationItem(props: VMedicationItemProps) {
       setMedicationState(0);
     } else {
       if (medicationState === 0) {
-        Toast.show({
-          type: "success",
-          text1: "Successful Dose",
-          text2: "Congratulations you make a first Dose.",
-        });
+        showToast("success", "Successful dose", "Congratulations you made the first dose.");
       }
       if (medicationState === 1) {
-        Toast.show({
-          type: "success",
-          text1: "Successful Dose",
-          text2: "Congratulations you make a second Dose.",
-        });
+        showToast("success", "Successful dose", "Congratulations you made the second dose.");
       }
       if (medicationState === 2) {
-        Toast.show({
-          type: "success",
-          text1: "Successful Dose",
-          text2: "Congratulations you make a third Dose.",
-        });
+        showToast("success", "Successful dose", "Congratulations you made the third dose.");
       }
       if (medicationState === 3) {
-        Toast.show({
-          type: "error",
-          text1: "Missed Dose",
-          text2: "Please take your Dose on time.",
-        });
+        showToast("error", "Missed dose", "Please take your dose on time.");
       }
       if (medicationState === 4) {
-        Toast.show({
-          type: "error",
-          text1: "No Connection",
-          text2: "Please Check Connection.",
-        });
+        showToast("error", "No connection", "Please check your connection.");
       }
       if (medicationState === 5) {
-        Toast.show({
-          type: "error",
-          text1: "Device Error",
-          text2: "Contact Support.",
-        });
+        showToast("error", "Device error", "Contact support.");
       }
       setMedicationState((prev) => prev + 1);
     }
