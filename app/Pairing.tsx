@@ -9,12 +9,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { showToast } from "@/components/common/Toast";
 import { VButton } from "@/components/common/VButton";
 import { VDeviceItem } from "@/components/common/VDeviceItem";
 import { QRCodeScanner } from "@/components/common/VQRCodeScanner";
 import { VText } from "@/components/common/VText";
 import useDeviceStore from "@/store/useDeviceStore";
-import { showToast } from "@/utils/toastUtils";
 import { bondDevice } from "../modules/tenx-mdk-ble-rn-library/src/index";
 
 export default function PairingScreen() {

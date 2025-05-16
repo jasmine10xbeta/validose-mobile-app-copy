@@ -4,8 +4,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { VButton } from "@/components/common/VButton";
 import { VMedicationItem } from "@/components/common/VMedicationItem";
 import { VNextDoseInfo } from "@/components/common/VNextDoseInfo";
+import { showToast } from "@/components/common/Toast";
 import useDeviceStore from "@/store/useDeviceStore";
-import { showToast } from "@/utils/toastUtils";
 
 export default function DashboardScreen() {
   const { getDeviceList } = useDeviceStore();

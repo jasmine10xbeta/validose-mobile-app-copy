@@ -8,7 +8,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { VButton } from "@/components/common/VButton";
 import { QRCodeScanner } from "@/components/common/VQRCodeScanner";
 import { VText } from "@/components/common/VText";
-import { showToast } from "@/utils/toastUtils";
+import { showToast } from "@/components/common/Toast";
 
 export default function LoginScreen() {
   const router = useRouter();

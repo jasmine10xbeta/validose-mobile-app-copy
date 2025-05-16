@@ -2,7 +2,8 @@ import { useAssets } from "expo-asset";
 import { Image } from "expo-image";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import Toast from "react-native-toast-message";
+
+import { showToast } from "@/components/common/Toast";
 import {
   validoseMedication,
   validoseMedication1,
@@ -12,7 +13,6 @@ import { Device } from "@/store/useDeviceStore";
 import { VDoseItem } from "./VDoseItem";
 import { VDoseLine } from "./VDoseLine";
 import { VText } from "./VText";
-import { showToast } from "@/utils/toastUtils";
 
 interface VMedicationItemProps {
   item: Device;
