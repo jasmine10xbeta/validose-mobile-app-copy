@@ -63,17 +63,6 @@
         }
       ],
       [
-        "react-native-ble-plx",
-        {
-          "isBackgroundEnabled": true,
-          "modes": [
-            "peripheral",
-            "central"
-          ],
-          "bluetoothAlwaysPermission": "Allow Validose to connect to bluetooth devices"
-        }
-      ],
-      [
         "expo-camera",
         {
           "cameraPermission": "Allow Validose to access your camera",
