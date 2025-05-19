@@ -28,9 +28,10 @@ module.exports = {
     "import/no-extraneous-dependencies": [
       "error",
       {
-        devDependencies: true,
+        devDependencies: false,
         optionalDependencies: false,
         peerDependencies: false,
+        packageDir: [__dirname]
       },
     ],
     "no-unused-vars": "off",
