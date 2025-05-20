@@ -1,5 +1,23 @@
 import { signIn, fetchAuthSession } from "@aws-amplify/auth";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import NetInfo from "@react-native-community/netinfo";
+
+async function waitForInternet(): Promise<void> {
+  return new Promise((resolve) => {
+    NetInfo.fetch().then((state) => {
+      if (state.isConnected) {
+        resolve();
+      } else {
+        const unsubscribe = NetInfo.addEventListener((stateUpdate) => {
+          if (stateUpdate.isConnected) {
+            unsubscribe();
+            resolve();
+          }
+        });
+      }
+    });
+  });
+}
 
 export async function signInUser(
   username: string,
@@ -23,6 +41,8 @@ export async function signInUser(
 
 export async function getIdTokenFromSession(): Promise<string | null> {
   try {
+    // TODO: Update this logic based on where offline data is stored
+    await waitForInternet();
     const session = await fetchAuthSession();
     return session?.tokens?.idToken?.toString() || null;
   } catch (err) {
