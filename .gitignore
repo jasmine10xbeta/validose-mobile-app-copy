@@ -44,7 +44,7 @@ app-example
 *.aab
 *.apk
 
-.env.*
+.env
 
 package-lock.json
 ios/Podfile.lock
