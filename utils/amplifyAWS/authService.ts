@@ -1,4 +1,5 @@
-import { signIn } from "@aws-amplify/auth";
+import { signIn, fetchAuthSession } from "@aws-amplify/auth";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export async function signInUser(
   username: string,
@@ -24,6 +25,32 @@ export async function signInUser(
       return true;
     }
     console.error("Error during sign-in:", err);
+    return false;
+  }
+}
+
+export async function checkSessionValidity(): Promise<boolean> {
+  try {
+    const session = await fetchAuthSession();
+    const idToken = session?.tokens?.idToken?.toString();
+
+    if (idToken) {
+      console.log("Session token exists and session is valid");
+      return true;
+    }
+
+    console.log("Token missing - trying re-login");
+    const authUserString = await AsyncStorage.getItem("authUser");
+    if (authUserString) {
+      const { userId, email, password } = JSON.parse(authUserString);
+      if (!userId || !email || !password) {
+        return signInUser(userId, email, password);
+      }
+    }
+
+    return false;
+  } catch (error) {
+    console.log("Error checking session and login:", error);
     return false;
   }
 }
