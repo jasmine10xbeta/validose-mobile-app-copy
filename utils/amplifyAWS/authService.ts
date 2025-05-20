@@ -12,45 +12,59 @@ export async function signInUser(
       password,
       options: { autoSignIn: true, userAttributes: { email } },
     });
-    console.log("Cognito sign-in response:", signInRes);
 
-    if (!signInRes) {
-      return false;
-    }
-
+    if (!signInRes) return false;
     return true;
   } catch (err: any) {
-    if (err.name === "UserAlreadyAuthenticatedException") {
-      console.log("User already signed in.");
-      return true;
-    }
-    console.error("Error during sign-in:", err);
+    if (err.name === "UserAlreadyAuthenticatedException") return true;
     return false;
   }
 }
 
-export async function checkSessionValidity(): Promise<boolean> {
+export async function getIdTokenFromSession(): Promise<string | null> {
   try {
     const session = await fetchAuthSession();
-    const idToken = session?.tokens?.idToken?.toString();
-
-    if (idToken) {
-      console.log("Session token exists and session is valid");
-      return true;
-    }
-
-    console.log("Token missing - trying re-login");
-    const authUserString = await AsyncStorage.getItem("authUser");
-    if (authUserString) {
-      const { userId, email, password } = JSON.parse(authUserString);
-      if (!userId || !email || !password) {
-        return signInUser(userId, email, password);
-      }
-    }
-
-    return false;
-  } catch (error) {
-    console.log("Error checking session and login:", error);
-    return false;
+    return session?.tokens?.idToken?.toString() || null;
+  } catch (err) {
+    console.log("Failed to fetch session token:", err);
+    return null;
   }
+}
+
+async function ensureValidSession(): Promise<{
+  token: string | null;
+  success: boolean;
+}> {
+  const idToken = await getIdTokenFromSession();
+
+  if (idToken) {
+    return { token: idToken, success: true };
+  }
+
+  try {
+    const userAuthDetails = await AsyncStorage.getItem("authUser");
+    if (!userAuthDetails) return { token: null, success: false };
+
+    const { userId, email, password } = JSON.parse(userAuthDetails);
+    if (!userId || !email || !password) return { token: null, success: false };
+
+    const signedIn = await signInUser(userId, email, password);
+    if (!signedIn) return { token: null, success: false };
+
+    const refreshedToken = await getIdTokenFromSession();
+    return { token: refreshedToken, success: !!refreshedToken };
+  } catch (error) {
+    console.error("Silent re-auth failed:", error);
+    return { token: null, success: false };
+  }
+}
+
+export async function checkSessionValidity(): Promise<boolean> {
+  const { success } = await ensureValidSession();
+  return success;
+}
+
+export async function getValidToken(): Promise<string | null> {
+  const { token, success } = await ensureValidSession();
+  return success ? token : "";
 }
