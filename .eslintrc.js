@@ -28,9 +28,10 @@ module.exports = {
     "import/no-extraneous-dependencies": [
       "error",
       {
-        devDependencies: true,
+        devDependencies: false,
         optionalDependencies: false,
         peerDependencies: false,
+        packageDir: [__dirname]
       },
     ],
     "no-unused-vars": "off",
@@ -54,7 +55,6 @@ module.exports = {
           "object", // Import certain objects
           "type", // Import only types
         ],
-        "newlines-between": "always",
         alphabetize: {
           order: "asc",
           caseInsensitive: true,

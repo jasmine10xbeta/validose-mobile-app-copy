@@ -43,3 +43,8 @@ app-example
 # build
 *.aab
 *.apk
+
+.env
+
+package-lock.json
+ios/Podfile.lock

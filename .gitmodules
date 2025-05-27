@@ -1,0 +1,6 @@
+[submodule "tenx-mdk-ble-rn-library"]
+	path = tenx-mdk-ble-rn-library
+	url = git@github.com:10xbeta/tenx-mdk-ble-rn-library.git
+[submodule "modules/tenx-mdk-ble-rn-library"]
+	path = modules/tenx-mdk-ble-rn-library
+	url = git@github.com:10xbeta/tenx-mdk-ble-rn-library.git

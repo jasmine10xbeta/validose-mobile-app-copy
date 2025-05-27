@@ -2,7 +2,7 @@ branch:
   base-branch: 'develop'
 bump:
   default: 'patch'
-  patch:
+  minor:
     labels:
       - 'Patch'
 files:
