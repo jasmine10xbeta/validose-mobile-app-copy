@@ -110,3 +110,18 @@ jobs:
 
       - name: Run tests
         run: npm run test
+
+  slackEnd:
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - name: End Slack Notification
+        uses: act10ns/slack@v2
+        with:
+          channel: "#10xbeta-github-pipeline"
+          config: .github/config/slack.yml
+          message: "Ending Validose CI/CD"
+          status: ${{ job.status }}
+          steps: ${{ toJson(steps) }}
+        if: always()
