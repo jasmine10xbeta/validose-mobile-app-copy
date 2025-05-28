@@ -9,16 +9,19 @@ interface VDoseItemProps {
 }
 
 export function VDoseItem(props: VDoseItemProps) {
+  // Validate state value
+  const validState = [1, 2].includes(props.state) ? props.state : 1;
+
   const styles = StyleSheet.create({
     doseItem: {
       borderRadius: "50%",
       height: 40,
       width: 40,
-      borderWidth: props.state === 1 ? 1 : 2,
+      borderWidth: validState === 1 ? 1 : 2,
       justifyContent: "center",
-      borderStyle: props.state === 1 ? "dashed" : "solid",
+      borderStyle: validState === 1 ? "dashed" : "solid",
       borderColor: props.color,
-      backgroundColor: props.state === 2 ? props.color : undefined,
+      backgroundColor: validState === 2 ? props.color : undefined,
     },
   });
 

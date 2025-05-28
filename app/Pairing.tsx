@@ -23,6 +23,7 @@ export default function PairingScreen() {
 
   const [hasScanned, setHasScanned] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
 
   const [contentHeight, setContentHeight] = useState(0);
@@ -58,8 +59,10 @@ export default function PairingScreen() {
       const deviceId = parsed?.deviceId;
 
       if (deviceId) {
+        setIsConnecting(true);
         // await scanLeDevice(1);
         const connectResponse = await bondDevice(deviceId);
+        setIsConnecting(false);
 
         if (connectResponse) {
           // TODO: Send device details to backend, on success
@@ -70,7 +73,7 @@ export default function PairingScreen() {
             id: connectResponse?.deviceId,
             name: connectResponse?.deviceName,
             medicine: connectResponse?.deviceName.charAt(0),
-            modicineState: 0,
+            medicineState: 0,
             color: "#5D9BFF", // TODO: Set primary and bg color based on medicine
             status: "Connected" as const,
           };

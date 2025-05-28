@@ -1,4 +1,3 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   DarkTheme,
   DefaultTheme,
@@ -7,6 +6,7 @@ import {
 import { QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
 import { Stack, useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
@@ -45,7 +45,7 @@ export default function RootLayout() {
       if (!loaded) return;
 
       await scanLeDevice(2);
-      const authUserString = await AsyncStorage.getItem("authUser");
+      const authUserString = await SecureStore.getItemAsync("authUser");
       if (authUserString) {
         const { userId } = JSON.parse(authUserString);
 
@@ -85,12 +85,8 @@ export default function RootLayout() {
 
             await new Promise((res) => setTimeout(res, 500));
           }
-
-          if (allConnected) {
-            router.replace("/pairing");
-          } else {
-            router.replace("/pairing");
-          }
+          
+          router.replace(allConnected ? "/dashboard" : "/pairing");
           await SplashScreen.hideAsync();
         } else {
           router.replace("/");

@@ -1,6 +1,6 @@
 import { signIn, fetchAuthSession } from "@aws-amplify/auth";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
+import * as SecureStore from "expo-secure-store";
 
 async function waitForInternet(): Promise<void> {
   return new Promise((resolve) => {
@@ -9,11 +9,16 @@ async function waitForInternet(): Promise<void> {
         resolve();
       } else {
         const unsubscribe = NetInfo.addEventListener((stateUpdate) => {
-          if (stateUpdate.isConnected) {
+          if (stateUpdate.isConnected && stateUpdate.isInternetReachable) {
             unsubscribe();
             resolve();
           }
         });
+        
+        setTimeout(() => {
+          unsubscribe();
+          resolve();
+        }, 15000);
       }
     });
   });
@@ -62,7 +67,7 @@ async function ensureValidSession(): Promise<{
   }
 
   try {
-    const userAuthDetails = await AsyncStorage.getItem("authUser");
+    const userAuthDetails = await SecureStore.getItemAsync("authUser");
     if (!userAuthDetails) return { token: null, success: false };
 
     const { userId, email, password } = JSON.parse(userAuthDetails);

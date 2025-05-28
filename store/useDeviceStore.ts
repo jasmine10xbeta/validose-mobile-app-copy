@@ -19,7 +19,7 @@ export interface Device {
   id: string;
   name: string;
   medicine: string;
-  modicineState: number;
+  medicineState: number;
   color: string;
   status?: "Connected" | "Disconnected";
 }

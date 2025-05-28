@@ -9,6 +9,11 @@ interface VNextDoseInfoProps {
 }
 
 export function VNextDoseInfo(props: VNextDoseInfoProps) {
+  // Validate infoState is within expected range
+  if (props.infoState < 0 || props.infoState > 3) {
+    console.log(`Invalid infoState value: ${props.infoState}. Expected 0-3.`);
+  }
+
   return (
     <View style={styles.nextDoseInfo}>
       <VText textVariant="LabelDose" style={styles.label}>
@@ -26,13 +31,7 @@ export function VNextDoseInfo(props: VNextDoseInfoProps) {
           <VText textVariant="LabelDose">within 15min</VText>
         </View>
       ) : null}
-      {props.infoState === 2 ? (
-        <View style={styles.nextDoseInfoSecond}>
-          <VText textVariant="Body">In 4 hours</VText>
-          <VText textVariant="LabelDose">from now</VText>
-        </View>
-      ) : null}
-      {props.infoState === 3 ? (
+      {props.infoState === 2 || props.infoState === 3 ? (
         <View style={styles.nextDoseInfoSecond}>
           <VText textVariant="Body">In 4 hours</VText>
           <VText textVariant="LabelDose">from now</VText>

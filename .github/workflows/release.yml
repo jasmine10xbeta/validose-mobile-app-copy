@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -51,6 +53,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -82,6 +86,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -111,6 +117,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Version bump and publish release
         uses: MeilCli/bump-release-action@v2
@@ -128,6 +136,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -156,7 +166,7 @@ jobs:
       - name: Build Android APK
         run: |
           echo "Building Android APK..."
-          eas build --profile production --platform android --non-interactive --local --output=${{ github.workspace }}/app-realease.apk
+          eas build --profile production --platform android --non-interactive --local --output=${{ github.workspace }}/app-release.apk
           echo "Android APK built successfully!"
 
       #      - name: Build iOS IPA

@@ -6,10 +6,16 @@ import {
   ReactNode,
   useContext,
 } from "react";
+import { showToast } from "@/components/common/Toast";
+
+interface User {
+  token: string;
+  // TODO: Add other user properties
+}
 
 interface AuthenticationContextType {
-  user: any | null;
-  signIn: (userData: any) => Promise<void>;
+  user: User | null;
+  signIn: (userData: User) => Promise<void>;
   signOut: () => Promise<void>;
   isLoading: boolean;
 }
@@ -35,12 +41,28 @@ export function AuthenticationProvider({
       try {
         const token = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
         if (token) {
-          // Verify the token (e.g., decode it, make an API call)
-          // For simplicity, let's assume the token itself is the user data
-          setUser({ token }); // Or decode the token and set user details
+          try {
+            // TODO: Add token validation 
+            // const isValid = await validateToken(token);
+            const isValid = true;
+            if (isValid) {
+              setUser({ token });
+            } else {
+              console.log("Invalid token found in storage, signing out");
+              await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
+            }
+          } catch (validationError) {
+            console.error("Token validation failed:", validationError);
+            await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
+          }
         }
       } catch (error) {
-        console.error("Error loading user from SecureStore:", error);
+        console.log("Error loading user from SecureStore:", error);
+        showToast(
+          "error",
+          "Authentication Error",
+          "Failed to restore your session"
+        );
       } finally {
         setIsLoading(false);
       }
@@ -56,6 +78,7 @@ export function AuthenticationProvider({
       setUser(userData); // Or decode the token and set user details
     } catch (error) {
       console.error("Error saving token to SecureStore:", error);
+      showToast("error", "Authentication Error", "Failed to save your session");
     }
   };
 

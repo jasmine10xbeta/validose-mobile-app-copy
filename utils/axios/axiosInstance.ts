@@ -1,8 +1,13 @@
 import axios from "axios";
 import { getValidToken } from "../amplifyAWS/authService";
 
+// Validate API URL
+if (!process.env.API_URL) {
+  console.log('API_URL environment variable is not set. API requests may fail.');
+}
+
 const axiosInstance = axios.create({
-  baseURL: process.env.API_URL,
+  baseURL: process.env.API_URL || '',
   headers: {
     "Content-Type": "application/json",
   },

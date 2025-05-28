@@ -1,7 +1,7 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Amplify } from "aws-amplify";
 import { useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -55,7 +55,7 @@ export default function LoginScreen() {
           // TODO: Get mobile device info and send to backend, if not already sent
 
           // TODO: Update logic to obtain and store login credentials
-          await AsyncStorage.setItem(
+          await SecureStore.setItemAsync(
             "authUser",
             JSON.stringify({ userId, email, password })
           );
