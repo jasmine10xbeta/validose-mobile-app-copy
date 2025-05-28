@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: true
         # with:
         #   submodules: recursive
         #   token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
@@ -54,6 +56,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: true
         # with:
         #   submodules: recursive
         #   token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
@@ -88,6 +92,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: true
         # with:
         #   submodules: recursive
         #   token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
@@ -120,6 +126,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: true
         # with:
         #   submodules: recursive
         #   token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
@@ -140,6 +148,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: true
         # with:
         #   submodules: recursive
         #   token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
