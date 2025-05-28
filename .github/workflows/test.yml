@@ -27,10 +27,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: true
-        # with:
-        #   submodules: recursive
-        #   token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          submodules: recursive
+          token: ${{ secrets.MDK_GITHUB_ACCESS_TOKEN }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -57,10 +55,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: true
-        # with:
-        #   submodules: recursive
-        #   token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          submodules: recursive
+          token: ${{ secrets.MDK_GITHUB_ACCESS_TOKEN }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -93,10 +89,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: true
-        # with:
-        #   submodules: recursive
-        #   token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          submodules: recursive
+          token: ${{ secrets.MDK_GITHUB_ACCESS_TOKEN }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -126,10 +120,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: true
-        # with:
-        #   submodules: recursive
-        #   token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          submodules: recursive
+          token: ${{ secrets.MDK_GITHUB_ACCESS_TOKEN }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
