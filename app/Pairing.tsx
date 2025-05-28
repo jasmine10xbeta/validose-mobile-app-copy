@@ -14,8 +14,8 @@ import { VButton } from "@/components/common/VButton";
 import { VDeviceItem } from "@/components/common/VDeviceItem";
 import { QRCodeScanner } from "@/components/common/VQRCodeScanner";
 import { VText } from "@/components/common/VText";
+import { bondDevice } from "@/modules/tenx-mdk-ble-rn-library/src/index";
 import useDeviceStore from "@/store/useDeviceStore";
-import { bondDevice } from "../modules/tenx-mdk-ble-rn-library/src/index";
 
 export default function PairingScreen() {
   const router = useRouter();
@@ -23,7 +23,7 @@ export default function PairingScreen() {
 
   const [hasScanned, setHasScanned] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
+  const [setIsConnecting] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
 
   const [contentHeight, setContentHeight] = useState(0);

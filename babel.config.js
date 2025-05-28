@@ -1,9 +1,11 @@
 const fs = require("fs");
-// eslint-disable-next-line import/no-extraneous-dependencies
 const dotenv = require("dotenv");
 
-// Read and parse .env
-const env = dotenv.parse(fs.readFileSync(".env"));
+let env = {};
+if (fs.existsSync(".env")) {
+  // Read and parse .env
+  env = dotenv.parse(fs.readFileSync(".env"));
+}
 
 // Convert to Babel-compatible `process.env` definitions
 const envKeys = Object.keys(env).reduce((prev, next) => {
