@@ -1,12 +1,7 @@
 import { useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import {
-  FlatList,
-  StyleSheet,
-  View,
-  Dimensions,
-} from "react-native";
+import { FlatList, StyleSheet, View, Dimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { showToast } from "@/components/common/Toast";
@@ -19,7 +14,6 @@ import { bondDevice } from "../modules/tenx-mdk-ble-rn-library/src/index";
 
 export default function PairingScreen() {
   const router = useRouter();
-  const { addDevice } = useDeviceStore();
 
   const [hasScanned, setHasScanned] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
@@ -28,6 +22,7 @@ export default function PairingScreen() {
   const [contentHeight, setContentHeight] = useState(0);
   const screenHeight = Dimensions.get("window").height;
 
+  const { addDevice } = useDeviceStore.getState();
   const devices = useDeviceStore((s) => s.devices);
   const isDevicesConnected = devices.length > 0;
 
@@ -50,33 +45,43 @@ export default function PairingScreen() {
 
   const handleDeviceQrScan = async (scanningResult: { data: string }) => {
     if (hasScanned) return;
+
     setHasScanned(true);
-
     try {
-      // TODO: Update parsing logic. For now, assuming QR contains plain JSON {"deviceId":"abc123"}
-      const parsed = JSON.parse(scanningResult.data);
-      const deviceId = parsed?.deviceId;
+      // TODO: Update parsing logic.
+      // Assuming QR contains plain JSON {"deviceId":"abc123"}
+      const validoseDeviceId = JSON.parse(scanningResult?.data)?.deviceId;
 
-      if (deviceId) {
-        // await scanLeDevice(1);
-        const connectResponse = await bondDevice(deviceId);
+      if (validoseDeviceId) {
+        //TODO: Check if same deviceId as login response
+        const connectResponse = await bondDevice(validoseDeviceId);
 
         if (connectResponse) {
-          // TODO: Send device details to backend, on success
           // TODO: Inform backend about attempted failed connections?
-          // TODO: Get dose schedule for this device
 
-          const connectedDevice = {
-            id: connectResponse?.deviceId,
-            name: connectResponse?.deviceName,
-            medicine: connectResponse?.deviceName.charAt(0),
-            modicineState: 0,
-            color: "#5D9BFF", // TODO: Set primary and bg color based on medicine
+          const { deviceName: name, deviceId: id } = connectResponse;
+          const added = addDevice({
+            id,
+            name,
             status: "Connected" as const,
-          };
+            medicine: name.charAt(0),
+            medicineState: 0, // default state
+            color: "#5D9BFF",
+            regimen_id: "",
+            indication_code: "",
+            dosage_amount: 0,
+            administration_days: [],
+            administration_times_min: [],
+            frequency_count: 0,
+            dosing_window_min: 0,
+            active: false
+          });
 
-          addDevice(connectedDevice);
-          showToast("success", "Device connected");
+          if (added) {
+            showToast("success", "Device connected");
+          } else {
+            showToast("info", "Device already exists");
+          }
           setHasScanned(false);
           setShowCamera(false);
         } else {

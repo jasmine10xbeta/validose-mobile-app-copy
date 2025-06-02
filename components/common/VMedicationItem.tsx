@@ -8,8 +8,9 @@ import {
   validoseMedication,
   validoseMedication1,
   validoseMedicationError,
-} from "@/constants/Colors";
+} from "@/constants/colors";
 import { Device } from "@/store/useDeviceStore";
+import { useDoseStore } from "@/store/useDoseStore";
 import { VDoseItem } from "./VDoseItem";
 import { VDoseLine } from "./VDoseLine";
 import { VText } from "./VText";
@@ -25,6 +26,15 @@ export function VMedicationItem(props: VMedicationItemProps) {
     require("./../../assets/images/link-broken.png"),
     require("./../../assets/images/alert-diamond.png"),
   ]);
+
+  const [medicationState, setMedicationState] = useState<number>(0);
+
+  const doseRecords = useDoseStore((s) => s.getDosesForToday(props.item.id));
+  const visualStates = doseRecords
+    .slice(0, 3)
+    .map((dose) =>
+      getDoseVisualState(dose.expectedTime, dose.taken, dose.takenAt)
+    );
 
   const stylesComputed = StyleSheet.create({
     medSection: {
