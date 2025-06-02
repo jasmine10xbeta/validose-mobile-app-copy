@@ -1,12 +1,11 @@
 import { storeToken } from "../token";
 
 /**
- * Simulates sending onboarding code and mobile device ID to the backend to pair the mobile device with the patient.
- * @param code - The unique onboarding code scanned from the QR.
- * @param deviceId - The unique identifier for the current mobile device.
- * @returns The simulated response data (e.g., token, device/user metadata).
+ * Simulates to refresh the user's session.
+ * @param token - The current token to refresh.
+ * @returns The new token and access token data.
  */
-export const onboardWithCode = async (code: string, deviceId: string) => {
+export const refreshSession = async (token: string) => {
   await new Promise((res) => setTimeout(res, 500)); // Simulate delay
 
   const response = {
@@ -28,7 +27,7 @@ export const onboardWithCode = async (code: string, deviceId: string) => {
     },
   };
 
-  if (response?.refresh_token?.token) {
+  if (response.refresh_token.token) {
     await storeToken(response.refresh_token.token, response.access_token);
   }
 

@@ -1,5 +1,5 @@
 import axios, { AxiosError, AxiosResponse } from "axios";
-import * as SecureStore from "expo-secure-store";
+import { getToken } from "./api/token/tokenApi";
 
 const API_URL = process.env.API_URL || '';
 const PREFIX = '/api/mobile';
@@ -20,7 +20,7 @@ const axiosInstance = axios.create({
 axiosInstance.interceptors.request.use(
   async (config) => {
     try {
-      const jwtToken = await SecureStore.getItemAsync("authToken");
+      const jwtToken = await getToken();
       if (jwtToken) config.headers.Authorization = `Bearer ${jwtToken}`;
 
       return config;

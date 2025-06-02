@@ -14,7 +14,7 @@ export const onboardWithCode = async (code: string, deviceId: string) => {
   });
 
   if (response?.data?.token) {
-    await storeToken(response.data.token);
+    await storeToken(response.data.token, response.data?.access_token);
   }
 
   return response?.data;

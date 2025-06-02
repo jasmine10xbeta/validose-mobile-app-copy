@@ -7,6 +7,8 @@ import {
   useContext,
 } from "react";
 import { showToast } from "@/components/common/Toast";
+import { refreshSession } from "../axios/api/__mocks__/login/loginApi";
+import { clearToken, getToken, isTokenValid, storeToken } from "../axios/api/__mocks__/token";
 
 interface User {
   token: string;
@@ -39,30 +41,13 @@ export function AuthenticationProvider({
   useEffect(() => {
     const loadUser = async () => {
       try {
-        const token = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
-        if (token) {
-          try {
-            // TODO: Add token validation 
-            // const isValid = await validateToken(token);
-            const isValid = true;
-            if (isValid) {
-              setUser({ token });
-            } else {
-              console.log("Invalid token found in storage, signing out");
-              await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
-            }
-          } catch (validationError) {
-            console.error("Token validation failed:", validationError);
-            await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
-          }
+        const token = await getToken();
+        if (!isTokenValid(token!)) {
+          const newSession = await refreshSession(token!);
+          if (!newSession) signOut();
         }
       } catch (error) {
         console.log("Error loading user from SecureStore:", error);
-        showToast(
-          "error",
-          "Authentication Error",
-          "Failed to restore your session"
-        );
       } finally {
         setIsLoading(false);
       }
@@ -74,7 +59,7 @@ export function AuthenticationProvider({
   const signIn = async (userData: any) => {
     try {
       // Assuming userData contains the token
-      await SecureStore.setItemAsync(AUTH_TOKEN_KEY, userData.token);
+      await storeToken(AUTH_TOKEN_KEY, userData.token);
       setUser(userData); // Or decode the token and set user details
     } catch (error) {
       console.error("Error saving token to SecureStore:", error);
@@ -84,7 +69,7 @@ export function AuthenticationProvider({
 
   const signOut = async () => {
     try {
-      await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
+      await clearToken();
       setUser(null);
     } catch (error) {
       console.error("Error deleting token from SecureStore:", error);
