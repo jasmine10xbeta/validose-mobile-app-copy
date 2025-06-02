@@ -1,5 +1,5 @@
 import { StyleSheet, View } from "react-native";
-import { validoseWhite } from "@/constants/Colors";
+import { validoseWhite } from "@/constants/colors";
 import { VDoseText } from "./VDoseText";
 
 interface VDoseItemProps {
