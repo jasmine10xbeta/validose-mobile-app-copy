@@ -19,8 +19,6 @@
     "preset": "jest-expo"
   },
   "dependencies": {
-    "@aws-amplify/auth": "^6.12.4",
-    "@aws-amplify/react-native": "^1.1.9",
     "@expo/vector-icons": "^14.0.2",
     "@react-native-async-storage/async-storage": "^1.23.1",
     "@react-native-community/netinfo": "^11.4.1",
@@ -28,7 +26,6 @@
     "@react-navigation/elements": "^2.3.8",
     "@react-navigation/native": "^7.0.14",
     "@tanstack/react-query": "^5.74.4",
-    "aws-amplify": "^6.14.4",
     "axios": "^1.8.4",
     "crypto-js": "^4.2.0",
     "dotenv": "^16.5.0",
@@ -53,6 +50,7 @@
     "react-dom": "18.3.1",
     "react-hook-form": "^7.55.0",
     "react-native": "^0.76.9",
+    "react-native-device-info": "^14.0.4",
     "react-native-gesture-handler": "~2.20.2",
     "react-native-get-random-values": "^1.11.0",
     "react-native-paper": "^5.13.3",
