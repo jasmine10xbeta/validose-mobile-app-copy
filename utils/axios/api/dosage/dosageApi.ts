@@ -1,0 +1,16 @@
+import axiosInstance from "../../axiosInstance";
+
+/**
+ * Fetch dosage data for a specific device.
+ * @param deviceId - The unique identifier for the validose device.
+ * @returns Device dosage information from the backend.
+ */
+export const getDeviceDosageSchedule = async (deviceId: string) => {
+  try {
+    const response = await axiosInstance.get(`/dosage/${deviceId}`); // TODO: Update endpoint
+    return response.data;
+  } catch (error: any) {
+    console.error("Failed to fetch dosage", error.response?.data || error.message);
+    // throw error;
+  }
+};
