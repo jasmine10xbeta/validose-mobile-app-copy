@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { useState } from "react";
@@ -15,6 +16,7 @@ import { bondDevice } from "../modules/tenx-mdk-ble-rn-library/src/index";
 export default function PairingScreen() {
   const router = useRouter();
 
+  const [tapCount, setTapCount] = useState(0);
   const [hasScanned, setHasScanned] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
@@ -165,6 +167,24 @@ export default function PairingScreen() {
           ) : null}
         </View>
       </View>
+      <TouchableOpacity
+        onPress={() => {
+          const count = tapCount + 1;
+          setTapCount(count);
+
+          if (count >= 5) {
+            AsyncStorage.removeItem("userId").then(() => {
+              showToast("success", "User reset!");
+              router.replace("/");
+            });
+            removeAll();
+            setTapCount(0);
+          }
+
+          setTimeout(() => setTapCount(0), 5000);
+        }}
+        style={styles.secretContainer}
+      ></TouchableOpacity>
     </SafeAreaView>
   );
 }
