@@ -9,14 +9,7 @@ interface VDoseTextProps {
 export function VDoseText(
   props: VDoseTextProps & TextProps<string> & TextStyle
 ) {
-  const styles = StyleSheet.create({
-    text: {
-      color: props.color,
-      textAlign: "center",
-      fontSize: 22,
-      fontWeight: "600",
-    },
-  });
+  const styles = createStyles(props.color);
 
   return (
     <Text style={styles.text} {...props}>
@@ -24,3 +17,13 @@ export function VDoseText(
     </Text>
   );
 }
+
+const createStyles = (color?: string) =>
+  StyleSheet.create({
+    text: {
+      color: color,
+      textAlign: "center",
+      fontSize: 22,
+      fontWeight: "600",
+    },
+  });

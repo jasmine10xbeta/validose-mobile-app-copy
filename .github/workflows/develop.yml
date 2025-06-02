@@ -26,6 +26,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.MDK_GITHUB_ACCESS_TOKEN }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -51,6 +54,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.MDK_GITHUB_ACCESS_TOKEN }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -82,6 +88,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.MDK_GITHUB_ACCESS_TOKEN }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -101,3 +110,20 @@ jobs:
 
       - name: Run tests
         run: npm run test
+
+  slackEnd:
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - name: End Slack Notification
+        uses: act10ns/slack@v2
+        with:
+          channel: "#10xbeta-github-pipeline"
+          config: .github/config/slack.yml
+          message: "Ending Validose CI/CD"
+          status: ${{ job.status }}
+          steps: ${{ toJson(steps) }}
+        if: always()
+
+    needs: [slack, lint, audit, test]

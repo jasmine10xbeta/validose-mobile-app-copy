@@ -1,19 +1,23 @@
+<<<<<<< HEAD
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Amplify } from "aws-amplify";
+=======
+>>>>>>> fix/update-login-flow
 import { useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
+<<<<<<< HEAD
+=======
+import { getUniqueId } from "react-native-device-info";
+>>>>>>> fix/update-login-flow
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { showToast } from "@/components/common/Toast";
 import { VButton } from "@/components/common/VButton";
 import { QRCodeScanner } from "@/components/common/VQRCodeScanner";
 import { VText } from "@/components/common/VText";
-import { signInUser } from "@/utils/amplifyAWS/authService";
-import awsconfig from "../utils/amplifyAWS/awsExports";
-
-Amplify.configure(awsconfig);
+import { onboardWithCode } from "@/utils/axios/api/__mocks__/onboarding";
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -41,24 +45,18 @@ export default function LoginScreen() {
 
   const handlePatientQrScan = async (scanningResult: { data: string }) => {
     if (hasScanned) return;
+
     setHasScanned(true);
-
     try {
-      // TODO: Update parsing logic. For now, assuming QR contains plain JSON {"userId":"abc123", "email":"abc123@validose.com", "password":"Temp@1234"}
-      const parsed = JSON.parse(scanningResult.data);
-      const { userId, email, password } = parsed;
+      // TODO: Update parsing logic.
+      // Assuming QR contains plain JSON {"code":"xyz"}
+      const { code: onboardingCode } = JSON.parse(scanningResult?.data);
 
-      if (userId) {
-        const isSignedIn = await signInUser(userId, email, password);
+      if (onboardingCode) {
+        const mobileDeviceId = await getUniqueId();
+        const response = await onboardWithCode(onboardingCode, mobileDeviceId);
 
-        if (isSignedIn) {
-          // TODO: Get mobile device info and send to backend, if not already sent
-
-          // TODO: Update logic to obtain and store login credentials
-          await AsyncStorage.setItem(
-            "authUser",
-            JSON.stringify({ userId, email, password })
-          );
+        if (response) {
           router.replace("/pairing");
         }
       } else {

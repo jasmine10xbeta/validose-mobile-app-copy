@@ -1,61 +1,33 @@
-import { useEffect, useState } from "react";
-import { FlatList, StyleSheet, View } from "react-native";
+import { useState } from "react";
+import { FlatList, Pressable, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { showToast } from "@/components/common/Toast";
 import { VButton } from "@/components/common/VButton";
 import { VMedicationItem } from "@/components/common/VMedicationItem";
 import { VNextDoseInfo } from "@/components/common/VNextDoseInfo";
 import useDeviceStore from "@/store/useDeviceStore";
-import useDoseStore from "@/store/useDoseStore";
-import { getDeviceDosageSchedule } from "@/utils/axios/api/__mocks__/dosage";
 
 export default function DashboardScreen() {
-  const { getDeviceList, updateDeviceById } = useDeviceStore();
-  const { initializeDoses } = useDoseStore();
+  const { getDeviceList } = useDeviceStore();
   const [doseInfoState, setDoseInfoState] = useState<number>(0);
 
-  useEffect(() => {
-    const fetchDosageDetails = async () => {
-      const devices = getDeviceList();
-
-      for (const device of devices) {
-        try {
-          const doseInfo = await getDeviceDosageSchedule(device.id);
-
-          if (doseInfo) {
-            // Compare new doseInfo with existing device treatment data
-            const hasChanged = JSON.stringify(device.administration_days) !== JSON.stringify(doseInfo.administration_days) ||
-              JSON.stringify(device.administration_times_min) !== JSON.stringify(doseInfo.administration_times_min);
-
-            if (hasChanged) {
-              // Save old treatment as needed (could be extended to history array)
-              updateDeviceById(device.id, {
-                ...doseInfo,
-                previousTreatment: {
-                  administration_days: device.administration_days,
-                  administration_times_min: device.administration_times_min,
-                },
-              });
-              initializeDoses([
-                {
-                  ...device,
-                  ...doseInfo,
-                },
-              ]);
-            }
-          } else {
-            // If no response, just initialize with current treatment
-            initializeDoses([device]);
-          }
-        } catch (error) {
-          console.error(`Failed to fetch dosage for ${device.id}`, error);
-          initializeDoses([device]);
-        }
+  function onNextDoseInfoPress() {
+    if (doseInfoState > 2) {
+      setDoseInfoState(0);
+    } else {
+      if (doseInfoState === 1) {
+        showToast(
+          "success",
+          "Successful dose",
+          "Congratulations you make a dose."
+        );
       }
-    };
-
-    fetchDosageDetails();
-  }, [getDeviceList, initializeDoses, updateDeviceById]);
+      if (doseInfoState === 2) {
+        showToast("error", "Missed dose", "Please take your dose on time.");
+      }
+      setDoseInfoState((prev) => prev + 1);
+    }
+  }
 
   function onHelpPress() {
     showToast("success", "Notification sent", "Someone will be in touch soon.");
@@ -65,11 +37,13 @@ export default function DashboardScreen() {
 
   return (
     <SafeAreaView style={styles.alignContent}>
-      <VNextDoseInfo
-        infoState={doseInfoState}
-        mainLabel="Take dose now"
-        timeLabel="within the hour"
-      />
+      <Pressable onPress={onNextDoseInfoPress} style={{ width: "100%" }}>
+        <VNextDoseInfo
+          infoState={doseInfoState}
+          mainLabel="Take dose now"
+          timeLabel="within the hour"
+        />
+      </Pressable>
       <View style={styles.scrollViewSection}>
         {isDevicesConnected ? (
           <FlatList
@@ -77,8 +51,8 @@ export default function DashboardScreen() {
             renderItem={({ item }) => (
               <VMedicationItem
                 item={item}
-                state={item?.status || ""}
-                color={item.color || ""}
+                state={"Conected"}
+                color={item.color}
               />
             )}
             keyExtractor={(item) => item.id}

@@ -6,6 +6,7 @@ import {
 import { QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
 import { Stack, useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
@@ -16,10 +17,8 @@ import Toast from "react-native-toast-message";
 
 import { useColorScheme } from "@/hooks/useColorScheme";
 import useDeviceStore from "@/store/useDeviceStore";
-import {
-  AuthenticationProvider,
-  useAuth,
-} from "@/utils/provider/AuthenticationProvider";
+import { checkSessionValidity } from "@/utils/amplifyAWS/authService";
+import { AuthenticationProvider } from "@/utils/provider/AuthenticationProvider";
 import { queryClient } from "@/utils/tanstackQuery/tanstackQuery";
 import {
   scanLeDevice,
@@ -36,12 +35,69 @@ SplashScreen.setOptions({
 export default function RootLayout() {
   const router = useRouter();
   const colorScheme = useColorScheme();
-  const { updateDeviceById } = useDeviceStore();
+  const { updateDeviceStatus } = useDeviceStore();
   const [loaded] = useFonts({
     Inter: require("../assets/fonts/Inter_28pt-Regular.ttf"),
   });
 
-  const { user, isLoading } = useAuth();
+  useEffect(() => {
+    const initializeApp = async () => {
+      if (!loaded) return;
+
+      await scanLeDevice(2);
+      const authUserString = await SecureStore.getItemAsync("authUser");
+      if (authUserString) {
+        const { userId } = JSON.parse(authUserString);
+
+        if (!userId) {
+          router.replace("/");
+          await SplashScreen.hideAsync();
+          return;
+        }
+
+        const isSessionValid = await checkSessionValidity();
+        if (isSessionValid) {
+          const storedDevices = useDeviceStore.getState().devices;
+          if (!storedDevices || storedDevices.length === 0) {
+            router.replace("/pairing");
+            await SplashScreen.hideAsync();
+            return;
+          }
+
+          let allConnected = true;
+          await new Promise((res) => setTimeout(res, 1000));
+
+          for (const device of storedDevices) {
+            try {
+              const result = await bondDevice(device.id);
+              const isConnected = !!result;
+
+              updateDeviceStatus(
+                device.id,
+                isConnected ? "Connected" : "Disconnected"
+              );
+              if (!isConnected) allConnected = false;
+            } catch (err) {
+              console.log("Failed to connect to device:", device.id, err);
+              updateDeviceStatus(device.id, "Disconnected");
+              allConnected = false;
+            }
+
+            await new Promise((res) => setTimeout(res, 500));
+          }
+          
+          router.replace(allConnected ? "/dashboard" : "/pairing");
+          await SplashScreen.hideAsync();
+        } else {
+          router.replace("/");
+          await SplashScreen.hideAsync();
+          return;
+        }
+      }
+    };
+
+    initializeApp();
+  }, [loaded, router, updateDeviceStatus]);
 
   useEffect(() => {
     const initializeApp = async () => {

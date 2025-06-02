@@ -78,8 +78,7 @@
         }
       ],
       "expo-build-properties",
-      "expo-asset",
-      "expo-localization"
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true

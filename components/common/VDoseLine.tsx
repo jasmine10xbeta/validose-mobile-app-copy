@@ -6,14 +6,16 @@ interface VDoseLineProps {
 }
 
 export function VDoseLine(props: VDoseLineProps) {
-  const styles = StyleSheet.create({
+  const styles = createStyles(props.state, props.color);
+  return <View style={styles.doseItem} />;
+}
+
+const createStyles = (state: number, color: string) =>
+  StyleSheet.create({
     doseItem: {
       width: 20,
       borderWidth: 1,
-      borderStyle: props.state === 0 ? "solid" : "dashed",
-      borderColor: props.color,
+      borderStyle: state === 0 ? "solid" : "dashed",
+      borderColor: color,
     },
   });
-
-  return <View style={styles.doseItem} />;
-}

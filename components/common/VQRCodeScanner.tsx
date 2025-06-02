@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { VButton } from "./VButton";
 import { VText } from "./VText";
 
-interface QRCodeScannerProps {
+interface VQRCodeScannerProps {
   facing?: CameraType;
   onBarcodeScanned: (result: { data: string }) => void;
   onClose: () => void;
@@ -14,7 +14,7 @@ export function QRCodeScanner({
   facing = "back",
   onBarcodeScanned,
   onClose,
-}: QRCodeScannerProps) {
+}: VQRCodeScannerProps) {
   return (
     <SafeAreaView style={styles.dimBackground}>
       <StatusBar hidden />
