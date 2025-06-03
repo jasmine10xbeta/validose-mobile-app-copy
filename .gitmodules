@@ -1,9 +1,3 @@
-<<<<<<< HEAD
-[submodule "tenx-mdk-ble-rn-library"]
-	path = tenx-mdk-ble-rn-library
-	url = git@github.com:10xbeta/tenx-mdk-ble-rn-library.git
-=======
->>>>>>> fix/update-login-flow
 [submodule "modules/tenx-mdk-ble-rn-library"]
 	path = modules/tenx-mdk-ble-rn-library
 	url = git@github.com:10xbeta/tenx-mdk-ble-rn-library.git

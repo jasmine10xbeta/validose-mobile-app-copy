@@ -1,4 +1,3 @@
-import * as SecureStore from "expo-secure-store";
 import {
   createContext,
   useState,
@@ -8,11 +7,16 @@ import {
 } from "react";
 import { showToast } from "@/components/common/Toast";
 import { refreshSession } from "../axios/api/__mocks__/login/loginApi";
-import { clearToken, getToken, isTokenValid, storeToken } from "../axios/api/__mocks__/token";
+import {
+  clearToken,
+  getToken,
+  isTokenValid,
+  storeToken,
+} from "../axios/api/__mocks__/token";
 
 interface User {
   token: string;
-  // TODO: Add other user properties
+  refreshToken: object;
 }
 
 interface AuthenticationContextType {
@@ -20,6 +24,7 @@ interface AuthenticationContextType {
   signIn: (userData: User) => Promise<void>;
   signOut: () => Promise<void>;
   isLoading: boolean;
+  isSignedOut: boolean;
 }
 
 const AuthenticationContext = createContext<
@@ -30,21 +35,25 @@ interface AuthenticationProviderProps {
   children: ReactNode;
 }
 
-const AUTH_TOKEN_KEY = "authToken"; // Define a key for the token
-
 export function AuthenticationProvider({
   children,
 }: AuthenticationProviderProps) {
   const [user, setUser] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isSignedOut, setIsSignedOut] = useState(false);
 
   useEffect(() => {
     const loadUser = async () => {
       try {
         const token = await getToken();
-        if (!isTokenValid(token!)) {
+
+        if (token && !isTokenValid(token!)) {
           const newSession = await refreshSession(token!);
           if (!newSession) signOut();
+          setUser({
+            token: newSession.access_token,
+            refreshToken: newSession.refresh_token,
+          });
         }
       } catch (error) {
         console.log("Error loading user from SecureStore:", error);
@@ -58,9 +67,8 @@ export function AuthenticationProvider({
 
   const signIn = async (userData: any) => {
     try {
-      // Assuming userData contains the token
-      await storeToken(AUTH_TOKEN_KEY, userData.token);
-      setUser(userData); // Or decode the token and set user details
+      await storeToken(userData.token, userData.refresh_token);
+      setUser(userData);
     } catch (error) {
       console.error("Error saving token to SecureStore:", error);
       showToast("error", "Authentication Error", "Failed to save your session");
@@ -71,12 +79,19 @@ export function AuthenticationProvider({
     try {
       await clearToken();
       setUser(null);
+      setIsSignedOut(true);
     } catch (error) {
       console.error("Error deleting token from SecureStore:", error);
     }
   };
 
-  const value: AuthenticationContextType = { user, signIn, signOut, isLoading };
+  const value: AuthenticationContextType = {
+    user,
+    signIn,
+    signOut,
+    isLoading,
+    isSignedOut,
+  };
 
   return (
     <AuthenticationContext.Provider value={value}>

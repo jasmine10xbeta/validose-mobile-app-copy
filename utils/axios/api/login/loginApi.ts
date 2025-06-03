@@ -1,5 +1,4 @@
 import axiosInstance from "../../axiosInstance";
-import { storeToken } from "../token";
 
 /**
  * Attempts to refresh the user's session by sending the current token to the backend.
@@ -18,8 +17,6 @@ export const refreshSession = async (token: string) => {
     const data = response?.data;
 
     if (!data) return null;
-
-    await storeToken(data?.token, data?.access_token);
     return data;
   } catch (e) {
     return null;

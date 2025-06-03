@@ -16,12 +16,23 @@ const SecureStorage: StateStorage = {
 };
 
 export interface Device {
-  id: string;
-  name: string;
+  regimenId: string;
+  protocolId: string;
+  deviceId: string;
+  deviceName: string;
   medicine: string;
-  medicineState: number;
-  color: string;
+  medicineState?: number;
+  color?: string;
   status?: "Connected" | "Disconnected";
+  indicationCode: string;
+  dosageAmount: number;
+  administrationDays: any[];
+  administrationTimesMin: any[];
+  frequencyCount: number;
+  dosingWindowMin: number;
+  active: boolean;
+  notes?: string;
+  previousTreatment?: Partial<Omit<Device, "deviceId" | "deviceName" | "color" | "status">>;
 }
 
 interface DeviceState {
@@ -30,7 +41,11 @@ interface DeviceState {
   removeDevice: (deviceId: string) => void;
   getDeviceList: () => Device[];
   removeAll: () => void;
-  updateDeviceStatus: (deviceId: string, status: "Connected" | "Disconnected") => void;
+  updateDeviceById: (deviceId: string, updates: Partial<Device>) => void;
+
+  dailyDoseLog: Record<string, string>; // deviceId -> ISO Date
+  recordDoseTaken: (deviceId: string) => void;
+  wasDoseTakenToday: (deviceId: string) => boolean;
 }
 
 const useDeviceStore = create<DeviceState>()(
@@ -41,34 +56,63 @@ const useDeviceStore = create<DeviceState>()(
         const currentDevices = get().devices;
 
         // Check for uniqueness of deviceId and deviceName
-        const idExists = currentDevices.some((d) => d.id === device.id);
-        const nameExists = currentDevices.some((d) => d.name === device.name);
+        const idExists = currentDevices.some((d) => d.id === device.deviceId);
+        const nameExists = currentDevices.some((d) => d.deviceName === device.deviceName);
 
         if (idExists || nameExists) {
-          return false; // Indicate failure
+          return false;
         }
 
         // If unique, add the device
         set((state) => ({ devices: [...state.devices, device] }));
-        return true; // Indicate success
+        return true;
       },
       removeDevice: (deviceId: string) => {
         set((state) => ({
-          devices: state.devices.filter((device) => device.id !== deviceId),
+          devices: state.devices.filter((device) => device.deviceId !== deviceId),
         }));
       },
       getDeviceList: () => {
-        return get().devices; // Directly return the array
+        return get().devices;
       },
       removeAll: () => {
-        set({ devices: [] }); // Clear the array
+        set({ devices: [] });
       },
-      updateDeviceStatus: (deviceId, status) =>
+      updateDeviceById: (deviceId, updates) => {
         set((state) => ({
-          devices: state.devices.map((d) =>
-            d.id === deviceId ? { ...d, status } : d
+          devices: state.devices.map((device) =>
+            device.deviceId === deviceId
+              ? {
+                  ...device,
+                  previousTreatment: {
+                    regimen_id: device.regimenId,
+                    indication_code: device.indicationCode,
+                    dosage_amount: device.dosageAmount,
+                    administrationDays: device.administrationDays,
+                    administration_times_min: device.administrationTimesMin,
+                    frequency_count: device.frequencyCount,
+                    dosing_window_min: device.dosingWindowMin,
+                    protocolId: device.protocolId,
+                  },
+                  ...updates,
+                }
+              : device
           ),
+        }));
+      },
+      dailyDoseLog: {},
+      recordDoseTaken: (deviceId) =>
+        set((state) => ({
+          dailyDoseLog: {
+            ...state.dailyDoseLog,
+            [deviceId]: new Date().toISOString().split("T")[0], // Only the date
+          },
         })),
+      wasDoseTakenToday: (deviceId) => {
+        const logDate = get().dailyDoseLog[deviceId];
+        const today = new Date().toISOString().split("T")[0];
+        return logDate === today;
+      },
     }),
     {
       name: "device-storage",

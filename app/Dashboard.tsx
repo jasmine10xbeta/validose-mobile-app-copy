@@ -1,33 +1,72 @@
-import { useState } from "react";
-import { FlatList, Pressable, StyleSheet, View } from "react-native";
+import { useEffect, useState } from "react";
+import { FlatList, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { showToast } from "@/components/common/Toast";
 import { VButton } from "@/components/common/VButton";
 import { VMedicationItem } from "@/components/common/VMedicationItem";
 import { VNextDoseInfo } from "@/components/common/VNextDoseInfo";
 import useDeviceStore from "@/store/useDeviceStore";
+import useDoseStore from "@/store/useDoseStore";
+import { getDeviceDosageSchedule } from "@/utils/axios/api/__mocks__/dosage";
 
 export default function DashboardScreen() {
-  const { getDeviceList } = useDeviceStore();
+  const { getDeviceList, updateDeviceById } = useDeviceStore();
+  const { initializeDoses } = useDoseStore();
   const [doseInfoState, setDoseInfoState] = useState<number>(0);
 
-  function onNextDoseInfoPress() {
-    if (doseInfoState > 2) {
-      setDoseInfoState(0);
-    } else {
-      if (doseInfoState === 1) {
-        showToast(
-          "success",
-          "Successful dose",
-          "Congratulations you make a dose."
-        );
+  useEffect(() => {
+    const fetchDosageDetails = async () => {
+      const devices = getDeviceList();
+
+      for (const device of devices) {
+        try {
+          const doseInfo = await getDeviceDosageSchedule(device.deviceId);
+
+          if (doseInfo) {
+            // Compare new doseInfo with existing device treatment data
+            const hasChanged =
+              JSON.stringify(device.administrationDays) !==
+                JSON.stringify(doseInfo.administrationDays) ||
+              JSON.stringify(device.administrationTimesMin) !==
+                JSON.stringify(doseInfo.administrationTimesMin);
+
+            if (hasChanged) {
+              const protocolChangeId = `protocol-${Date.now()}`;  //TODO: Replace with new protocol ID from backend
+
+              // TODO: Add notification here
+              showToast(
+                "success",
+                "Treatment change detected",
+                "Updating treatment... Please review the details on the dashboard below."
+              );
+
+              // Save old treatment as needed (could be extended to history array)
+              updateDeviceById(device.deviceId, {
+                ...doseInfo,
+                previousTreatment: device,
+                protocolId: protocolChangeId,
+              });
+              initializeDoses([
+                {
+                  ...device,
+                  ...doseInfo,
+                  protocolId: protocolChangeId,
+                },
+              ]);
+            }
+          } else {
+            // If no response, just initialize with current treatment
+            initializeDoses([device]);
+          }
+        } catch (error) {
+          console.error(`Failed to fetch dosage for ${device.deviceId}`, error);
+          initializeDoses([device]);
+        }
       }
-      if (doseInfoState === 2) {
-        showToast("error", "Missed dose", "Please take your dose on time.");
-      }
-      setDoseInfoState((prev) => prev + 1);
-    }
-  }
+    };
+
+    fetchDosageDetails();
+  }, [getDeviceList, initializeDoses, updateDeviceById]);
 
   function onHelpPress() {
     showToast("success", "Notification sent", "Someone will be in touch soon.");
@@ -37,13 +76,11 @@ export default function DashboardScreen() {
 
   return (
     <SafeAreaView style={styles.alignContent}>
-      <Pressable onPress={onNextDoseInfoPress} style={{ width: "100%" }}>
-        <VNextDoseInfo
-          infoState={doseInfoState}
-          mainLabel="Take dose now"
-          timeLabel="within the hour"
-        />
-      </Pressable>
+      <VNextDoseInfo
+        infoState={doseInfoState}
+        mainLabel="Take dose now"
+        timeLabel="within the hour"
+      />
       <View style={styles.scrollViewSection}>
         {isDevicesConnected ? (
           <FlatList
@@ -51,11 +88,11 @@ export default function DashboardScreen() {
             renderItem={({ item }) => (
               <VMedicationItem
                 item={item}
-                state={"Conected"}
-                color={item.color}
+                state={item?.status || ""}
+                color={item.color || ""}
               />
             )}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item) => item.deviceId}
             data={getDeviceList()}
           />
         ) : null}

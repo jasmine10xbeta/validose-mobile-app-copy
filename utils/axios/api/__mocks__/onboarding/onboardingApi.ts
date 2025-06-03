@@ -1,5 +1,3 @@
-import { storeToken } from "../token";
-
 /**
  * Simulates sending onboarding code and mobile device ID to the backend to pair the mobile device with the patient.
  * @param code - The unique onboarding code scanned from the QR.
@@ -10,27 +8,18 @@ export const onboardWithCode = async (code: string, deviceId: string) => {
   await new Promise((res) => setTimeout(res, 500)); // Simulate delay
 
   const response = {
-    access_token: {
-      sub: "USR123",
-      role: "clinician",
-      device_id: "DEVICE-123",
-      exp: 1710000000,
-      iat: 1709996400,
-      aud: "validose-app",
-      iss: "validose-api",
-    },
+    access_token:
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9." +
+      "eyJzdWIiOiJVU0VSX0lEIiwicm9sZSI6InBhdGllbnQiLCJleHAiOjE3MjAwMDAwMDAsImlhdCI6MTcxOTk5NjQwMCwiYXVkIjoidmFsaWRvc2UtYXBwIiwiaXNzIjoidmFsaWRvc2UtYXBpIn0." +
+      "dummysignature", // this is a valid JWT-like format
     refresh_token: {
-      token: "UUID",
-      user_id: "USR123",
-      device_id: "DEVICE-123",
-      expires_at: "2025-05-01T00:00:00Z",
+      token: "refresh-token-uuid-abc-123",
+      user_id: "USER_ID",
+      device_id: "DEVICE_456",
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
       revoked: false,
     },
   };
-
-  if (response?.refresh_token?.token) {
-    await storeToken(response.refresh_token.token, response.access_token);
-  }
 
   return response;
 };

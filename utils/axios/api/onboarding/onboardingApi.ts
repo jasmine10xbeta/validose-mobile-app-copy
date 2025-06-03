@@ -1,5 +1,4 @@
 import axiosInstance from "../../axiosInstance";
-import { storeToken } from "../token";
 
 /**
  * Sends onboarding code and mobile device ID to the backend to pair the mobile device with the patient.
@@ -12,10 +11,6 @@ export const onboardWithCode = async (code: string, deviceId: string) => {
     code,
     device_id: deviceId,
   });
-
-  if (response?.data?.token) {
-    await storeToken(response.data.token, response.data?.access_token);
-  }
 
   return response?.data;
 };

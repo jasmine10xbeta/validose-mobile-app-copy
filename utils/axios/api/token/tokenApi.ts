@@ -1,9 +1,9 @@
 import * as SecureStore from "expo-secure-store";
 
-export async function storeToken(refreshToken: string, accessToken?: object) {
-  await SecureStore.setItemAsync("authToken", refreshToken);
-  if (accessToken) {
-    await SecureStore.setItemAsync("accessToken", JSON.stringify(accessToken));
+export async function storeToken(accessToken: string, refreshToken?: object) {
+  await SecureStore.setItemAsync("authToken", accessToken);
+  if (refreshToken) {
+    await SecureStore.setItemAsync("refreshToken", JSON.stringify(refreshToken));
   }
 }
 

@@ -1,35 +1,40 @@
-import { storeToken } from "../token";
+interface RefreshToken {
+  token: string;
+  user_id: string;
+  device_id: string;
+  expires_at: string;
+  revoked: boolean;
+}
+
+interface RefreshResponse {
+  access_token: string;
+  refresh_token: RefreshToken;
+}
 
 /**
- * Simulates to refresh the user's session.
- * @param token - The current token to refresh.
- * @returns The new token and access token data.
+ * Simulates refreshing the user's session using a refresh token.
+ * @param refreshToken - The current refresh token to refresh session.
+ * @returns The refreshed token data including new access and refresh tokens.
  */
-export const refreshSession = async (token: string) => {
-  await new Promise((res) => setTimeout(res, 500)); // Simulate delay
+export const refreshSession = async (
+  refreshToken: string
+): Promise<RefreshResponse> => {
+  // Simulate API delay
+  await new Promise((res) => setTimeout(res, 500));
 
-  const response = {
-    access_token: {
-      sub: "USR123",
-      role: "clinician",
-      device_id: "DEVICE-123",
-      exp: 1710000000,
-      iat: 1709996400,
-      aud: "validose-app",
-      iss: "validose-api",
-    },
+  const response: RefreshResponse = {
+    access_token:
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9." +
+      "eyJzdWIiOiJVU1IxMjMiLCJyb2xlIjoiY2xpbmljaWFuIiwiZXhwIjoxNzEwMDAwMDAwLCJpYXQiOjE3MDk5OTY0MDAsImF1ZCI6InZhbGlkb3NlLWFwcCIsImlzcyI6InZhbGlkb3NlLWFwaSJ9." +
+      "dummysignaturepart123456",
     refresh_token: {
-      token: "UUID",
+      token: "refresh-token-uuid",
       user_id: "USR123",
       device_id: "DEVICE-123",
-      expires_at: "2025-05-01T00:00:00Z",
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       revoked: false,
     },
   };
-
-  if (response.refresh_token.token) {
-    await storeToken(response.refresh_token.token, response.access_token);
-  }
 
   return response;
 };

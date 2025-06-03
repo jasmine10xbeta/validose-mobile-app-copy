@@ -6,29 +6,31 @@
 export const getDeviceDosageSchedule = async (deviceId: string) => {
   await new Promise((res) => setTimeout(res, 500)); // Simulate delay
 
-  if (deviceId === "5C8A59AE-59F4-BB24-85F8-39399969232B") {
+  console.log("getDeviceDosageSchedule", deviceId);
+
+  if (deviceId === "A11E919B-4078-D30B-8475-1A7114F99E0B") {
     return {
-      regimen_id: "R001",
-      indication_code: "DED",
-      dosage_amount: 2,
-      administration_days: ["MON", "WED"],
-      administration_times_min: [480, 1200],
-      frequency_count: 2,
-      dosing_window_min: 15,
+      regimenId: "R001",
+      indicationCode: "DED",
+      dosageAmount: 2,
+      administrationDays: ["Monday", "Wednesday", "Thursday"],
+      administrationTimesMin: [480, 1200],
+      frequencyCount: 2,
+      dosingWindowMin: 15,
       active: true,
       notes: "test note 1",
     };
   }
 
-  if (deviceId === "DEVICE-456") {
+  else {
     return {
-      regimen_id: "R002",
-      indication_code: "DED",
-      dosage_amount: 1,
-      administration_days: ["MON", "WED", "THU"],
-      administration_times_min: [480, 1200],
-      frequency_count: 3,
-      dosing_window_min: 15,
+      regimenId: "R002",
+      indicationCode: "DED",
+      dosageAmount: 1,
+      administrationDays: ["Monday", "Wednesday", "Thursday"],
+      administrationTimesMin: [480, 1200],
+      frequencyCount: 3,
+      dosingWindowMin: 15,
       active: true,
       notes: "test note 2",
     };

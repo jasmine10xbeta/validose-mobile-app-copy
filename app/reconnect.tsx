@@ -10,54 +10,28 @@ import { VButton } from "@/components/common/VButton";
 import { QRCodeScanner } from "@/components/common/VQRCodeScanner";
 import { VText } from "@/components/common/VText";
 import { onboardWithCode } from "@/utils/axios/api/__mocks__/onboarding";
-import { useAuth } from "@/utils/provider/AuthenticationProvider";
 
-function LoginMessageBlock({
-  message,
-  buttonLabel,
-  onPress,
-}: {
-  message: string;
-  buttonLabel: string;
-  onPress: () => void;
-}) {
-  return <SafeAreaView style={styles.alignContent}>
-    <View style={styles.loginContainer}>
-      <VText style={styles.loginMessage} textVariant="Label">
-        {message}
-      </VText>
-      <VButton onPress={onPress} label={buttonLabel} />
-    </View>
-  </SafeAreaView>
-}
-
-export default function LoginScreen() {
+export default function ReconnectScreen() {
   const router = useRouter();
 
   const [hasScanned, setHasScanned] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
-  const { isSignedOut, signIn } = useAuth();
 
-  if (!permission) return <View />;
+  if (!permission) {
+    return <View />;
+  }
 
   if (!permission.granted) {
     return (
-      <LoginMessageBlock
-        message="We need your permission to show the camera"
-        buttonLabel="Grant permission"
-        onPress={requestPermission}
-      />
-    );
-  }
-
-  if (isSignedOut) {
-    return (
-      <LoginMessageBlock
-        message="Let's get you reconnected"
-        buttonLabel="Reconnect"
-        onPress={() => {}}
-      />
+      <SafeAreaView style={styles.alignContent}>
+        <View style={styles.loginContainer}>
+          <VText textVariant="Body">
+            We need your permission to show the camera
+          </VText>
+          <VButton onPress={requestPermission} label="Grant permission" />
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -74,15 +48,8 @@ export default function LoginScreen() {
         const mobileDeviceId = await getUniqueId();
         const response = await onboardWithCode(onboardingCode, mobileDeviceId);
 
-        if (response?.access_token) {
-          await signIn({
-            token: response.access_token,
-            refreshToken: response.refresh_token,
-          });
+        if (response) {
           router.replace("/pairing");
-        } else {
-          showToast("error", "Onboarding failed", "No token received.");
-          setHasScanned(false);
         }
       } else {
         showToast("error", "Invalid QR Code");
@@ -104,11 +71,18 @@ export default function LoginScreen() {
   }
 
   return (
-    <LoginMessageBlock
-      message="Scan QR code to link mobile device"
-      buttonLabel="Link"
-      onPress={() => setShowCamera(true)}
-    />
+    <SafeAreaView style={styles.alignContent}>
+      <View style={styles.loginContainer}>
+        {/* TODO: Update label, message and button for onboardinng vs login */}
+        <VText style={styles.loginLabel} textVariant="Label">
+          Login
+        </VText>
+        <VText style={styles.loginMessage} textVariant="Label">
+          Scan QR code to link mobile device
+        </VText>
+        <VButton onPress={() => setShowCamera(true)} label="Link" />
+      </View>
+    </SafeAreaView>
   );
 }
 

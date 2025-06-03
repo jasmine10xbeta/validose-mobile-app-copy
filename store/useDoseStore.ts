@@ -2,7 +2,7 @@ import dayjs from "dayjs";
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { Device } from "@/store/useDeviceStore"; // Reuse your existing type
+import { Device } from "@/store/useDeviceStore";
 
 const SecureStorage = {
   getItem: (key: string) => SecureStore.getItemAsync(key),
@@ -14,6 +14,7 @@ interface ExpectedDose {
   expectedTime: string;
   takenAt?: string;
   taken?: boolean;
+  protocolId: string;
 }
 
 interface DailyDeviceDose {
@@ -40,17 +41,20 @@ export const useDoseStore = create<DoseStore>()(
 
         const newRecords = devices
           .map((device: Device): DailyDeviceDose | null => {
-            if (!device.administration_days.includes(todayDay)) return null;
+            if (!device.administrationDays.includes(todayDay)) return null;
 
-            const doses: ExpectedDose[] = device.administration_times_min.map(
+            const doses: ExpectedDose[] = device.administrationTimesMin.map(
               (min: number) => {
                 const time = dayjs().startOf("day").add(min, "minute");
-                return { expectedTime: time.format("HH:mm") };
+                return {
+                  expectedTime: time.format("HH:mm"),
+                  protocolId: device.protocolId,
+                };
               }
             );
 
             return {
-              deviceId: device.id,
+              deviceId: device.deviceId,
               date: todayStr,
               doses,
             };
@@ -83,7 +87,7 @@ export const useDoseStore = create<DoseStore>()(
         const today = dayjs().format("YYYY-MM-DD");
         return (
           get().doseRecords.find(
-            (d) => d.deviceId === deviceId && d.date === today
+            (record) => record.deviceId === deviceId && record.date === today
           )?.doses || []
         );
       },
