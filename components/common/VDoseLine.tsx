@@ -17,7 +17,7 @@ const createStyles = (state: number, color: string) =>
       height: 0,
       alignSelf: "center",
       borderWidth: 1,
-      borderStyle: state === 0 ? "solid" : "dashed",
+      borderStyle: state === 0 || state === 1 ? "solid" : "dashed",
       borderColor: color,
     },
   });

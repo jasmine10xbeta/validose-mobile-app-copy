@@ -87,7 +87,11 @@ export function VMedicationItem(props: VMedicationItemProps) {
 
   function renderDoseProgress() {
     const doses = useDoseStore.getState().getDosesForToday(props.item.deviceId);
-    const mappedStates = doses.map((dose) =>
+
+    console.log("\n");
+    console.log("Doses for today:", doses);
+
+    const dosesForToday = doses.map((dose) =>
       getDoseStateForTime(dose.expectedTime, dose.taken)
     );
 
@@ -98,14 +102,14 @@ export function VMedicationItem(props: VMedicationItemProps) {
           <VText textVariant="LabelMedicine2">{props.item.medicine}</VText>
         </View>
         <View style={styles.doseSection}>
-          {mappedStates.map((state, index) => (
+          {dosesForToday.map((state, index) => (
             <View style={{ flexDirection: "row" }} key={index}>
               <VDoseItem
                 color={deviceColor}
                 doseNumber={index + 1}
                 state={state}
               />
-              {index < mappedStates.length - 1 && (
+              {index < dosesForToday.length - 1 && (
                 <VDoseLine color={deviceColor} state={state === 2 ? 0 : 1} />
               )}
             </View>
@@ -200,7 +204,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   doseSection: {
-    paddingLeft: 20,
     flexDirection: "row",
     borderTopRightRadius: 12,
     borderBottomRightRadius: 12,
@@ -211,7 +214,6 @@ const styles = StyleSheet.create({
   },
   doseSectionError: {
     gap: 15,
-    paddingLeft: 20,
     flexDirection: "row",
     borderTopRightRadius: 12,
     borderBottomRightRadius: 12,
@@ -220,6 +222,7 @@ const styles = StyleSheet.create({
     backgroundColor: validoseMedication,
     justifyContent: "flex-start",
     alignItems: "center",
+    paddingLeft: 20,
   },
   image: {
     height: 30,
