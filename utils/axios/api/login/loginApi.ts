@@ -7,6 +7,8 @@ import axiosInstance from "../../axiosInstance";
  */
 export const refreshSession = async (token: string) => {
   try {
+    console.log("Making API call to backend to refresh session..");
+    
     const response = await axiosInstance("/auth/refresh", {     // TODO: Update endpoint
       method: "POST",
       headers: {
@@ -15,6 +17,7 @@ export const refreshSession = async (token: string) => {
     });
 
     const data = response?.data;
+    console.log("Session refresh response:", data);
 
     if (!data) return null;
     return data;

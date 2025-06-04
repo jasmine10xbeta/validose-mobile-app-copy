@@ -43,14 +43,21 @@ export function AuthenticationProvider({
   const [isSignedOut, setIsSignedOut] = useState(false);
 
   useEffect(() => {
+    console.log("\n");
+    console.log(`Loading user from SecureStore..`);
+
     const loadUser = async () => {
       try {
         const token = await getToken();
+        console.log(`Token from SecureStore:\n ${token}`);
 
         if (token && !isTokenValid(token!)) {
+          console.log("Token is not valid..");
           const newSession = await refreshSession(token!);
+
           if (!newSession) signOut();
-          setUser({
+
+          signIn({
             token: newSession.access_token,
             refreshToken: newSession.refresh_token,
           });
@@ -58,6 +65,7 @@ export function AuthenticationProvider({
       } catch (error) {
         console.log("Error loading user from SecureStore:", error);
       } finally {
+        await new Promise((res) => setTimeout(res, 1000));
         setIsLoading(false);
       }
     };
@@ -67,8 +75,13 @@ export function AuthenticationProvider({
 
   const signIn = async (userData: any) => {
     try {
+      console.log("\n");
+      console.log("Signing in..");
+      console.log(`Saving token to SecureStore and loading user\n ${JSON.stringify(userData)}`);
+
       await storeToken(userData.token, userData.refresh_token);
       setUser(userData);
+      setIsSignedOut(false);
     } catch (error) {
       console.error("Error saving token to SecureStore:", error);
       showToast("error", "Authentication Error", "Failed to save your session");
@@ -77,6 +90,9 @@ export function AuthenticationProvider({
 
   const signOut = async () => {
     try {
+      console.log("\n");
+      console.log("Signing out.. clearing token and user from SecureStore");
+      
       await clearToken();
       setUser(null);
       setIsSignedOut(true);
