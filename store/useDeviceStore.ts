@@ -2,7 +2,6 @@ import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 import { StateStorage, persist, createJSONStorage } from "zustand/middleware";
 
-// Standard SecureStorage - no custom serialization needed for arrays
 const SecureStorage: StateStorage = {
   getItem: async (name: string): Promise<string | null> => {
     return (await SecureStore.getItemAsync(name)) || null;
@@ -36,14 +35,15 @@ export interface Device {
 }
 
 interface DeviceState {
-  devices: Device[]; // Changed from Set to Array
-  addDevice: (device: Device) => boolean; // Returns boolean indicating success
+  devices: Device[];
+  hasHydrated: boolean;
+  setHydrated: () => void;
+  addDevice: (device: Device) => boolean;
   removeDevice: (deviceId: string) => void;
   getDeviceList: () => Device[];
   removeAll: () => void;
   updateDeviceById: (deviceId: string, updates: Partial<Device>) => void;
-
-  dailyDoseLog: Record<string, string>; // deviceId -> ISO Date
+  dailyDoseLog: Record<string, string>;
   recordDoseTaken: (deviceId: string) => void;
   wasDoseTakenToday: (deviceId: string) => boolean;
 }
@@ -51,33 +51,33 @@ interface DeviceState {
 const useDeviceStore = create<DeviceState>()(
   persist(
     (set, get) => ({
-      devices: [], // Initialize as an empty array
+      devices: [],
+      hasHydrated: false,
+      setHydrated: () => set({ hasHydrated: true }),
+
       addDevice: (device: Device) => {
         const currentDevices = get().devices;
-
-        // Check for uniqueness of deviceId and deviceName
-        const idExists = currentDevices.some((d) => d.id === device.deviceId);
+        const idExists = currentDevices.some((d) => d.deviceId === device.deviceId);
         const nameExists = currentDevices.some((d) => d.deviceName === device.deviceName);
 
-        if (idExists || nameExists) {
-          return false;
-        }
+        if (idExists || nameExists) return false;
 
-        // If unique, add the device
         set((state) => ({ devices: [...state.devices, device] }));
         return true;
       },
+
       removeDevice: (deviceId: string) => {
         set((state) => ({
           devices: state.devices.filter((device) => device.deviceId !== deviceId),
         }));
       },
-      getDeviceList: () => {
-        return get().devices;
-      },
+
+      getDeviceList: () => get().devices,
+
       removeAll: () => {
         set({ devices: [] });
       },
+
       updateDeviceById: (deviceId, updates) => {
         set((state) => ({
           devices: state.devices.map((device) =>
@@ -100,14 +100,17 @@ const useDeviceStore = create<DeviceState>()(
           ),
         }));
       },
+
       dailyDoseLog: {},
+
       recordDoseTaken: (deviceId) =>
         set((state) => ({
           dailyDoseLog: {
             ...state.dailyDoseLog,
-            [deviceId]: new Date().toISOString().split("T")[0], // Only the date
+            [deviceId]: new Date().toISOString().split("T")[0],
           },
         })),
+
       wasDoseTakenToday: (deviceId) => {
         const logDate = get().dailyDoseLog[deviceId];
         const today = new Date().toISOString().split("T")[0];
@@ -116,7 +119,10 @@ const useDeviceStore = create<DeviceState>()(
     }),
     {
       name: "device-storage",
-      storage: createJSONStorage(() => SecureStorage), // Use the standard SecureStorage
+      storage: createJSONStorage(() => SecureStorage),
+      onRehydrateStorage: () => (state) => {
+        state?.setHydrated?.();
+      },
     }
   )
 );

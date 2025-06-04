@@ -3,42 +3,26 @@ import { VMedicationInfo } from "./VMedicationInfo";
 import { VText } from "./VText";
 
 interface VNextDoseInfoProps {
-  mainLabel: string;
-  timeLabel: string;
-  infoState: number;
+  mainLabel?: string;
+  timeLabel?: string;
+  detailsLabel?: string;
 }
 
-export function VNextDoseInfo(props: VNextDoseInfoProps) {
-  // Validate infoState is within expected range
-  if (props.infoState < 0 || props.infoState > 3) {
-    console.log(`Invalid infoState value: ${props.infoState}. Expected 0-3.`);
-  }
+export function VNextDoseInfo(doseInfo: VNextDoseInfoProps) {
+  const mainLabel = doseInfo?.mainLabel ?? "No upcoming dose";
+  const timeLabel = doseInfo?.timeLabel ?? "";
+  const detailsLabel = doseInfo?.detailsLabel ?? "";
 
   return (
     <View style={styles.nextDoseInfo}>
       <VText textVariant="LabelDose" style={styles.label}>
         Next Dose
       </VText>
-      {props.infoState === 0 ? (
-        <View style={styles.nextDoseInfoSecond}>
-          <VText textVariant="Body">{props.mainLabel}</VText>
-          <VText textVariant="LabelDose">{props.timeLabel}</VText>
-        </View>
-      ) : null}
-      {props.infoState === 1 ? (
-        <View style={styles.nextDoseInfoSecond}>
-          <VText textVariant="Body">{props.mainLabel}</VText>
-          <VText textVariant="LabelDose">within 15min</VText>
-        </View>
-      ) : null}
-      {props.infoState === 2 || props.infoState === 3 ? (
-        <View style={styles.nextDoseInfoSecond}>
-          <VText textVariant="Body">In 4 hours</VText>
-          <VText textVariant="LabelDose">from now</VText>
-        </View>
-      ) : null}
-
-      <VMedicationInfo infoState={props.infoState} />
+      <View style={styles.nextDoseInfoSecond}>
+        <VText textVariant="Body">{mainLabel}</VText>
+        <VText textVariant="LabelDose">{timeLabel}</VText>
+      </View>
+      <VMedicationInfo detailsLabel={detailsLabel} />
     </View>
   );
 }
