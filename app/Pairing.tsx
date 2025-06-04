@@ -54,20 +54,26 @@ export default function PairingScreen() {
       const parsed = JSON.parse(scanningResult.data);
       const deviceId = parsed?.deviceId;
 
+      console.log("\n");
+      console.log("Scanned device id:", deviceId);
+
       if (deviceId) {
         setIsConnecting(true);
         const connectResponse = await bondDevice(deviceId);
         setIsConnecting(false);
 
+        console.log(`Connection response with ${deviceId}:\n`, connectResponse);
+
         if (connectResponse) {
           // TODO: Inform backend about attempted failed connections?
           const { deviceName, deviceId } = connectResponse;
+          showToast("success", "Device connected", deviceName);
           const added = addDevice({
             deviceId,
             deviceName,
             protocolId: "",
             status: "Connected" as const,
-            medicine: deviceName.charAt(0),
+            medicine: deviceName?.charAt(0),
             medicineState: 0, // default state
             color: "#5D9BFF",
             regimenId: "",
@@ -98,6 +104,7 @@ export default function PairingScreen() {
         showToast("error", "Invalid QR Code");
       }
     } catch (err) {
+      console.log(err);
       showToast("error", "Invalid QR Code", `${err}`);
     }
 
