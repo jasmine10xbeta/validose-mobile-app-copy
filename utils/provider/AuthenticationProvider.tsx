@@ -82,6 +82,7 @@ export function AuthenticationProvider({
       setIsSignedOut(true);
     } catch (error) {
       console.error("Error deleting token from SecureStore:", error);
+      showToast("error", "Authentication Error", "Failed to log out your session");
     }
   };
 

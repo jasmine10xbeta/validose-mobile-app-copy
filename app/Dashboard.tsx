@@ -59,7 +59,8 @@ export default function DashboardScreen() {
             initializeDoses([device]);
           }
         } catch (error) {
-          console.error(`Failed to fetch dosage for ${device.deviceId}`, error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          showToast("error", `Failed to fetch dosage for ${device.deviceId}`, errorMessage);
           initializeDoses([device]);
         }
       }
@@ -85,13 +86,7 @@ export default function DashboardScreen() {
         {isDevicesConnected ? (
           <FlatList
             initialNumToRender={4}
-            renderItem={({ item }) => (
-              <VMedicationItem
-                item={item}
-                state={item?.status || ""}
-                color={item.color || ""}
-              />
-            )}
+            renderItem={({ item }) => <VMedicationItem item={item} />}
             keyExtractor={(item) => item.deviceId}
             data={getDeviceList()}
           />

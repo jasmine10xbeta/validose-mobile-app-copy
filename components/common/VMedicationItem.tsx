@@ -16,8 +16,6 @@ import { VText } from "./VText";
 
 interface VMedicationItemProps {
   item: Device;
-  state: string;
-  color: string;
 }
 
 export function VMedicationItem(props: VMedicationItemProps) {
@@ -26,13 +24,18 @@ export function VMedicationItem(props: VMedicationItemProps) {
     require("./../../assets/images/alert-diamond.png"),
   ]);
 
+  const DEFAULT_COLOR = "#5D9BFF";
+  const DEFAULT_STATUS: "Connected" | "Disconnected" = "Disconnected";
+
+  const deviceColor = props.item.color ?? DEFAULT_COLOR;
+  const deviceStatus = props.item.status ?? DEFAULT_STATUS;
 
   const stylesComputed = StyleSheet.create({
     medSection: {
       borderTopLeftRadius: 12,
       borderBottomLeftRadius: 12,
       width: 65,
-      backgroundColor: props.color,
+      backgroundColor: deviceColor,
       justifyContent: "center",
     },
   });
@@ -98,12 +101,12 @@ export function VMedicationItem(props: VMedicationItemProps) {
           {mappedStates.map((state, index) => (
             <View style={{ flexDirection: "row" }} key={index}>
               <VDoseItem
-                color={props.color}
+                color={deviceColor}
                 doseNumber={index + 1}
                 state={state}
               />
               {index < mappedStates.length - 1 && (
-                <VDoseLine color={props.color} state={state === 2 ? 0 : 1} />
+                <VDoseLine color={deviceColor} state={state === 2 ? 0 : 1} />
               )}
             </View>
           ))}
@@ -114,7 +117,7 @@ export function VMedicationItem(props: VMedicationItemProps) {
 
   function renderMedicationState() {
     // Handle error states based on fallback logic (optional)
-    const isDisconnected = props.item.status === "Disconnected";
+    const isDisconnected = deviceStatus === "Disconnected";
     const isDeviceError = props.item.medicineState === 6;
 
     if (isDisconnected || isDeviceError) {

@@ -15,6 +15,7 @@ import { PaperProvider } from "react-native-paper";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
 
+import { showToast } from "@/components/common/Toast";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import useDeviceStore from "@/store/useDeviceStore";
 import { AuthenticationProvider } from "@/utils/provider/AuthenticationProvider";
@@ -72,7 +73,7 @@ function AppInitializer({ onReady }: { onReady: () => void }) {
             );
             if (!isConnected) allConnected = false;
           } catch (err) {
-            console.log("Failed to connect to device:", device.deviceId, err);
+            showToast("error", `Failed to connect to device ${device.deviceId}`, `${err}`);
             updateDeviceById(device.deviceId, { status: "Disconnected", medicineState: 6 });
             allConnected = false;
           }
@@ -82,7 +83,7 @@ function AppInitializer({ onReady }: { onReady: () => void }) {
 
         router.replace(allConnected ? "/dashboard" : "/pairing");
       } catch (e) {
-        console.error("App initialization error:", e);
+        showToast("error", "App initialization failed", `${e}`);
         router.replace("/");
       } finally {
         onReady();
