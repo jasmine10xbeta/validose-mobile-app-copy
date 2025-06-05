@@ -42,6 +42,11 @@ export const getNextDoseInfoForDevices = (devices: any[]) => {
     detailsLabel: string;
   }[] = [];
 
+  // Label logic
+  let mainLabel = "No upcoming dose";
+  let timeLabel = "";
+  let detailsLabel = "";
+
   for (const device of devices) {
     if (!device.administrationDays?.includes(todayStr)) continue;
 
@@ -54,20 +59,16 @@ export const getNextDoseInfoForDevices = (devices: any[]) => {
       const diffMin = doseTime.diff(now, "minute");
 
       // Only include doses within the valid range
-      if (diffMin >= -device.dosingWindowMin * 2) {
-        // Label logic
-        let mainLabel = "";
-        let timeLabel = "";
-        let detailsLabel = "";
-
+      if (diffMin >= -device.dosingWindowMin) {
+        console.log(`diffMin: ${diffMin}, device.dosingWindowMin: ${device.dosingWindowMin}`);
         if (diffMin <= 0 && diffMin >= -device.dosingWindowMin) {
           mainLabel = "Take dose now";
           timeLabel = `within ${device.dosingWindowMin} mins`;
-          detailsLabel = `You are about to miss a scheduled dose for ${device.medicine}. Take the dose now.`;
-        } else if (diffMin <= 0 && diffMin >= -device.dosingWindowMin * 2) {
+          detailsLabel = `You are about to miss a scheduled dose for ${device.deviceName}. Take the dose now.`;
+        } else if (diffMin >= 0 && diffMin <= device.dosingWindowMin) {
           mainLabel = "Take dose now";
           timeLabel = `within ${device.dosingWindowMin * 2} mins`;
-          detailsLabel = `Take medication ${device.medicine}`;
+          detailsLabel = `Take medication ${device.deviceName}`;
         } else if (diffMin > 0) {
           if (diffMin >= 60) {
             const hours = Math.floor(diffMin / 60);
@@ -76,7 +77,7 @@ export const getNextDoseInfoForDevices = (devices: any[]) => {
             mainLabel = `In ${diffMin} minute${diffMin > 1 ? "s" : ""}`;
           }
           timeLabel = "from now";
-          detailsLabel = `Take medication ${device.medicine}`;
+          detailsLabel = `Take medication ${device.deviceName}`;
         }
 
         upcomingDoses.push({ device, timeMin: diffMin, mainLabel, timeLabel, detailsLabel });

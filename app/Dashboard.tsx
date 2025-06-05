@@ -130,7 +130,7 @@ export default function DashboardScreen() {
 
   return (
     <SafeAreaView style={styles.alignContent}>
-      <VNextDoseInfo doseInfo />
+      <VNextDoseInfo {...doseInfo} />
       <View style={styles.scrollViewSection}>
         {isDevicesConnected ? (
           <FlatList

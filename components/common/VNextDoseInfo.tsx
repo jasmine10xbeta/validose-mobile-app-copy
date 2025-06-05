@@ -22,7 +22,7 @@ export function VNextDoseInfo(doseInfo: VNextDoseInfoProps) {
         <VText textVariant="Body">{mainLabel}</VText>
         <VText textVariant="LabelDose">{timeLabel}</VText>
       </View>
-      <VMedicationInfo detailsLabel={detailsLabel} />
+      {detailsLabel && <VMedicationInfo detailsLabel={detailsLabel} />}
     </View>
   );
 }

@@ -211,6 +211,7 @@ const styles = StyleSheet.create({
     width: "80%",
     backgroundColor: validoseMedication,
     alignItems: "center",
+    paddingLeft: 20,
   },
   doseSectionError: {
     gap: 15,
