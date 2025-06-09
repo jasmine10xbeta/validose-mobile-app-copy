@@ -35,6 +35,7 @@ export default function DashboardScreen() {
   useEffect(() => {
     const fetchDosageDetails = async () => {
       const devices = getDeviceList();
+
       for (const device of devices) {
         try {
           const doseInfo = await getDeviceDosageSchedule(device.deviceId);
