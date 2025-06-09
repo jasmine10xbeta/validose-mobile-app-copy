@@ -47,3 +47,5 @@ app-example
 .env
 
 ios/Podfile.lock
+
+build/
