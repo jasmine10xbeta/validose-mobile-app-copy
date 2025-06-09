@@ -1,4 +1,4 @@
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { Device } from "@/store/useDeviceStore";
 import { VText } from "./VText";
 
@@ -11,7 +11,13 @@ export function VDeviceItem(props: VDeviceItemProps) {
   return (
     <View style={styles.deviceItem}>
       <VText textVariant="DeviceItem">{props.item.name}</VText>
-      <VText textVariant="DeviceItemState">{props.state}</VText>
+      {props.state === "Disconnected" ? (
+        <Pressable onPress={() => {}}>
+          <VText textVariant="DeviceItemState">{"Retry"}</VText>
+        </Pressable>
+      ) : (
+        <VText textVariant="DeviceItemState">{props.state}</VText>
+      )}
     </View>
   );
 }

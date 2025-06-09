@@ -1,12 +1,7 @@
 import { useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import {
-  FlatList,
-  StyleSheet,
-  View,
-  Dimensions,
-} from "react-native";
+import { FlatList, StyleSheet, View, Dimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { showToast } from "@/components/common/Toast";
@@ -23,7 +18,7 @@ export default function PairingScreen() {
 
   const [hasScanned, setHasScanned] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
-  const [setIsConnecting] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
 
   const [contentHeight, setContentHeight] = useState(0);
@@ -54,32 +49,42 @@ export default function PairingScreen() {
     setHasScanned(true);
 
     try {
-      // TODO: Update parsing logic. For now, assuming QR contains plain JSON {"deviceId":"abc123"}
+      // TODO: Update parsing logic. 
+      // For now, assuming QR contains plain JSON {"deviceId":"abc123"}
       const parsed = JSON.parse(scanningResult.data);
       const deviceId = parsed?.deviceId;
 
       if (deviceId) {
         setIsConnecting(true);
-        // await scanLeDevice(1);
         const connectResponse = await bondDevice(deviceId);
         setIsConnecting(false);
 
         if (connectResponse) {
-          // TODO: Send device details to backend, on success
           // TODO: Inform backend about attempted failed connections?
-          // TODO: Get dose schedule for this device
-
-          const connectedDevice = {
-            id: connectResponse?.deviceId,
-            name: connectResponse?.deviceName,
-            medicine: connectResponse?.deviceName.charAt(0),
-            medicineState: 0,
-            color: "#5D9BFF", // TODO: Set primary and bg color based on medicine
+          const { deviceName, deviceId } = connectResponse;
+          const added = addDevice({
+            deviceId,
+            deviceName,
+            protocolId: "",
             status: "Connected" as const,
-          };
+            medicine: deviceName.charAt(0),
+            medicineState: 0, // default state
+            color: "#5D9BFF",
+            regimenId: "",
+            indicationCode: "",
+            dosageAmount: 0,
+            administrationDays: [],
+            administrationTimesMin: [],
+            frequencyCount: 0,
+            dosingWindowMin: 0,
+            active: false,
+          });
 
-          addDevice(connectedDevice);
-          showToast("success", "Device connected");
+          if (added) {
+            showToast("success", "Device connected");
+          } else {
+            showToast("info", "Device already exists");
+          }
           setHasScanned(false);
           setShowCamera(false);
         } else {
@@ -157,7 +162,7 @@ export default function PairingScreen() {
               renderItem={({ item }) => (
                 <VDeviceItem item={item} state={item?.status || ""} />
               )}
-              keyExtractor={(item) => item.id}
+              keyExtractor={(item) => item.deviceId}
               showsVerticalScrollIndicator={false}
             />
           ) : null}

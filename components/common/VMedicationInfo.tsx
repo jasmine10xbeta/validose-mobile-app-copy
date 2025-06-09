@@ -1,7 +1,7 @@
 import { useAssets } from "expo-asset";
 import { Image } from "expo-image";
 import { StyleSheet, View } from "react-native";
-import { validoseSuccess, validoseWarning } from "@/constants/Colors";
+import { validoseSuccess, validoseWarning } from "@/constants/colors";
 import { VText } from "./VText";
 
 interface VMedicationInfoProps {

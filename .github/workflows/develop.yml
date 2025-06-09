@@ -125,3 +125,5 @@ jobs:
           status: ${{ job.status }}
           steps: ${{ toJson(steps) }}
         if: always()
+
+    needs: [slack, lint, audit, test]

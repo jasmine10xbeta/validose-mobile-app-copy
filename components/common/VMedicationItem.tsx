@@ -1,23 +1,21 @@
+import dayjs from "dayjs";
 import { useAssets } from "expo-asset";
 import { Image } from "expo-image";
-import { useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 
-import { showToast, ToastType } from "@/components/common/Toast";
 import {
   validoseMedication,
   validoseMedication1,
   validoseMedicationError,
 } from "@/constants/Colors";
 import { Device } from "@/store/useDeviceStore";
+import useDoseStore from "@/store/useDoseStore";
 import { VDoseItem } from "./VDoseItem";
 import { VDoseLine } from "./VDoseLine";
 import { VText } from "./VText";
 
 interface VMedicationItemProps {
   item: Device;
-  state: string;
-  color: string;
 }
 
 export function VMedicationItem(props: VMedicationItemProps) {
@@ -26,14 +24,18 @@ export function VMedicationItem(props: VMedicationItemProps) {
     require("./../../assets/images/alert-diamond.png"),
   ]);
 
-  const [medicationState, setMedicationState] = useState<number>(0);
+  const DEFAULT_COLOR = "#5D9BFF";
+  const DEFAULT_STATUS: "Connected" | "Disconnected" = "Disconnected";
+
+  const deviceColor = props.item.color ?? DEFAULT_COLOR;
+  const deviceStatus = props.item.status ?? DEFAULT_STATUS;
 
   const stylesComputed = StyleSheet.create({
     medSection: {
       borderTopLeftRadius: 12,
       borderBottomLeftRadius: 12,
       width: 65,
-      backgroundColor: props.color,
+      backgroundColor: deviceColor,
       justifyContent: "center",
     },
   });
@@ -67,25 +69,58 @@ export function VMedicationItem(props: VMedicationItemProps) {
     { type: "error", title: "Device error", message: "Contact support." },
   ];
 
-  function onPressMedicationItem() {
-    if (medicationState > 5) {
-      setMedicationState(0);
-      return;
-    }
+  function getDoseStateForTime(expectedTime: string, taken?: boolean): number {
+    if (taken) return 2;
 
-    const currentMessage = messageMap[medicationState];
-    showToast(
-      currentMessage.type as ToastType,
-      currentMessage.title,
-      currentMessage.message
+    const [hour, minute] = expectedTime.split(":").map(Number);
+    const doseTime = dayjs()
+      .startOf("day")
+      .add(hour, "hour")
+      .add(minute, "minute");
+    const now = dayjs();
+
+    if (now.isAfter(doseTime.add(30, "minute"))) {
+      return 1; // missed or later
+    }
+    return 0; // upcoming
+  }
+
+  function renderDoseProgress() {
+    const doses = useDoseStore.getState().getDosesForToday(props.item.deviceId);
+    const mappedStates = doses.map((dose) =>
+      getDoseStateForTime(dose.expectedTime, dose.taken)
     );
-    setMedicationState((prev) => prev + 1);
+
+    return (
+      <>
+        <View style={stylesComputed.medSection}>
+          <VText textVariant="LabelMedicine1">MED</VText>
+          <VText textVariant="LabelMedicine2">{props.item.medicine}</VText>
+        </View>
+        <View style={styles.doseSection}>
+          {mappedStates.map((state, index) => (
+            <View style={{ flexDirection: "row" }} key={index}>
+              <VDoseItem
+                color={deviceColor}
+                doseNumber={index + 1}
+                state={state}
+              />
+              {index < mappedStates.length - 1 && (
+                <VDoseLine color={deviceColor} state={state === 2 ? 0 : 1} />
+              )}
+            </View>
+          ))}
+        </View>
+      </>
+    );
   }
 
   function renderMedicationState() {
-    // Error States: 5 - No Connection, 6 - Device Error
-    if (medicationState >= 5) {
-      const isDeviceError = medicationState === 6;
+    // Handle error states based on fallback logic (optional)
+    const isDisconnected = deviceStatus === "Disconnected";
+    const isDeviceError = props.item.medicineState === 6;
+
+    if (isDisconnected || isDeviceError) {
       const imageSource = assets
         ? isDeviceError
           ? assets[1]
@@ -127,51 +162,14 @@ export function VMedicationItem(props: VMedicationItemProps) {
       );
     }
 
-    // Dose progress states 0-4
-    const doseStates: Record<number, [number, number, number]> = {
-      0: [0, 1, 1],
-      1: [2, 0, 1],
-      2: [2, 2, 0],
-      3: [2, 2, 2],
-      4: [2, 2, 0], // TODO: Dose #4 used here for visual, to be adjusted
-    };
-
-    const currentDoseStates =
-      doseStates[medicationState as keyof typeof doseStates];
-
-    return (
-      <>
-        <View style={stylesComputed.medSection}>
-          <VText textVariant="LabelMedicine1">MED</VText>
-          <VText textVariant="LabelMedicine2">{props.item.medicine}</VText>
-        </View>
-        <View style={styles.doseSection}>
-          <VDoseItem
-            color={props.color}
-            doseNumber={1}
-            state={currentDoseStates[0]}
-          />
-          <VDoseLine color={props.color} state={0} />
-          <VDoseItem
-            color={props.color}
-            doseNumber={medicationState === 4 ? 4 : 2}
-            state={currentDoseStates[1]}
-          />
-          <VDoseLine color={props.color} state={0} />
-          <VDoseItem
-            color={props.color}
-            doseNumber={3}
-            state={currentDoseStates[2]}
-          />
-        </View>
-      </>
-    );
+    // Dose Progress View
+    return renderDoseProgress();
   }
 
   return (
-    <Pressable onPress={onPressMedicationItem} style={styles.deviceItem}>
+    <View style={{ flexDirection: "row", marginTop: 20 }}>
       {renderMedicationState()}
-    </Pressable>
+    </View>
   );
 }
 

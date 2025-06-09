@@ -14,6 +14,8 @@ const createStyles = (state: number, color: string) =>
   StyleSheet.create({
     doseItem: {
       width: 20,
+      height: 0,
+      alignSelf: "center",
       borderWidth: 1,
       borderStyle: state === 0 ? "solid" : "dashed",
       borderColor: color,
