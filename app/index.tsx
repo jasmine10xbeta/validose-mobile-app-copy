@@ -5,7 +5,7 @@ import { StyleSheet, View, PermissionsAndroid, Platform } from "react-native";
 import { getUniqueId } from "react-native-device-info";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { showToast } from "@/components/common/Toast";
+import { showToast } from "@/components/common/VToast";
 import { VButton } from "@/components/common/VButton";
 import { QRCodeScanner } from "@/components/common/VQRCodeScanner";
 import { VText } from "@/components/common/VText";
@@ -35,7 +35,6 @@ export default function LoginScreen() {
   const router = useRouter();
 
   const hasScannedRef = useRef(false);
-  const [hasScanned, setHasScanned] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const { isSignedOut, signIn } = useAuth();
