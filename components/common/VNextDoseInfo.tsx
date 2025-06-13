@@ -3,15 +3,17 @@ import { VMedicationInfo } from "./VMedicationInfo";
 import { VText } from "./VText";
 
 interface VNextDoseInfoProps {
+  state: number;
   mainLabel?: string;
   timeLabel?: string;
   detailsLabel?: string;
 }
 
 export function VNextDoseInfo(doseInfo: VNextDoseInfoProps) {
-  const mainLabel = doseInfo?.mainLabel ?? "No upcoming dose";
-  const timeLabel = doseInfo?.timeLabel ?? "";
+  const mainLabel = doseInfo?.mainLabel ?? "No Scheduled Dose";
+  const timeLabel = doseInfo?.timeLabel ?? "There are no doses scheduled for the remainder of the day.";
   const detailsLabel = doseInfo?.detailsLabel ?? "";
+  const state = doseInfo?.state ?? 0;
 
   return (
     <View style={styles.nextDoseInfo}>
@@ -22,7 +24,7 @@ export function VNextDoseInfo(doseInfo: VNextDoseInfoProps) {
         <VText textVariant="Body">{mainLabel}</VText>
         <VText textVariant="LabelDose">{timeLabel}</VText>
       </View>
-      {detailsLabel && <VMedicationInfo detailsLabel={detailsLabel} />}
+      {detailsLabel && <VMedicationInfo detailsLabel={detailsLabel} state={state} />}
     </View>
   );
 }

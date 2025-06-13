@@ -1,28 +1,58 @@
 import { useAssets } from "expo-asset";
 import { Image } from "expo-image";
 import { StyleSheet, View } from "react-native";
-import { validoseSuccess, validoseWarning } from "@/constants/colors";
+import { validoseSuccess, validoseWarning } from "@/constants/Colors";
 import { VText } from "./VText";
 
 interface VMedicationInfoProps {
   detailsLabel: string;
+  state: number;
 }
+
+const getBackgroundColor = (state: number) => {
+  switch (state) {
+    case 2:
+      return "#FC9E9E33"; // Red (in window and not taken)
+    case 3:
+      return "#65BB8D33"; // Green (taken)
+    case 4:
+      return "#FFC88399"; // Orange (missed)
+    default:
+      return "#F3F3F3"; // Gray (no dose or future)
+  }
+};
+
+// Icon index per state in assets[]
+const getIconIndex = (state: number) => {
+  switch (state) {
+    case 2:
+      return 0; // alert-diamond-red
+    case 3:
+      return 1; // check-circle
+    case 4:
+      return 2; // alert-diamond-orange
+    default:
+      return 3; // pill-timer-alert (default/gray/future)
+  }
+};
+
 
 export function VMedicationInfo(props: VMedicationInfoProps) {
   const [assets] = useAssets([
-    require("./../../assets/images/pill-timer-alert.png"),
-    require("./../../assets/images/alert-diamond.png"),
+    require("./../../assets/images/alert-diamond-red.png"),
     require("./../../assets/images/check-circle.png"),
     require("./../../assets/images/alert-diamond-orange.png"),
+    require("./../../assets/images/pill-timer-alert.png"),
   ]);
 
-  console.log("details label", props.detailsLabel);
+  const backgroundColor = getBackgroundColor(props.state);
+  const iconIndex = getIconIndex(props.state);
+  const icon = assets?.[iconIndex];
+
   return (
-    <View style={styles.medicationInfo}>
-      <View style={styles.info}>
-        {assets ? <Image source={assets[0]} style={styles.image} /> : null}
-        <VText textVariant="LabelMedicine">{props.detailsLabel}</VText>
-      </View>
+    <View style={[styles.medicationInfo, { backgroundColor }]}>
+      {assets ? <Image source={icon} style={styles.image} /> : null}
+      <VText textVariant="LabelMedicine">{props.detailsLabel}</VText>
     </View>
   );
 }
@@ -31,20 +61,16 @@ const styles = StyleSheet.create({
   medicationInfo: {
     marginTop: 20,
     width: "90%",
-    height: 90,
     backgroundColor: "#F3F3F3",
     borderRadius: 8,
+    padding: 15,
+    gap: 15,
+    flexDirection: "row",
+    alignItems: "center",
   },
   image: {
     height: 30,
     width: 30,
-  },
-  info: {
-    padding: 15,
-    gap: 15,
-    height: "100%",
-    flexDirection: "row",
-    alignItems: "center",
   },
   success: {
     gap: 15,

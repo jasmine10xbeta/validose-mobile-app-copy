@@ -1,115 +1,154 @@
 import dayjs from "dayjs";
-import { DoseStatus } from "@/constants/enums";
-
-export function getDoseStatus(
-  expectedTime: string,
-  taken: boolean | undefined,
-  takenAt?: string
-): DoseStatus {
-  if (taken) return DoseStatus.Taken;
-
-  const now = dayjs();
-  const doseTime = dayjs().startOf("day").add(parseInt(expectedTime), "minute");
-
-  const isDue =
-    now.isAfter(doseTime.subtract(15, "minute")) &&
-    now.isBefore(doseTime.add(15, "minute"));
-
-  return isDue ? DoseStatus.Due : DoseStatus.NotTaken;
-}
+import useDoseHistoryStore from "@/store/useDoseHistoryStore";
+import { TreatmentProtocol } from "@/store/useTreatmentProtocolStore";
 
 // Helper to find the next upcoming dose
-export const getNextDoseInfoForDevices = (devices: any[]) => {
-  console.log("devices", devices);
+export interface DoseLabelResult {
+  mainLabel: string;
+  timeLabel: string;
+  detailsLabel: string;
+  color?: string;
+}
 
+/**
+ * Returns the UI labels for a given dose timing.
+ */
+export function getLabelsForNextDose(
+  medicineName: string,
+  state: number,
+  diffMin: number,
+  dosingWindowMin: number
+): DoseLabelResult {
+  const mainLabel =
+    diffMin >= 60
+      ? `In ${Math.floor(diffMin / 60)} hour${diffMin >= 120 ? "s" : ""}`
+      : `In ${diffMin} min`;
+
+  switch (state) {
+    case 2:
+      return {
+        mainLabel: "Take dose now",
+        timeLabel: `within ${dosingWindowMin + diffMin} min`,
+        detailsLabel: `You are about to miss a scheduled dose for ${medicineName}. Take the dose now.`,
+        color: "#FC9E9E33",
+      };
+    case 3:
+      return {
+        mainLabel,
+        timeLabel: `from now`,
+        detailsLabel: `Thank you for logging a successful dose.`,
+        color: "#FC9E9E33",
+      };
+    case 4:
+      return {
+        mainLabel,
+        timeLabel: `from now`,
+        detailsLabel: `You missed a dose. Please take your dose on time.`,
+        color: "#FC9E9E33",
+      };
+    default:
+      return {
+        mainLabel,
+        timeLabel: `from now`,
+        detailsLabel: `Take medication ${medicineName}.`,
+        color: "#F3F3F3",
+      };
+  }
+}
+
+export const getNextDose = (
+  devices: any[],
+  getProtocol: {
+    (deviceId: string): TreatmentProtocol | undefined;
+    (arg0: any): any;
+  }
+) => {
   const now = dayjs();
-  const dayMap = [
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-  ];
-  const todayStr = dayMap[now.day()];
+  const todayStr = dayjs().format("dddd"); // e.g., "Monday"
 
   const upcomingDoses: {
     device: any;
     timeMin: number;
+    expectedTime: string;
     mainLabel: string;
     timeLabel: string;
     detailsLabel: string;
+    state: number;
   }[] = [];
 
-  // Label logic
-  let mainLabel = "No upcoming dose";
-  let timeLabel = "";
-  let detailsLabel = "";
-
   for (const device of devices) {
-    if (!device.administrationDays?.includes(todayStr)) continue;
+    const protocol = getProtocol(device.deviceId);
+    if (!protocol?.administrationDays?.includes(todayStr)) continue;
 
-    for (const timeMin of device.administrationTimesMin || []) {
+    for (const timeMin of protocol.administrationTimesMin || []) {
       const [hour, minute] = [Math.floor(timeMin / 60), timeMin % 60];
-      const doseTime = now
+      const doseTime = dayjs()
         .startOf("day")
         .add(hour, "hour")
         .add(minute, "minute");
       const diffMin = doseTime.diff(now, "minute");
 
-      // Only include doses within the valid range
-      if (diffMin >= -device.dosingWindowMin) {
-        console.log(`diffMin: ${diffMin}, device.dosingWindowMin: ${device.dosingWindowMin}`);
-        if (diffMin <= 0 && diffMin >= -device.dosingWindowMin) {
-          mainLabel = "Take dose now";
-          timeLabel = `within ${device.dosingWindowMin} mins`;
-          detailsLabel = `You are about to miss a scheduled dose for ${device.deviceName}. Take the dose now.`;
-        } else if (diffMin >= 0 && diffMin <= device.dosingWindowMin) {
-          mainLabel = "Take dose now";
-          timeLabel = `within ${device.dosingWindowMin * 2} mins`;
-          detailsLabel = `Take medication ${device.deviceName}`;
-        } else if (diffMin > 0) {
-          if (diffMin >= 60) {
-            const hours = Math.floor(diffMin / 60);
-            mainLabel = `In ${hours} hour${hours > 1 ? "s" : ""}`;
-          } else {
-            mainLabel = `In ${diffMin} minute${diffMin > 1 ? "s" : ""}`;
-          }
-          timeLabel = "from now";
-          detailsLabel = `Take medication ${device.deviceName}`;
-        }
+      if (diffMin < -protocol.dosingWindowMin) continue; // Skip expired doses
 
-        upcomingDoses.push({ device, timeMin: diffMin, mainLabel, timeLabel, detailsLabel });
-      }
+      const expectedTime = doseTime.format("HH:mm");
+      const state = getDoseState(
+        device.deviceId,
+        expectedTime,
+        protocol.dosingWindowMin
+      );
+
+      const { mainLabel, timeLabel, detailsLabel } = getLabelsForNextDose(
+        protocol.medicationName,
+        state,
+        diffMin,
+        protocol.dosingWindowMin
+      );
+
+      upcomingDoses.push({
+        device,
+        timeMin: diffMin,
+        expectedTime,
+        mainLabel,
+        timeLabel,
+        detailsLabel,
+        state,
+      });
     }
   }
 
   if (upcomingDoses.length === 0) return null;
 
-  // Sort by soonest dose time
   upcomingDoses.sort((a, b) => a.timeMin - b.timeMin);
 
   const next = upcomingDoses[0];
   console.log(
-    `Next dose is for ${next.device.deviceName} at ${next.timeMin} min`
+    `Next dose is for ${next.device.deviceName} at ${-next.timeMin} min (${next.expectedTime})`
   );
   return next;
 };
 
-// Dose info label selector
-export const getLabelsForDoseState = (state: number) => {
-  switch (state) {
-    case 0:
-      return { mainLabel: "Next dose", timeLabel: "is coming up" };
-    case 1:
-      return { mainLabel: "Take dose now", timeLabel: "within dose window" };
-    case 2:
-      return {
-        mainLabel: "Take dose now",
-        timeLabel: "You're about to miss your dose!",
-      };
-    default:
-      return { mainLabel: "All caught up 🎉", timeLabel: "No dose for now." };
-  }
-};
+export function getDoseState(
+  deviceId: string,
+  expectedTime: string,
+  dosingWindowMin: number
+): number {
+  const { wasDoseTaken, wasDoseMissed } = useDoseHistoryStore.getState();
+
+  if (wasDoseTaken(deviceId, expectedTime)) return 3;
+  if (wasDoseMissed(deviceId, expectedTime)) return 4;
+
+  const [hour, minute] = expectedTime.split(":").map(Number);
+  const doseTime = dayjs()
+    .startOf("day")
+    .add(hour, "hour")
+    .add(minute, "minute");
+  const now = dayjs();
+
+  const diffMinutes = doseTime.diff(now, "minute");
+
+  if (diffMinutes < -dosingWindowMin) return 5; // Missed (window passed, no record)
+  if (-dosingWindowMin <= diffMinutes && diffMinutes <= dosingWindowMin)
+    return 2; // Within window
+
+  return 0; // Later
+}
