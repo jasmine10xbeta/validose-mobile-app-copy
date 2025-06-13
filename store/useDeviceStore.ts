@@ -1,64 +1,38 @@
-import * as SecureStore from "expo-secure-store";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
-import { StateStorage, persist, createJSONStorage } from "zustand/middleware";
-
-const SecureStorage: StateStorage = {
-  getItem: async (name: string): Promise<string | null> => {
-    return (await SecureStore.getItemAsync(name)) || null;
-  },
-  setItem: async (name: string, value: string): Promise<void> => {
-    await SecureStore.setItemAsync(name, value);
-  },
-  removeItem: async (name: string): Promise<void> => {
-    await SecureStore.deleteItemAsync(name);
-  },
-};
+import { persist, createJSONStorage } from "zustand/middleware";
 
 export interface Device {
-  regimenId: string;
-  protocolId: string;
+  color: any;
   deviceId: string;
   deviceName: string;
-  medicine: string;
-  medicineState?: number;
-  color?: string;
-  status?: "Connected" | "Disconnected";
-  indicationCode: string;
-  dosageAmount: number;
-  administrationDays: any[];
-  administrationTimesMin: any[];
-  frequencyCount: number;
-  dosingWindowMin: number;
-  active: boolean;
-  notes?: string;
-  previousTreatment?: Partial<Omit<Device, "deviceId" | "deviceName" | "color" | "status">>;
+  connected: boolean;
+  linkedProtocolId?: string;
 }
 
-interface DeviceState {
+interface DeviceStore {
   devices: Device[];
-  hasHydrated: boolean;
-  setHydrated: () => void;
-  addDevice: (device: Device) => boolean;
-  removeDevice: (deviceId: string) => void;
+  addDevice(device: Device): boolean;
+  updateDevice(deviceId: string, data: Partial<Device>): void;
+  getDevice(deviceId: string): Device | undefined;
   getDeviceList: () => Device[];
-  removeAll: () => void;
-  updateDeviceById: (deviceId: string, updates: Partial<Device>) => void;
-  dailyDoseLog: Record<string, string>;
-  recordDoseTaken: (deviceId: string) => void;
-  wasDoseTakenToday: (deviceId: string) => boolean;
+  removeDevice(deviceId: string): void;
+  removeAllDevices(): void;
 }
 
-const useDeviceStore = create<DeviceState>()(
+const useDeviceStore = create<DeviceStore>()(
   persist(
     (set, get) => ({
       devices: [],
-      hasHydrated: false,
-      setHydrated: () => set({ hasHydrated: true }),
-
-      addDevice: (device: Device) => {
+      
+      addDevice: (device) => {
         const currentDevices = get().devices;
-        const idExists = currentDevices.some((d) => d.deviceId === device.deviceId);
-        const nameExists = currentDevices.some((d) => d.deviceName === device.deviceName);
+        const idExists = currentDevices.some(
+          (d) => d.deviceId === device.deviceId
+        );
+        const nameExists = currentDevices.some(
+          (d) => d.deviceName === device.deviceName
+        );
 
         if (idExists || nameExists) return false;
 
@@ -66,63 +40,33 @@ const useDeviceStore = create<DeviceState>()(
         return true;
       },
 
-      removeDevice: (deviceId: string) => {
+      updateDevice: (deviceId, data) => {
         set((state) => ({
-          devices: state.devices.filter((device) => device.deviceId !== deviceId),
-        }));
-      },
-
-      getDeviceList: () => get().devices,
-
-      removeAll: () => {
-        set({ devices: [] });
-      },
-
-      updateDeviceById: (deviceId, updates) => {
-        set((state) => ({
-          devices: state.devices.map((device) =>
-            device.deviceId === deviceId
-              ? {
-                  ...device,
-                  previousTreatment: {
-                    regimen_id: device.regimenId,
-                    indication_code: device.indicationCode,
-                    dosage_amount: device.dosageAmount,
-                    administrationDays: device.administrationDays,
-                    administration_times_min: device.administrationTimesMin,
-                    frequency_count: device.frequencyCount,
-                    dosing_window_min: device.dosingWindowMin,
-                    protocolId: device.protocolId,
-                  },
-                  ...updates,
-                }
-              : device
+          devices: state.devices.map((d) =>
+            d.deviceId === deviceId ? { ...d, ...data } : d
           ),
         }));
       },
 
-      dailyDoseLog: {},
+      getDevice: (deviceId) => {
+        return get().devices.find((d) => d.deviceId === deviceId);
+      },
 
-      recordDoseTaken: (deviceId) =>
+      getDeviceList: () => get().devices,
+
+      removeDevice: (deviceId) => {
         set((state) => ({
-          dailyDoseLog: {
-            ...state.dailyDoseLog,
-            [deviceId]: new Date().toISOString().split("T")[0],
-          },
-        })),
+          devices: state.devices.filter((d) => d.deviceId !== deviceId),
+        }));
+      },
 
-      wasDoseTakenToday: (deviceId) => {
-        const logDate = get().dailyDoseLog[deviceId];
-        const today = new Date().toISOString().split("T")[0];
-        return logDate === today;
+      removeAllDevices: () => {
+        set({ devices: [] });
       },
     }),
     {
       name: "device-storage",
-      storage: createJSONStorage(() => SecureStorage),
-      onRehydrateStorage: () => (state) => {
-        state?.setHydrated?.();
-      },
+      storage: createJSONStorage(() => AsyncStorage),
     }
   )
 );
