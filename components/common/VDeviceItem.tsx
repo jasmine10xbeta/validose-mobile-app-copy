@@ -4,19 +4,21 @@ import { VText } from "./VText";
 
 interface VDeviceItemProps {
   item: Device;
-  state: string;
+  state: boolean;
 }
 
 export function VDeviceItem(props: VDeviceItemProps) {
   return (
     <View style={styles.deviceItem}>
       <VText textVariant="DeviceItem">{props.item.deviceName}</VText>
-      {props.state === "Disconnected" ? (
+      {props.state ? (
+        <VText textVariant="DeviceItemState">
+          {props.state ? "Connected" : "Disconnected"}
+        </VText>
+      ) : (
         <Pressable onPress={() => {}}>
           <VText textVariant="DeviceItemState">{"Retry"}</VText>
         </Pressable>
-      ) : (
-        <VText textVariant="DeviceItemState">{props.state}</VText>
       )}
     </View>
   );

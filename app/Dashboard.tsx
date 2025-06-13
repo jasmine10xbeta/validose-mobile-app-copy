@@ -4,6 +4,7 @@ import { FlatList, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { VButton } from "@/components/common/VButton";
 import { VMedicationItem } from "@/components/common/VMedicationItem";
+import VNetworkInfo from "@/components/common/VNetworkInfo";
 import { VNextDoseInfo } from "@/components/common/VNextDoseInfo";
 import { showToast } from "@/components/common/VToast";
 import useDeviceStore from "@/store/useDeviceStore";
@@ -161,6 +162,7 @@ export default function DashboardScreen() {
 
   return (
     <SafeAreaView style={styles.alignContent}>
+      <VNetworkInfo />
       {isInitialized && (
         <>
           <VNextDoseInfo {...{ ...doseInfo, state: doseInfoState }} />

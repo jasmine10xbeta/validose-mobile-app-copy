@@ -4,6 +4,7 @@ import { useMemo, useRef, useEffect } from "react";
 import { StyleSheet, View, ScrollView } from "react-native";
 import { Device } from "@/store/useDeviceStore";
 import useDoseScheduleStore from "@/store/useDoseScheduleStore";
+import useNetworkStore from "@/store/useNetworkStore";
 import useTreatmentProtocolStore from "@/store/useTreatmentProtocolStore";
 import { getDoseState } from "@/utils/dose/doseHelper";
 import { VDoseItem } from "./VDoseItem";
@@ -34,6 +35,7 @@ export function VMedicationItem(props: VMedicationItemProps) {
 
   const { getDoses } = useDoseScheduleStore();
   const { getProtocol } = useTreatmentProtocolStore();
+  const isNetworkConnected = useNetworkStore((s) => s.isConnected);
 
   const DEFAULT_STATUS: "Connected" | "Disconnected" = "Disconnected";
 
@@ -139,10 +141,12 @@ export function VMedicationItem(props: VMedicationItemProps) {
     // Handle error states based on fallback logic (optional)
     const isDeviceConnected = deviceStatus === "Connected";
 
-    if (!isDeviceConnected) {
+    if (!isDeviceConnected || !isNetworkConnected) {
       const imageSource = assets
-        ? assets[1]
-        : assets[0];
+        ? !isNetworkConnected
+          ? assets[1]
+          : assets[0]
+        : null;
       const title = !isDeviceConnected ? "Device error" : "No connection";
       const message = !isDeviceConnected
         ? "Contact support."
