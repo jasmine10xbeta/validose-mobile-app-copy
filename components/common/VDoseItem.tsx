@@ -1,5 +1,6 @@
 import { StyleSheet, View } from "react-native";
-import { validoseWhite } from "@/constants/colors";
+import { validoseWhite } from "@/constants/Colors";
+import MissedDose from "../../assets/images/svg/missed-dose-indicator.svg";
 import { VDoseText } from "./VDoseText";
 
 interface VDoseItemProps {
@@ -8,36 +9,52 @@ interface VDoseItemProps {
   color: string;
 }
 
+// Helper to apply 60% opacity to hex color
+function withOpacity(hex: string, opacity: number = 0.4) {
+  const alpha = Math.round(opacity * 255)
+    .toString(16)
+    .padStart(2, "0");
+  return hex.length === 7 ? `${hex}${alpha}` : hex;
+}
+
 export function VDoseItem(props: VDoseItemProps) {
-  // Validate state value
-  const validState = [1, 2].includes(props.state) ? props.state : 1;
+  const isUpcoming = props.state === 0;
+  const isUnknown = props.state === 5;
+
+  const isTaken = props.state === 3;
+  const isMissed = props.state === 4;
+  
+  const borderColor = isUpcoming ? withOpacity(props.color, 0.4) : props.color;
+  const textColor = isTaken ? validoseWhite : borderColor;
 
   const styles = StyleSheet.create({
     doseItem: {
-      borderRadius: "50%",
+      borderRadius: 20,
       height: 40,
       width: 40,
-      borderWidth: validState === 1 ? 1 : 2,
+      borderWidth: isUpcoming ? 1 : 2,
       justifyContent: "center",
-      borderStyle: validState === 1 ? "dashed" : "solid",
-      borderColor: props.color,
-      backgroundColor: validState === 2 ? props.color : undefined,
+      borderStyle: isUpcoming ? "dashed" : "solid",
+      borderColor,
+      backgroundColor: isTaken ? props.color : undefined,
+    },
+    missedDoseContainer: {
+      justifyContent: "center",
+      alignItems: "center",
     },
   });
 
-  if (props.doseNumber === 4) {
-    return (
-      <View style={styles.doseItem}>
-        <VDoseText color={props.color}>!</VDoseText>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.doseItem}>
-      <VDoseText color={props.state === 2 ? validoseWhite : props.color}>
-        {props.state === 2 ? "✓" : props.doseNumber}
-      </VDoseText>
+      {isMissed || isUnknown ? (
+        <View style={styles.missedDoseContainer}>
+          <MissedDose width={28} height={28} color={props.color} />
+        </View>
+      ) : (
+        <VDoseText color={textColor}>
+          {isTaken ? "✓" : props.doseNumber}
+        </VDoseText>
+      )}
     </View>
   );
 }

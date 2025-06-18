@@ -4,7 +4,7 @@ import { useState } from "react";
 import { FlatList, StyleSheet, View, Dimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { showToast } from "@/components/common/Toast";
+import { showToast } from "@/components/common/VToast";
 import { VButton } from "@/components/common/VButton";
 import { VDeviceItem } from "@/components/common/VDeviceItem";
 import { QRCodeScanner } from "@/components/common/VQRCodeScanner";
@@ -18,7 +18,6 @@ export default function PairingScreen() {
 
   const [hasScanned, setHasScanned] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
 
   const [contentHeight, setContentHeight] = useState(0);
@@ -54,30 +53,23 @@ export default function PairingScreen() {
       const parsed = JSON.parse(scanningResult.data);
       const deviceId = parsed?.deviceId;
 
+      console.log("\n");
+      console.log("Scanned device id:", deviceId);
+
       if (deviceId) {
-        setIsConnecting(true);
         const connectResponse = await bondDevice(deviceId);
-        setIsConnecting(false);
+        console.log(`Connection response with ${deviceId}:\n`, connectResponse);
 
         if (connectResponse) {
           // TODO: Inform backend about attempted failed connections?
           const { deviceName, deviceId } = connectResponse;
+          showToast("success", "Device connected", deviceName);
           const added = addDevice({
             deviceId,
             deviceName,
-            protocolId: "",
-            status: "Connected" as const,
-            medicine: deviceName.charAt(0),
-            medicineState: 0, // default state
-            color: "#5D9BFF",
-            regimenId: "",
-            indicationCode: "",
-            dosageAmount: 0,
-            administrationDays: [],
-            administrationTimesMin: [],
-            frequencyCount: 0,
-            dosingWindowMin: 0,
-            active: false,
+            linkedProtocolId: "",
+            connected: true,
+            color: ""
           });
 
           if (added) {
@@ -98,6 +90,7 @@ export default function PairingScreen() {
         showToast("error", "Invalid QR Code");
       }
     } catch (err) {
+      console.log(err);
       showToast("error", "Invalid QR Code", `${err}`);
     }
 
@@ -160,7 +153,7 @@ export default function PairingScreen() {
             <FlatList
               data={devices}
               renderItem={({ item }) => (
-                <VDeviceItem item={item} state={item?.status || ""} />
+                <VDeviceItem item={item} state={item?.connected || false} />
               )}
               keyExtractor={(item) => item.deviceId}
               showsVerticalScrollIndicator={false}

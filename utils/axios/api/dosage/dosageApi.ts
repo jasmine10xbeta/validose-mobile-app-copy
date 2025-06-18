@@ -1,3 +1,4 @@
+import { DoseRecord } from "@/store/useDoseHistoryStore";
 import axiosInstance from "../../axiosInstance";
 
 /**
@@ -14,3 +15,7 @@ export const getDeviceDosageSchedule = async (deviceId: string) => {
     // throw error;
   }
 };
+
+export const sendDoseRecordsToBackend = async (records: DoseRecord[]): Promise<void> => {
+  // TODO: Implement the logic to send the records to the backend
+}

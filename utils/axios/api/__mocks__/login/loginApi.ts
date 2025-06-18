@@ -19,6 +19,8 @@ interface RefreshResponse {
 export const refreshSession = async (
   refreshToken: string
 ): Promise<RefreshResponse> => {
+  console.log("Simulating API call to backend to refresh session..");
+
   // Simulate API delay
   await new Promise((res) => setTimeout(res, 500));
 
@@ -36,5 +38,6 @@ export const refreshSession = async (
     },
   };
 
+  console.log("Session refresh response:", response);
   return response;
 };

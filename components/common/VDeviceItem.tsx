@@ -10,7 +10,7 @@ interface VDeviceItemProps {
 export function VDeviceItem(props: VDeviceItemProps) {
   return (
     <View style={styles.deviceItem}>
-      <VText textVariant="DeviceItem">{props.item.name}</VText>
+      <VText textVariant="DeviceItem">{props.item.deviceName}</VText>
       {props.state === "Disconnected" ? (
         <Pressable onPress={() => {}}>
           <VText textVariant="DeviceItemState">{"Retry"}</VText>
