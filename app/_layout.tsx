@@ -15,7 +15,7 @@ import { PaperProvider } from "react-native-paper";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
 
-import { showToast } from "@/components/common/Toast";
+import { showToast } from "@/components/common/VToast";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import useDeviceStore from "@/store/useDeviceStore";
 import { customLog } from "@/utils/log/logManager";
