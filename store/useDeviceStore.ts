@@ -8,6 +8,8 @@ export interface Device {
   deviceName: string;
   connected: boolean;
   linkedProtocolId?: string;
+  status?: string;
+  medicineState?: number;
 }
 
 interface DeviceStore {

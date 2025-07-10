@@ -39,9 +39,9 @@ export function VMedicationItem(props: VMedicationItemProps) {
 
   const DEFAULT_STATUS: "Connected" | "Disconnected" = "Disconnected";
 
-  const devicePrimaryColor = props.item.color ?? randomColors.primary;
-  const deviceSecondaryColor = props.item.color ?? randomColors.secondary;
-  const deviceErrorColor = props.item.color ?? randomColors.error;
+  const devicePrimaryColor = props.item.color ? props.item.color : randomColors.primary;
+  const deviceSecondaryColor = props.item.color ? props.item.color : randomColors.secondary;
+  const deviceErrorColor = props.item.color ? props.item.color : randomColors.error;
 
   const deviceStatus =
     props.item?.connected === true

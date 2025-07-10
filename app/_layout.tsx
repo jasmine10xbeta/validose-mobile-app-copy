@@ -15,7 +15,7 @@ import { PaperProvider } from "react-native-paper";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
 
-import { showToast } from "@/components/common/Toast";
+import { showToast } from "@/components/common/VToast";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import useDeviceStore from "@/store/useDeviceStore";
 import { customLog } from "@/utils/log/logManager";
@@ -24,7 +24,8 @@ import { useAuth } from "@/utils/provider/AuthenticationProvider";
 import { queryClient } from "@/utils/tanstackQuery/tanstackQuery";
 import {
   scanLeDevice,
-  connect
+  connect,
+  bondDevice
 } from "../modules/tenx-mdk-ble-rn-library/src/index";
 import "@/utils/log/logManager";
 
@@ -44,23 +45,10 @@ type AllowedPaths =
   | `/#${string}`;
 
 
-const waitForHydration = () =>
-  new Promise<void>((resolve) => {
-    const state = useDeviceStore.getState();
-    if (state.hasHydrated) return resolve(); // already hydrated
-
-    const unsub = useDeviceStore.subscribe((state) => {
-      if (state.hasHydrated) {
-        unsub();
-        resolve();
-      }
-    });
-  });
-
 function AppInitializer({ onReady }: { onReady: () => void }) {
   const { user, isLoading, isSignedOut } = useAuth();
   const router = useRouter();
-  const { updateDeviceById, removeAll } = useDeviceStore();
+  const { updateDevice } = useDeviceStore();
 
   useEffect(() => {
     if (isLoading) return;
@@ -68,7 +56,6 @@ function AppInitializer({ onReady }: { onReady: () => void }) {
     const initializeApp = async () => {
       try {
         await prepareBluetooth();
-        await waitForHydration();
 
         if (isSignedOut) return redirectTo("/reconnect");
 
@@ -138,14 +125,14 @@ function AppInitializer({ onReady }: { onReady: () => void }) {
 
   const connectToDevice = async (deviceId: string) => {
     try {
-      const result = await connect(deviceId);
+      const result = await bondDevice(deviceId);
       const isConnected = !!result;
 
       // customLog("\n");
       customLog(`Connection status for ${deviceId}:`, isConnected);
       customLog("Updating device connection status in store now..");
 
-      updateDeviceById(deviceId, {
+      updateDevice(deviceId, {
         status: isConnected ? "Connected" : "Disconnected",
         medicineState: isConnected ? 0 : 6,
       });
@@ -153,7 +140,7 @@ function AppInitializer({ onReady }: { onReady: () => void }) {
       return isConnected;
     } catch (err) {
       showToast("error", `Failed to connect to device ${deviceId}`, `${err}`);
-      updateDeviceById(deviceId, { status: "Disconnected", medicineState: 6 });
+      updateDevice(deviceId, { status: "Disconnected", medicineState: 6 });
       return false;
     }
   };

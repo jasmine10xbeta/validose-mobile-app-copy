@@ -108,9 +108,10 @@ export default function DashboardScreen() {
           if (currentProtocol) {
             initializeSchedule(device.deviceId, currentProtocol);
           }
+        } finally {
+          setInitialized(true);
         }
       }
-      setInitialized(true);
     };
 
     fetchDosageDetails();

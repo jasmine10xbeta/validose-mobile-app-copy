@@ -78,7 +78,8 @@
         }
       ],
       "expo-build-properties",
-      "expo-asset"
+      "expo-asset",
+      "react-native-ble-plx"
     ],
     "experiments": {
       "typedRoutes": true
