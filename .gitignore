@@ -49,3 +49,4 @@ app-example
 ios/Podfile.lock
 
 build/
+package-lock.json
