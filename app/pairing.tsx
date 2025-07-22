@@ -63,10 +63,8 @@ export default function PairingScreen() {
     setHasScanned(true);
 
     try {
-      // TODO: Update parsing logic. 
-      // For now, assuming QR contains plain JSON {"deviceId":"abc123"}
       const parsed = JSON.parse(scanningResult.data);
-      const deviceId = parsed?.deviceId;
+      const deviceId = parsed?.deviceId; // TODO: handle uuid and deviceid
 
       console.log("\n");
       console.log("Scanned device id:", deviceId);

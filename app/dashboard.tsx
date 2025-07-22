@@ -11,7 +11,6 @@ import useDoseHistoryStore from "@/store/useDoseHistoryStore";
 import useDoseScheduleStore from "@/store/useDoseScheduleStore";
 import useTreatmentProtocolStore from "@/store/useTreatmentProtocolStore";
 import { getLatestTreatmentProtocol } from "@/utils/axios/api/__mocks__/dosage";
-import { clearToken } from "@/utils/axios/api/token";
 import { getNextDose } from "@/utils/dose/doseHelper";
 
 /**

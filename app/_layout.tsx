@@ -24,7 +24,6 @@ import { useAuth } from "@/utils/provider/AuthenticationProvider";
 import { queryClient } from "@/utils/tanstackQuery/tanstackQuery";
 import {
   scanLeDevice,
-  connect,
   bondDevice
 } from "../modules/tenx-mdk-ble-rn-library/src/index";
 import "@/utils/log/logManager";
