@@ -13,6 +13,7 @@ import {
   isTokenValid,
   storeToken,
 } from "../axios/api/__mocks__/token";
+import { AuthTokenResponse } from "../axios/api/onboarding";
 
 interface User {
   token: string;
@@ -21,7 +22,7 @@ interface User {
 
 interface AuthenticationContextType {
   user: User | null;
-  signIn: (userData: User) => Promise<void>;
+  signIn: (userData: AuthTokenResponse) => Promise<void>;
   signOut: () => Promise<void>;
   isLoading: boolean;
   isSignedOut: boolean;
@@ -58,8 +59,8 @@ export function AuthenticationProvider({
           if (!newSession) signOut();
 
           signIn({
-            token: newSession.access_token,
-            refreshToken: newSession.refresh_token,
+            access_token: newSession.access_token,
+            refresh_token: newSession.refresh_token,
           });
         }
       } catch (error) {
@@ -73,13 +74,13 @@ export function AuthenticationProvider({
     loadUser();
   }, []);
 
-  const signIn = async (userData: any) => {
+  const signIn = async (userData: AuthTokenResponse) => {
     try {
       console.log("\n");
       console.log("Signing in..");
       console.log(`Saving token to SecureStore and loading user\n ${JSON.stringify(userData)}`);
 
-      await storeToken(userData.token, userData.refresh_token);
+      await storeToken(userData.access_token, userData.refresh_token);
       setUser(userData);
       setIsSignedOut(false);
     } catch (error) {

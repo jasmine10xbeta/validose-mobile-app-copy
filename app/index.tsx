@@ -2,14 +2,13 @@ import { useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { useState, useRef } from "react";
 import { StyleSheet, View, PermissionsAndroid, Platform } from "react-native";
-import { getUniqueId } from "react-native-device-info";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { VButton } from "@/components/common/VButton";
 import { QRCodeScanner } from "@/components/common/VQRCodeScanner";
 import { VText } from "@/components/common/VText";
 import { showToast } from "@/components/common/VToast";
-import { onboardWithCode } from "@/utils/axios/api/__mocks__/onboarding";
+import { onboardWithCode } from "@/utils/axios/api/onboarding";
 import { useAuth } from "@/utils/provider/AuthenticationProvider";
 
 function LoginMessageBlock({
@@ -89,25 +88,19 @@ export default function LoginScreen() {
 
     hasScannedRef.current = true;
     try {
-      // TODO: Update parsing logic.
-      // Assuming QR contains plain JSON {"code":"xyz"}
-      const { code: onboardingCode } = JSON.parse(scanningResult?.data);
+      const onboardingCode = scanningResult?.data;
 
       console.log("\n");
       console.log("Scanned onboarding code:", onboardingCode);
 
       if (onboardingCode) {
-        const mobileDeviceId = await getUniqueId();
-        const response = await onboardWithCode(onboardingCode, mobileDeviceId);
+        const response = await onboardWithCode(onboardingCode);
 
         console.log("\n");
-        console.log(`Pairing API reponse for mobile device with unique id ${mobileDeviceId}:\n ${JSON.stringify(response)}`);
+        console.log(`Register API reponse:\n ${JSON.stringify(response)}`);
 
         if (response?.access_token) {
-          await signIn({
-            token: response.access_token,
-            refreshToken: response.refresh_token,
-          });
+          await signIn(response);
           router.replace("/pairing");
           setShowCamera(false);
         } else {
@@ -117,7 +110,9 @@ export default function LoginScreen() {
         showToast("error", "Invalid QR Code");
       }
     } catch (err) {
-      showToast("error", "Invalid QR Code", `${err}`);
+      const errorMessage = (err as Error)?.message ? (err as Error)?.message : err;
+      showToast("error", "Invalid QR Code", `${errorMessage}`);
+      setShowCamera(false);
     } finally {
       setTimeout(() => {
         hasScannedRef.current = false;
@@ -129,7 +124,10 @@ export default function LoginScreen() {
     return (
       <QRCodeScanner
         onBarcodeScanned={handlePatientQrScan}
-        onClose={() => !hasScannedRef.current}
+        onClose={() => {
+          hasScannedRef.current = !hasScannedRef.current;
+          setShowCamera(false);
+        }}
       />
     );
   }
@@ -153,7 +151,6 @@ export default function LoginScreen() {
 
         setShowCamera(true);
       }}
-      // onPress={() => setShowCamera(true)}
     />
   );
 }
