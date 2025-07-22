@@ -6,7 +6,7 @@ import axiosInstance from "../../axiosInstance";
  * @param deviceId - The unique identifier for the validose device.
  * @returns Device dosage information from the backend.
  */
-export const getDeviceDosageSchedule = async (deviceId: string) => {
+export const getLatestTreatmentProtocol = async (deviceId: string) => {
   try {
     const response = await axiosInstance.get(`/dosage/${deviceId}`); // TODO: Update endpoint
     return response.data;

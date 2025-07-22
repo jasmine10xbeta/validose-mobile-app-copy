@@ -7,7 +7,7 @@ const DEVICE_ID_1 = process.env.DEVICE_ID;
  * @param deviceId - The unique identifier for the validose device.
  * @returns Simulated device dosage information.
  */
-export const getDeviceDosageSchedule = async (deviceId: string) => {
+export const getLatestTreatmentProtocol = async (deviceId: string) => {
   await new Promise((res) => setTimeout(res, 500)); // Simulate delay
 
   console.log("\n");
@@ -25,7 +25,13 @@ export const getDeviceDosageSchedule = async (deviceId: string) => {
       indicationCode: "DED",
       dosageAmount: 2,
       administrationDays: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
-      administrationTimesMin: [180, 480, 649, 850],    // minutes past midnight
+      // administrationTimesMin: [180, 480, 649, 850],    // minutes past midnight
+      administrationTimesMin: [
+        1752135600, // 03:00
+        1752153600, // 08:00
+        1752161340, // 10:49
+        1752172200  // 14:10
+      ],   // epoch time
       frequencyCount: 2,
       dosingWindowMin: 15,
       active: true,

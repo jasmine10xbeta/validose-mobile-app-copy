@@ -6,10 +6,10 @@ import { jwtDecode } from "jwt-decode";
  * @param accessToken - The access token to be stored.
  * @param refreshToken - Optional refresh token to be stored. If provided, it is stringified and stored in SecureStore.
  */
-export async function storeToken(accessToken: string, refreshToken?: object) {
+export async function storeToken(accessToken: string, refreshToken?: string) {
   await SecureStore.setItemAsync("authToken", accessToken);
   if (refreshToken) {
-    await SecureStore.setItemAsync("refreshToken", JSON.stringify(refreshToken));
+    await SecureStore.setItemAsync("refreshToken", refreshToken);
   }
 }
 
