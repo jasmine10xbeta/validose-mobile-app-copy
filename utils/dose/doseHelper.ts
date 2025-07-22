@@ -58,7 +58,7 @@ export function getLabelsForNextDose(
 
 export const getNextDose = (
   devices: any[],
-  getProtocol: {
+  getStoredTreatmentProtocol: {
     (deviceId: string): TreatmentProtocol | undefined;
     (arg0: any): any;
   }
@@ -77,7 +77,7 @@ export const getNextDose = (
   }[] = [];
 
   for (const device of devices) {
-    const protocol = getProtocol(device.deviceId);
+    const protocol = getStoredTreatmentProtocol(device.deviceId);
     if (!protocol?.administrationDays?.includes(todayStr)) continue;
 
     for (const timeMin of protocol.administrationTimesMin || []) {

@@ -7,7 +7,7 @@ export interface Device {
   deviceId: string;
   deviceName: string;
   connected: boolean;
-  linkedProtocolId?: string;
+  linkedTreatmentProtocolId?: string;
   status?: string;
   medicineState?: number;
 }

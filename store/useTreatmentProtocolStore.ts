@@ -21,8 +21,8 @@ export interface TreatmentProtocol {
 interface ProtocolStore {
   current: Record<string, TreatmentProtocol>; // deviceId → protocol
   history: TreatmentProtocol[];
-  setProtocol(deviceId: string, protocol: TreatmentProtocol): void;
-  getProtocol(deviceId: string): TreatmentProtocol | undefined;
+  storeTreatmentProtocol(deviceId: string, protocol: TreatmentProtocol): void;
+  getStoredTreatmentProtocol(deviceId: string): TreatmentProtocol | undefined;
 }
 
 const useTreatmentProtocolStore = create<ProtocolStore>()(
@@ -31,7 +31,7 @@ const useTreatmentProtocolStore = create<ProtocolStore>()(
       current: {},
       history: [],
 
-      setProtocol: (deviceId, protocol) => {
+      storeTreatmentProtocol: (deviceId, protocol) => {
         const prev = get().current[deviceId];
         if (prev) {
           set((state) => ({ history: [...state.history, prev] }));
@@ -41,7 +41,7 @@ const useTreatmentProtocolStore = create<ProtocolStore>()(
         }));
       },
 
-      getProtocol: (deviceId) => get().current[deviceId],
+      getStoredTreatmentProtocol: (deviceId) => get().current[deviceId],
     }),
     {
       name: "treatment-protocol-storage",

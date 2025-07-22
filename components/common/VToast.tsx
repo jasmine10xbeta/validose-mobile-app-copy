@@ -10,7 +10,8 @@ export function showToast(type: ToastType, title: string, message?: string) {
         topOffset: 50,
         visibilityTime: 2000,
         autoHide: true,
-        textWrap: 'wrap',
-        numberOfLines: 0,
+        text2Style: {
+            overflow: "visible",
+        }
     });
 }

@@ -34,7 +34,7 @@ export function VMedicationItem(props: VMedicationItemProps) {
   }, []);
 
   const { getDoses } = useDoseScheduleStore();
-  const { getProtocol } = useTreatmentProtocolStore();
+  const { getStoredTreatmentProtocol } = useTreatmentProtocolStore();
   const isNetworkConnected = useNetworkStore((s) => s.isConnected);
 
   const DEFAULT_STATUS: "Connected" | "Disconnected" = "Disconnected";
@@ -50,7 +50,7 @@ export function VMedicationItem(props: VMedicationItemProps) {
         ? "Disconnected"
         : DEFAULT_STATUS;
 
-  const protocol = getProtocol(props.item.deviceId ?? "");
+  const protocol = getStoredTreatmentProtocol(props.item.deviceId ?? "");
   const dosingWindowMin = protocol?.dosingWindowMin ?? 15; // fallback value
   const medicine = protocol?.medicine ?? "";
 

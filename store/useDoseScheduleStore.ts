@@ -16,7 +16,7 @@ interface ScheduledDose {
 
 interface DoseScheduleStore {
   today: Record<string, ScheduledDose[]>; // deviceId → doses
-  initializeSchedule(deviceId: string, protocol: TreatmentProtocol): void;
+  scheduleDosesForToday(deviceId: string, protocol: TreatmentProtocol): void;
   updateStatus(
     deviceId: string,
     expectedTime: string,
@@ -30,7 +30,7 @@ const useDoseScheduleStore = create<DoseScheduleStore>()(
     (set, get) => ({
       today: {},
 
-      initializeSchedule: (deviceId, protocol) => {
+      scheduleDosesForToday: (deviceId, protocol) => {
         const today = dayjs().format("dddd"); // e.g., "Monday"
         console.log(`Initializing doses for ${deviceId} on ${today}`);
 
