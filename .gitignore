@@ -50,3 +50,5 @@ ios/Podfile.lock
 
 build/
 package-lock.json
+
+.vscode/
