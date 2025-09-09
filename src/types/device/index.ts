@@ -11,4 +11,4 @@ export interface ValidoseDevice {
   batteryLevel: number;
 }
 
-export type StatusType = "network" | "connection" | "error" | "battery"
+export type StatusType = "network" | "connection" | "error" | "battery";

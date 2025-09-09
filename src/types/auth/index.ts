@@ -1,10 +1,9 @@
 import { ReactNode } from "react";
-
 import { User } from "../user";
 
 export interface AuthTokenResponse {
-  access_token: string,
-  refresh_token: string
+  access_token: string;
+  refresh_token: string;
 }
 
 export interface AuthenticationContextType {
