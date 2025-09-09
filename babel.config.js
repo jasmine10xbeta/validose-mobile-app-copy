@@ -17,6 +17,18 @@ module.exports = function (api) {
   api.cache(true);
   return {
     presets: ["babel-preset-expo"],
-    plugins: [["transform-define", envKeys]],
+    plugins: [
+      ["transform-define", envKeys],
+      [
+        "module-resolver",
+        {
+          root: ["./"],
+          alias: {
+            "@": "./src",
+          },
+          extensions: [".ts", ".tsx", ".js", ".jsx", ".json"],
+        },
+      ],
+    ],
   };
 };
