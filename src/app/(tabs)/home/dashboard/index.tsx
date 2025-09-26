@@ -7,6 +7,7 @@ import { VMedicationItem } from "@/components/common/VMedicationItem";
 import VNetworkInfo from "@/components/common/VNetworkInfo";
 import { VNextDoseInfo } from "@/components/common/VNextDoseInfo";
 import { showToast } from "@/components/common/VToast";
+import { createSupportRequest } from "@/services/support";
 import useDeviceStore from "@/store/device";
 import useScheduleStore from "@/store/schedule";
 import useTreatmentStore from "@/store/treatment";
@@ -28,13 +29,13 @@ export default function DashboardScreen() {
   }, []);
 
   useEffect(() => {
-    console.log("\n");
-    console.log("All schedules in store..");
-    console.log(schedules);
+    // console.log("\n");
+    // console.log("All schedules in store..");
+    // console.log(schedules);
 
-    console.log("\n");
-    console.log("Today's schedules by device..");
-    console.log(todaySchedulesByDevice);
+    // console.log("\n");
+    // console.log("Today's schedules by device..");
+    // console.log(todaySchedulesByDevice);
   }, [todaySchedulesByDevice]);
 
   // UNCOMMENT FOR DEBUG MODE
@@ -46,7 +47,7 @@ export default function DashboardScreen() {
       // Step 1: Clear all linked devices locally
       removeDevice(deviceAddress);
 
-      const connected = await connectAndSetupDevice(deviceAddress, treatments);
+      const connected = await connectAndSetupDevice(deviceAddress);
       if (connected?.error) {
         showToast("error", connected?.error.toString());
       }
@@ -83,7 +84,15 @@ export default function DashboardScreen() {
         <VButton
           // === COMMENT FROM HERE FOR DEBUG MODE ===
           label="Help"
-          onPress={() => showToast("success", "Notification sent", "Someone will be in touch soon.")}
+          onPress={async () => {
+            const supportResponse = await createSupportRequest();
+            if (supportResponse?.id) {
+              showToast("success", "Notification sent", "Someone will be in touch soon.");
+            } else {
+              showToast("error", "Error", "Could not create support request.");
+              return;
+            }
+          }}
           // === COMMENT TILL HERE FOR DEBUG MODE ===
 
           // === UNCOMMENT FROM HERE FOR DEBUG ===

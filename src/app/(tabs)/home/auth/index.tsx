@@ -109,7 +109,7 @@ export default function LoginScreen() {
         const response = await onboardWithCode(onboardingCode);
 
         if (response?.access_token) {
-          await signIn(response); // Sign user in and redirect to pairing
+          await signIn(response);                         // Sign user in and redirect to pairing
           router.replace("/home/pairing");
           setShowCamera(false);
         } else {
@@ -126,7 +126,6 @@ export default function LoginScreen() {
       showToast("error", "Invalid QR Code", `${errorMessage}`);
       setShowCamera(false);
     } finally {
-      router.replace("/home/pairing");
       setShowCamera(false);
       setTimeout(() => hasScannedRef.current = false, 10); // Reset scanner lock after delay
     }
