@@ -45,15 +45,6 @@ export default function PairingScreen() {
     fetchDevices();
   }, []);
 
-  useEffect(() => {
-    async function fetchTreatments() {
-      if (!isLoading && user?.access_token) {
-        await getTreatments();
-      }
-    }
-    fetchTreatments();
-  }, []);
-
   async function reconnectDevice(deviceName: string) {
     if (reconnectingDeviceId) {
       showToast("info", "Another connection in progress", "Please wait..");
@@ -61,7 +52,7 @@ export default function PairingScreen() {
     }
     setReconnectingDeviceId(deviceName);
     try {
-      const connected = await connectAndSetupDevice(deviceName, treatments);
+      const connected = await connectAndSetupDevice(deviceName);
       if (connected.error) showToast("error", connected.error.toString());
     } catch (error) {
       showToast("error", "Connection failed", error instanceof Error ? error.message : String(error));
@@ -100,7 +91,7 @@ export default function PairingScreen() {
     const deviceAddress = scanningResult.data;
     const isValid = await validateDeviceAddress(deviceAddress);
     if (isValid) {
-      const connected = await connectAndSetupDevice(deviceAddress, treatments);
+      const connected = await connectAndSetupDevice(deviceAddress);
       hasScannedRef.current = false;
       setShowCamera(false);
 
@@ -192,7 +183,7 @@ export default function PairingScreen() {
         )}
         <VButton
           onPress={() => {
-            router.push("/home/manual-pairing");
+            router.push("/home/pairing/manual-pairing");
           }}
           style={{ borderWidth: 0, marginTop: 5 }}
           label="Enter device ID manually"

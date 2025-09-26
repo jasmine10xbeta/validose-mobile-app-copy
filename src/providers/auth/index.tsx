@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { createContext, useState, useEffect, useContext } from "react";
 
@@ -7,7 +8,6 @@ import {
   AuthenticationContextType,
   AuthenticationProviderProps,
 } from "@/types/auth";
-
 
 // Create a React context for authentication state and actions
 const AuthenticationContext = createContext<
@@ -54,6 +54,7 @@ export async function storeTokens(accessToken: string, refreshToken?: string) {
   if (accessToken) await SecureStore.setItemAsync("accessToken", accessToken);
   if (refreshToken) await SecureStore.setItemAsync("refreshToken", refreshToken);
 }
+
 export async function clearTokens() {
   await SecureStore.deleteItemAsync("accessToken");
   await SecureStore.deleteItemAsync("refreshToken");
@@ -101,18 +102,30 @@ export function AuthenticationProvider({
     }
   };
 
+  const FIRST_RUN_KEY = 'is_first_run';
+
   useEffect(() => {
     console.log("\n");
     console.log(`Loading user from SecureStore..`);
 
     const loadUser = async () => {
       try {
+
+        const hasRun = await AsyncStorage.getItem(FIRST_RUN_KEY);
+        if (!hasRun) {
+          console.log("First install detected — clearing SecureStore");
+          await clearTokens();
+          await AsyncStorage.setItem(FIRST_RUN_KEY, 'true');
+        }
+        
         const access_token = await getAccessToken();
         const refresh_token = await getRefreshToken();
 
         // If tokens exist, consider user signed in and restore state
         if (access_token && refresh_token) {
           await signIn({ access_token, refresh_token });
+        } else {
+          console.log("No tokens found in SecureStore.");
         }
       } catch (error) {
         console.log("Error loading user from SecureStore:", error);

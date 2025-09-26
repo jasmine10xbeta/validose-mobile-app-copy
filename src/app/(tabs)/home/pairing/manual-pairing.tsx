@@ -32,7 +32,7 @@ export default function ManualPairingScreen() {
     }
     setReconnectingDeviceId(deviceName);
     try {
-      const connected = await connectAndSetupDevice(deviceName, treatments);
+      const connected = await connectAndSetupDevice(deviceName);
       if (connected.error) showToast("error", connected.error.toString());
     } catch (error) {
       showToast("error", "Connection failed", error instanceof Error ? error.message : String(error));
@@ -119,7 +119,7 @@ export default function ManualPairingScreen() {
             validateDevice(deviceId);
             
             if (deviceId) {
-              const connected = await connectAndSetupDevice(deviceId, treatments);
+              const connected = await connectAndSetupDevice(deviceId);
               if (connected?.error) showToast("error", connected?.error.toString());
             }
             else showToast("error", "No device code provided");
