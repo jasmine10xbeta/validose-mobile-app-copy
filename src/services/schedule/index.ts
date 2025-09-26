@@ -1,3 +1,4 @@
+import { getLocalISOString } from "../../utils/schedule";
 import axiosInstance from "../axiosInstance";
 
 /**
@@ -49,10 +50,10 @@ export const sendDoseEvent = async (
     // event_id: dose.id,
     medication_code: medication_code,
     device_id: deviceId,
-    dose_id: `event-${Date.now()}`,
+    dose_id: `${dose?.event_id?.days_since_epoch}-${dose?.event_id?.event_ctr}`,
     dose_state: dose?.dose_state || 0,
     dose_amount_mg: dose?.dose_amount_mg || 0,
-    dose_event_at: dose?.dose_event_at || new Date().toISOString(),
+    dose_event_at: dose?.dose_event_at || getLocalISOString()
   };
 
   const res = await axiosInstance.post("/dose-events", payload);

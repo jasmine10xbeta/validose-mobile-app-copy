@@ -4,8 +4,10 @@ import {
   ThemeProvider,
 } from "@react-navigation/native";
 import { useFonts } from "expo-font";
+
 // import { Stack, useRouter, Slot } from "expo-router";    // COMMENT WHILE DEBUGGING
 import { useRouter, Slot } from "expo-router";              // UNCOMMENT FOR DEBUGGING ONLY
+
 import {} from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
@@ -29,36 +31,39 @@ SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ fade: false });
 
 function AppInitializer({ onReady }: { onReady: () => void }) {
-  const { user, isLoading, signOut } = useAuth();
-  const { removeAllDevices } = useDeviceStore();
+  const { user, isLoading } = useAuth();                  // COMMENT WHILE DEBUGGING AUTH
   const { treatments } = useTreatmentStore();
-
-  const [hasInitialized, setHasInitialized] = useState(false);
-
   const router = useRouter();
 
+  // const { user, isLoading, signOut } = useAuth();      // UNCOMMENT FOR DEBUGGING AUTH
+  // const { removeAllDevices } = useDeviceStore();       // UNCOMMENT FOR DEBUGGING AUTH
+
   useEffect(() => {
-    if (isLoading || hasInitialized) return;
+    if (isLoading) return;
 
     const initializeApp = async () => {
       try {
-        // removeAllDevices();                              // UNCOMMENT FOR DEBUGGING
-        // signOut();                                       // UNCOMMENT FOR DEBUGGING
+        // removeAllDevices();                              // UNCOMMENT FOR DEBUGGING AUTH
+        // signOut();                                       // UNCOMMENT FOR DEBUGGING AUTH
 
-        setHasInitialized(true);
+        // Return to auth screen if user is not signed in
+        if (!user?.access_token) {
+          return redirectTo("/home/auth");
+        }
 
-        if (!user?.access_token) return redirectTo("/home/auth");
-
+        // Return to pairing screen if no devices are stored
         const storedDevices = useDeviceStore.getState().devices;
-        if (!hasStoredDevices(storedDevices)) return redirectTo("/home/pairing");
+        if (!hasStoredDevices(storedDevices)) {
+          return redirectTo("/home/pairing");
+        }
 
-        const allConnected = await connectToAllDevices(storedDevices);
+        await connectToAllDevices(storedDevices);
         await refreshExpiringSchedules();
-
-        redirectTo(allConnected ? "/home/pairing" : "/home/pairing");
+        redirectTo("/home/pairing");
       } catch (e) {
         console.error("App initialization failed:", e);
         showToast("error", "App initialization failed", `${e}`);
+        
         redirectTo("/home/auth");
       } finally {
         onReady();
@@ -66,7 +71,7 @@ function AppInitializer({ onReady }: { onReady: () => void }) {
     };
 
     initializeApp();
-  }, [isLoading, hasInitialized]);
+  }, [isLoading]);
 
   const redirectTo = (path: AllowedPaths) => {
     console.log("\n");
@@ -95,43 +100,32 @@ function AppInitializer({ onReady }: { onReady: () => void }) {
 
     for (const device of devices) {
       const deviceId = device.deviceName;
-      const connected = await connectAndSetupDevice(deviceId, treatments);
+      const connected = await connectAndSetupDevice(deviceId);
 
       if (connected.status === "error") allConnected = false;
-      // await delay(500);
     }
 
     return allConnected;
   };
-
-  const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
   return null;
 }
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-  const [fontsLoaded] = useFonts({
-    Inter: require("../assets/fonts/Inter_28pt-Regular.ttf"),
-  });
+  const [fontsLoaded] = useFonts({Inter: require("../assets/fonts/Inter_28pt-Regular.ttf")});
+  
   const [appReady, setAppReady] = useState(false);
-
-  const handleAppReady = () => {
-    setAppReady(true);
-  };
+  const handleAppReady = () => setAppReady(true);
 
   useEffect(() => {
-    if (fontsLoaded && appReady) {
-      SplashScreen.hideAsync();
-    }
+    if (fontsLoaded && appReady) SplashScreen.hideAsync();
   }, [fontsLoaded, appReady]);
 
   return (
     <SafeAreaProvider>
       <PaperProvider>
-        <ThemeProvider
-          value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
-        >
+        <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
           <AuthenticationProvider>
             <LogProvider>
               <AppInitializer onReady={handleAppReady} />

@@ -9,8 +9,8 @@ interface ScheduleStore {
   storeSchedules: (deviceId: string, scheduleList: Schedule[]) => void;
   getTodaySchedules: () => Record<string, Schedule[]>;
   acknowledgeDoseEvent: (
-    deviceId: string,
-    timestampUnix: number,
+    deviceName: string,
+    event_at: string,
     data: any
   ) => Schedule | null;
   markBackendSynced: (deviceId: string, doseId: string) => void;
@@ -66,47 +66,24 @@ const useScheduleStore = create<ScheduleStore>()(
         return todaySchedules;
       },
 
-      acknowledgeDoseEvent: (deviceId, timestampUnix, data) => {
-        const matchTime = new Date(timestampUnix * 1000);
-        const existingSchedules = get().schedules[deviceId] || [];
-        let dose_data: Schedule | undefined;
+      acknowledgeDoseEvent: (deviceName: string, event_id: string, data: any) => {
+        const existingSchedules = get().schedules[deviceName] || [];
 
-        const updatedSchedules = existingSchedules.map((sch) => {
-          const windowStart = new Date(sch.window_starts_at_local);
-          const windowEnd = new Date(sch.window_ends_at_local);
-
-          // Match if the timestamp falls within the scheduled window
-          const isWithinWindow = matchTime >= windowStart && matchTime <= windowEnd;
-
-          console.log(`\n[Acknowledgment] Is within window (${sch.window_starts_at_local} - ${windowEnd})? ${isWithinWindow}`);
-
-          const event_at = "2025-09-09T11:00:00.000-04:00";
-
-          if (isWithinWindow || event_at === sch.event_at_local) {
-            dose_data = {
+        existingSchedules.map((sch) => {
+          if (sch.id === event_id) {
+            console.log(`Locally acknowledged dose event:`, sch);
+            return {
               ...sch,
               firmware_acknowledged: true,
               firmware_info: data,
+              backend_synced: true,
             };
-            
-            console.log(`💊 [BLE] Acknowledged dose event: \n\n${dose_data}`);
-
-            return dose_data;
           }
 
           return sch;
         });
 
-        if (dose_data) {
-          set((state) => ({
-            schedules: {
-              ...state.schedules,
-              [deviceId]: updatedSchedules,
-            },
-          }));
-        }
-
-        return dose_data || null;
+        return null;
       },
 
       markBackendSynced: (deviceId, doseId) => {

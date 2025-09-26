@@ -9,6 +9,8 @@ import { Treatment } from "@/types/dose";
 import { Schedule } from "@/types/schedule";
 import { updateNotificationsForSchedules } from "../notifications";
 
+const SCHEDULE_EXPIRY_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
 export const syncPendingEvents = async () => {
   const { schedules, markBackendSynced, clearOldSchedules } =
     useScheduleStore.getState();
@@ -17,7 +19,7 @@ export const syncPendingEvents = async () => {
     for (const dose of doses) {
       if (dose.firmware_acknowledged && !dose.backend_synced) {
         try {
-          await sendDoseEvent(dose, deviceId);
+          await sendDoseEvent(dose, deviceId, dose?.medication_code);
           markBackendSynced(deviceId, dose.id);
         } catch (err) {
           console.warn("Sync failed for", dose.id, err);
@@ -29,13 +31,15 @@ export const syncPendingEvents = async () => {
   clearOldSchedules();
 };
 
-export const getOutdatedTreatments = async (): Promise<Treatment[]> => {
+const getOutdatedTreatments = async (): Promise<Treatment[]> => {
   const latestTreatments = await getTreatments();
   const { treatments, storeTreatments, storeTreatment } = useTreatmentStore.getState();
 
   const isEmpty = treatments === null || Object.keys(treatments).length === 0;
 
   if (isEmpty) {
+    console.log("\n[Scheduler] No stored treatments. Syncing..");
+
     storeTreatments(latestTreatments.treatments);
     return latestTreatments.treatments;
   }
@@ -87,26 +91,25 @@ export const syncTreatmentsAndSchedules = async () => {
   console.log("[Scheduler] Syncing treatments and schedules..");
   
   const { clearOldSchedules, storeSchedules } = useScheduleStore.getState();
-  const now = Date.now();
-  const end = new Date(now + SEVEN_DAYS_MS).toISOString();
+  const now = getLocalISOString();
+  const end = getLocalISOString(new Date(now + 604800000));
 
   const outdatedTreatments = await getOutdatedTreatments();
   if (outdatedTreatments.length !== 0) {
-    console.log("[Scheduler] Found outdated treatments");
-    console.log("[Scheduler] Attempting to refresh following treatments..");
-    console.log(outdatedTreatments);
+
+    console.log("\n[Scheduler] Found empty or outdated treatments");
+    console.log("[Scheduler] Attempting to refresh following treatments..", outdatedTreatments);
 
     let updatedSchedules: Schedule[] = [];
     try {
       updatedSchedules = await updateSchedules(
         outdatedTreatments,
-        new Date(now).toISOString(),
+        getLocalISOString(new Date(now)),
         end,
         storeSchedules
-      );
+      ); // TODO: Refactor start and end date logic here!!!!
 
-      console.log("\n");
-      console.log("[Scheduler] Updated schedules below..");
+      console.log("\n[Scheduler] Updated schedules below..");
       console.log(updatedSchedules);
     } catch (err) {
       console.error(err);
@@ -117,8 +120,7 @@ export const syncTreatmentsAndSchedules = async () => {
   }
 };
 
-// Refresh the schedules if they are older than 7 days
-const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+// Refresh locally stored schedules if they are older than SCHEDULE_EXPIRY_DAYS_MS
 export const refreshExpiringSchedules = async () => {
   console.log("\n");
   console.log("[Scheduler] Refreshing expiring schedules..");
@@ -146,14 +148,14 @@ export const refreshExpiringSchedules = async () => {
 
   // Is it time to refresh?
   const last = Math.max(...Object.values(lastUpdated));
-  if (now - last < SEVEN_DAYS_MS) {
-    console.log("[Scheduler] Less than 7 days since last refresh. Skipping.");
+  if (now - last < SCHEDULE_EXPIRY_DAYS_MS) {
+    console.log(`[Scheduler] Less than ${SCHEDULE_EXPIRY_DAYS_MS} days since last refresh. Skipping.`);
     return;
   }
 
   // Proceed with refreshing
-  const start = new Date(now).toISOString();
-  const end = new Date(now + SEVEN_DAYS_MS).toISOString();
+  const start = getLocalISOString(new Date(now));
+  const end = getLocalISOString(new Date(now + SCHEDULE_EXPIRY_DAYS_MS));
 
   try {
     const latestTreatments = await getTreatments();
@@ -175,4 +177,17 @@ export const refreshExpiringSchedules = async () => {
     console.log("\n");
     console.error("[Scheduler] Failed to refresh schedules:", err);
   }
+};
+
+export const getLocalISOString = (date: Date = new Date()): string => {
+  const pad = (n: number) => String(n).padStart(2, '0');
+
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  const seconds = pad(date.getSeconds());
+
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
 };

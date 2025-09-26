@@ -10,7 +10,7 @@ import { sendDoseEvent } from "@/services/schedule";
 import useDeviceStore from "@/store/device";
 import useScheduleStore from "@/store/schedule";
 import useTreatmentStore from "@/store/treatment";
-import { DoseScheduleInput, Treatment } from "@/types/dose";
+import { DoseScheduleInput } from "@/types/dose";
 import {
   connect,
   bondDevice,
@@ -22,14 +22,11 @@ import {
 
 const { addDevice, updateDevice } = useDeviceStore.getState();
 
-export async function connectAndSetupDevice(
-  deviceName: string,
-  treatments: Record<string, Treatment> | null
-) {
+export async function connectAndSetupDevice(deviceName: string) {
   const scanResponse = await scanLeDevice(1);
 
-  console.log("\n");
-  console.log("Scan result:", scanResponse);
+  // console.log("\n");
+  // console.log("\can result:", scanResponse);
 
   let device_id, device_name;
 
@@ -95,18 +92,19 @@ export async function connectAndSetupDevice(
   }
 }
 
-async function subscribeToDoseEvent(deviceId: string) {
+async function subscribeToDoseEvent(device_id: string) {
   // Subscribe to Dose Events
   await subscribeToCharacteristic(
     CHARACTERISTIC_UUIDS.DOSE_EVENT,
     SERVICE_UUIDS.CUSTOM_SERVICE,
-    async ({ uuid, hex }) => {
-      if (uuid.toLowerCase() !== CHARACTERISTIC_UUIDS.DOSE_EVENT) return;
+    async ({ uuid, hex, deviceId }) => {
+      if (uuid.toLowerCase() !== CHARACTERISTIC_UUIDS.DOSE_EVENT || deviceId !== device_id) return;
+
       const parsed = decodeDoseEvent(hex);
-      console.log(`💊 [BLE] Recieved dose event: \n\n${parsed} \n\n(Hex: ${hex})`);
+      console.log(`💊 [BLE] Recieved dose event: (Hex: ${hex})`, parsed);
 
       if (parsed) {
-        const device = useDeviceStore.getState().getDevice(deviceId);
+        const device = useDeviceStore.getState().getDevice(device_id);
         const deviceName = device?.deviceName ?? "Unknown Device";
 
         const treatment = useTreatmentStore.getState().getDeviceTreatment(deviceName);
@@ -114,8 +112,9 @@ async function subscribeToDoseEvent(deviceId: string) {
         if (treatment?.medication_code) {
           const res = await sendDoseEvent(parsed, deviceName, treatment?.medication_code);
           if (res) {
-            console.log(`💊 [BLE] Successfully sent the following dose event: \n\n${parsed} \n\n(Hex: ${hex})`);
-            useScheduleStore.getState().acknowledgeDoseEvent(deviceName, parsed.timestamp_unix, parsed);
+            console.log(`Sent the following dose event to backend: (Hex: ${hex})`, parsed);
+            // useScheduleStore.getState().markBackendSynced(deviceId, dose_data.id);
+            useScheduleStore.getState().acknowledgeDoseEvent(deviceName, res.event_id, parsed);
           }
         }
       }
@@ -123,13 +122,14 @@ async function subscribeToDoseEvent(deviceId: string) {
   );
 }
 
-async function subscribeToError(deviceId: string) {
+async function subscribeToError(device_id: string) {
   // Subscribe to Error Notifications
   await subscribeToCharacteristic(
     CHARACTERISTIC_UUIDS.ERROR_CODE,
     SERVICE_UUIDS.CUSTOM_SERVICE,
-    ({ uuid, hex }) => {
-      if (uuid.toLowerCase() !== CHARACTERISTIC_UUIDS.ERROR_CODE) return;
+    ({ uuid, hex, deviceId }) => {
+      if (uuid.toLowerCase() !== CHARACTERISTIC_UUIDS.ERROR_CODE || deviceId !== device_id) return;
+
       const error = decodeErrorNotification(hex);
       if (error) {
         // TODO: Send data to backend to telemetry endpoint
@@ -139,7 +139,7 @@ async function subscribeToError(deviceId: string) {
         console.log(`Code: ${error.errorNumber} \nMessage: ${error.errorMessage}`);
         console.log(`Hex: ${hex}`);
 
-        updateDevice(deviceId, { error: `Error: ${error.errorMessage}` });
+        updateDevice(device_id, { error: `Error: ${error.errorMessage}` });
         return;
       }
 
@@ -148,16 +148,18 @@ async function subscribeToError(deviceId: string) {
   );
 }
 
-async function subscribeToBatteryLevel(deviceId: string) {
+async function subscribeToBatteryLevel(device_id: string) {
   // Subscribe to Battery Level
   await subscribeToCharacteristic(
     CHARACTERISTIC_UUIDS.BATTERY_LEVEL,
     SERVICE_UUIDS.BATTERY_SERVICE,
-    ({ uuid, hex }) => {
-      if (uuid.toLowerCase() !== CHARACTERISTIC_UUIDS.BATTERY_LEVEL) return;
+    ({ uuid, hex, deviceId }) => {
+      if (uuid.toLowerCase() !== CHARACTERISTIC_UUIDS.BATTERY_LEVEL || deviceId !== device_id) return;
+      
       try {
+        // TODO: Send data to backend to telemetry endpoint
         const battery = Buffer.from(hex, "hex").readUInt8(0);
-        updateDevice(deviceId, { batteryLevel: battery });
+        updateDevice(device_id, { batteryLevel: battery });
 
         console.log("\n");
         console.log(`🔋 [BLE] Received and parsed battery level from device.. `);
@@ -248,12 +250,11 @@ async function writeDoseSchedule(doseSchedule: any) {
 
     const doseResult = await writeCharacteristic(CHARACTERISTIC_UUIDS.DOSE_SCHEDULE, base64DoseSchedule);
 
-    console.log("\n");
-    console.log(`📝 [BLE] Attempting to write dose schedule to device..`);
+    console.log(`\n📝 [BLE] Attempting to write dose schedule to device..`);
     console.log(`Successful? ${doseResult}`);
     console.log(`Value (base64): ${base64DoseSchedule}`);
   } catch (err) {
-    console.log("Error writing dose schedule:", err);
+    console.log("Error writing dose schedule:", err); // TODO: Send errors to Sentry or log on backend
   }
 }
 
@@ -285,7 +286,7 @@ export function decodeDoseEvent(hex: string) {
       event_ctr,
     },
     dose_amount_mg,
-    timestamp_unix,                                 // seconds since epoch (UTC)
+    timestamp_unix,                               // seconds since epoch (UTC)
     dose_event_type,
     timestamp_date: new Date(timestamp_unix * 1000),
   };

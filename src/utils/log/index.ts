@@ -8,37 +8,37 @@ export function logAPIRequest(config: any) {
   const fullUrl = `${config.baseURL || ""}${config.url || ""}`;
 
   console.log("\n");
-  console.log(BOLD("➡️ [API Request]"));
-  console.log(`${BOLD(config.method?.toUpperCase() || "")} ${fullUrl}`);
-  console.log(`${BOLD("Headers:")} ${config.headers}`);
-  console.log(`${BOLD("Payload:")} ${config?.data ? config?.data: "-"}`);
+  console.log("➡️ [API Request]");
+  console.log(`${config.method?.toUpperCase() || ""} ${fullUrl}`);
+  console.log(`${"Headers:"} ${config.headers}`);
+  console.log(`${"Payload:"}`, config?.data ? config?.data: "-");
 }
 
 export function logAPIResponse(response: AxiosResponse) {
   const fullUrl = `${response.config.baseURL || ""}${response.config.url || ""}`;
 
   console.log("\n");
-  console.log(BOLD("✅ [API Response]"));
-  console.log(`${BOLD(response.config.method?.toUpperCase() || "")} ${fullUrl}`);
-  console.log(`${BOLD("Status:")} ${response.status}`);
-  console.log(`${BOLD("Data:")}`, response.data);
+  console.log("✅ [API Response]");
+  console.log(`${response.config.method?.toUpperCase() || ""} ${fullUrl}`);
+  console.log(`${"Status:"} ${response.status}`);
+  console.log(`${"Data:"}`, response.data);
 }
 
 export function logAPIError(error: AxiosError) {
   const fullUrl = `${error.config?.baseURL || ""}${error.config?.url || ""}`;
 
   console.log("\n");
-  console.log(BOLD("❌ [API Error]"));
+  console.log("❌ [API Error]");
 
-  if (fullUrl) console.log(`${BOLD("URL:")} ${fullUrl}`);
+  if (fullUrl) console.log(`${"URL:"} ${fullUrl}`);
 
-  if (error.request) console.log(`${BOLD("Request:")} ${String(error.request)}`);
+  if (error.request) console.log(`${"Request:"}`, error.request);
 
   if (error.response) {
-    console.log(`${BOLD("Status:")} ${error.response.status}`);
-    console.log(`${BOLD("Data:")}`, error.response.data);
+    console.log(`${"Status:"} ${error.response.status}`);
+    console.log(`${"Data:"}`, error.response.data);
   } else {
-    console.log(`${BOLD("Message:")} ${error.message}`);
+    console.log(`${"Message:"} ${error.message}`);
   }
 }
 
