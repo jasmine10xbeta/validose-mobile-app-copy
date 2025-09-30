@@ -69,20 +69,26 @@ const useScheduleStore = create<ScheduleStore>()(
       acknowledgeDoseEvent: (deviceName: string, event_id: string, data: any) => {
         const existingSchedules = get().schedules[deviceName] || [];
 
-        existingSchedules.map((sch) => {
+        const updated = existingSchedules.map((sch) => {
           if (sch.id === event_id) {
             return {
               ...sch,
               firmware_acknowledged: true,
               firmware_info: data,
-              backend_synced: true,
             };
           }
 
           return sch;
         });
 
-        return null;
+        set((state) => ({
+          schedules: {
+            ...state.schedules,
+            [deviceName]: updated,
+          },
+        }));
+
+        return updated.find((sch) => sch.id === event_id) ?? null;
       },
 
       markBackendSynced: (deviceId, doseId) => {

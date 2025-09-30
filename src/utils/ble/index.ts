@@ -136,7 +136,6 @@ async function subscribeToDoseEvent(device_id: string) {
         if (treatment?.medication_code) {
           const res = await sendDoseEvent(parsed, deviceName, treatment?.medication_code);
           if (res) {
-            // useScheduleStore.getState().markBackendSynced(deviceId, dose_data.id);
             const ack_response = useScheduleStore.getState().acknowledgeDoseEvent(deviceName, res.event_id, parsed);
             console.log("\n");
             console.log(`Locally acknowledged dose event?`, ack_response);
