@@ -1,12 +1,18 @@
-export const getLocalISOString = (date: Date = new Date()): string => {
-  const pad = (n: number) => String(n).padStart(2, '0');
+export const toUtcISOString = (value?: unknown): string => {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
 
-  const year = date.getFullYear();
-  const month = pad(date.getMonth() + 1);
-  const day = pad(date.getDate());
-  const hours = pad(date.getHours());
-  const minutes = pad(date.getMinutes());
-  const seconds = pad(date.getSeconds());
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new Date(value).toISOString();
+  }
 
-  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+
+  return new Date().toISOString();
 };

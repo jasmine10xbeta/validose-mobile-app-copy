@@ -7,8 +7,8 @@ import useScheduleStore from "@/store/schedule";
 import useTreatmentStore from "@/store/treatment";
 import { Treatment } from "@/types/dose";
 import { Schedule } from "@/types/schedule";
+import { toUtcISOString } from "../date";
 import { updateNotificationsForSchedules } from "../notifications";
-import { getLocalISOString } from "../date";
 
 const SCHEDULE_EXPIRY_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -92,8 +92,8 @@ export const syncTreatmentsAndSchedules = async () => {
   console.log("[Scheduler] Syncing treatments and schedules..");
   
   const { clearOldSchedules, storeSchedules } = useScheduleStore.getState();
-  const now = getLocalISOString();
-  const end = getLocalISOString(new Date(Date.now() + 604800000));
+  const now = new Date();
+  const end = new Date(Date.now() + 604800000);
 
   const outdatedTreatments = await getOutdatedTreatments();
   if (outdatedTreatments.length !== 0) {
@@ -105,8 +105,8 @@ export const syncTreatmentsAndSchedules = async () => {
     try {
       updatedSchedules = await updateSchedules(
         outdatedTreatments,
-        getLocalISOString(new Date(now)),
-        end,
+        toUtcISOString(now),
+        toUtcISOString(end),
         storeSchedules
       ); // TODO: Refactor start and end date logic here!!!!
 
@@ -174,8 +174,8 @@ export const refreshExpiringSchedules = async () => {
   // console.log(`[Scheduler] Been ${Math.floor((now - last) / (1000 * 60 * 60 * 24))} days since last refresh.`);
   console.log("[Scheduler] Proceeding with refresh..");
   // Proceed with refreshing
-  const start = getLocalISOString(new Date(now));
-  const end = getLocalISOString(new Date(now + SCHEDULE_EXPIRY_DAYS_MS));
+  const start = toUtcISOString(now);
+  const end = toUtcISOString(now + SCHEDULE_EXPIRY_DAYS_MS);
 
   try {
     const latestTreatments = await getTreatments();
@@ -199,4 +199,4 @@ export const refreshExpiringSchedules = async () => {
   }
 };
 
-export { getLocalISOString } from "../date";
+export { toUtcISOString } from "../date";
