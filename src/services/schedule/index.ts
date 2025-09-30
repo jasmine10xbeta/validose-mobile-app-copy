@@ -1,4 +1,4 @@
-import { getLocalISOString } from "../../utils/schedule";
+import { getLocalISOString } from "@/utils/date";
 import axiosInstance from "../axiosInstance";
 
 /**

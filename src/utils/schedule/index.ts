@@ -8,6 +8,7 @@ import useTreatmentStore from "@/store/treatment";
 import { Treatment } from "@/types/dose";
 import { Schedule } from "@/types/schedule";
 import { updateNotificationsForSchedules } from "../notifications";
+import { getLocalISOString } from "../date";
 
 const SCHEDULE_EXPIRY_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -198,15 +199,4 @@ export const refreshExpiringSchedules = async () => {
   }
 };
 
-export const getLocalISOString = (date: Date = new Date()): string => {
-  const pad = (n: number) => String(n).padStart(2, '0');
-
-  const year = date.getFullYear();
-  const month = pad(date.getMonth() + 1);
-  const day = pad(date.getDate());
-  const hours = pad(date.getHours());
-  const minutes = pad(date.getMinutes());
-  const seconds = pad(date.getSeconds());
-
-  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
-};
+export { getLocalISOString } from "../date";
