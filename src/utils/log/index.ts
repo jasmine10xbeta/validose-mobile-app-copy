@@ -32,8 +32,6 @@ export function logAPIError(error: AxiosError) {
 
   if (fullUrl) console.log(`${"URL:"} ${fullUrl}`);
 
-  if (error.request) console.log(`${"Request:"}`, error.request);
-
   if (error.response) {
     console.log(`${"Status:"} ${error.response.status}`);
     console.log(`${"Data:"}`, error.response.data);

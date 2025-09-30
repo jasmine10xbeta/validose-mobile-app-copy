@@ -71,7 +71,6 @@ const useScheduleStore = create<ScheduleStore>()(
 
         existingSchedules.map((sch) => {
           if (sch.id === event_id) {
-            console.log(`Locally acknowledged dose event:`, sch);
             return {
               ...sch,
               firmware_acknowledged: true,

@@ -1,4 +1,3 @@
-import { getLocalISOString } from "@/utils/date";
 import axiosInstance from "../axiosInstance";
 
 /**
@@ -46,14 +45,38 @@ export const sendDoseEvent = async (
   deviceId: string,
   medication_code: string
 ): Promise<any> => {
+  const toUtcISOString = (value?: unknown): string => {
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return new Date(value).toISOString();
+    }
+
+    if (typeof value === "string") {
+      const parsed = new Date(value);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toISOString();
+      }
+    }
+
+    return new Date().toISOString();
+  };
+
+  const doseEventAtSource =
+    dose?.dose_event_at ??
+    dose?.dose_event_at_local ??
+    dose?.event_at ??
+    dose?.event_at_local;
+
   const payload = {
-    // event_id: dose.id,
     medication_code: medication_code,
     device_id: deviceId,
     dose_id: `${dose?.event_id?.days_since_epoch}-${dose?.event_id?.event_ctr}`,
     dose_state: dose?.dose_state || 0,
     dose_amount_mg: dose?.dose_amount_mg || 0,
-    dose_event_at: dose?.dose_event_at || getLocalISOString()
+    dose_event_at: toUtcISOString(doseEventAtSource)
   };
 
   const res = await axiosInstance.post("/dose-events", payload);

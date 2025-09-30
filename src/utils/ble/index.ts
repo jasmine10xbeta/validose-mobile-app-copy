@@ -124,6 +124,7 @@ async function subscribeToDoseEvent(device_id: string) {
       if (uuid.toLowerCase() !== CHARACTERISTIC_UUIDS.DOSE_EVENT || deviceId !== device_id) return;
 
       const parsed = decodeDoseEvent(hex);
+      console.log("\n");
       console.log(`💊 [BLE] Recieved dose event: (Hex: ${hex})`, parsed);
 
       if (parsed) {
@@ -135,9 +136,10 @@ async function subscribeToDoseEvent(device_id: string) {
         if (treatment?.medication_code) {
           const res = await sendDoseEvent(parsed, deviceName, treatment?.medication_code);
           if (res) {
-            console.log(`Sent the following dose event to backend: (Hex: ${hex})`, parsed);
             // useScheduleStore.getState().markBackendSynced(deviceId, dose_data.id);
-            useScheduleStore.getState().acknowledgeDoseEvent(deviceName, res.event_id, parsed);
+            const ack_response = useScheduleStore.getState().acknowledgeDoseEvent(deviceName, res.event_id, parsed);
+            console.log("\n");
+            console.log(`Locally acknowledged dose event?`, ack_response);
           }
         }
       }
@@ -310,7 +312,6 @@ export function decodeDoseEvent(hex: string) {
     },
     dose_amount_mg,
     timestamp_unix,                               // seconds since epoch (UTC)
-    dose_event_type,
-    timestamp_date: new Date(timestamp_unix * 1000),
+    dose_event_type
   };
 }
