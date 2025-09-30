@@ -11,9 +11,7 @@ import { VText } from "@/components/common/VText";
 import { showToast } from "@/components/common/VToast";
 import { useAuth } from "@/providers/auth";
 import { getValidoseDevices } from "@/services/device";
-import { getTreatments } from "@/services/schedule";
 import useDeviceStore from "@/store/device";
-import useTreatmentStore from "@/store/treatment";
 import { connectAndSetupDevice } from "@/utils/ble";
 
 export default function PairingScreen() {
@@ -21,7 +19,6 @@ export default function PairingScreen() {
 
   const { user, isLoading } = useAuth();
   const { authorizedDevices, setAuthorizedDevices } = useDeviceStore();
-  const { treatments } = useTreatmentStore();
 
   const hasScannedRef = useRef(false);
   const [showCamera, setShowCamera] = useState(false);

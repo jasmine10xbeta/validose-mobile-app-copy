@@ -78,6 +78,29 @@ export async function connectAndSetupDevice(deviceName: string) {
 
     await writeSystemTime();
 
+    // if (treatments && treatments[device_id]) {
+    //   const deviceTreatment = treatments[device_id];
+
+    // TODO: parse the schedule skleton to send to device!!!!!
+    // await writeDoseSchedule(deviceTreatment);
+
+    await writeDoseSchedule({
+      dosage_amount: 2,
+      events_per_day: 7,
+      max_temperature_threshold: 25,
+      temperature_avg_time_window_min: 30,
+      window: [
+        { start_min: 465, end_min: 30 },
+        { start_min: 585, end_min: 30 },
+        { start_min: 705, end_min: 30 },
+        { start_min: 885, end_min: 30 },
+        { start_min: 1005, end_min: 30 },
+        { start_min: 1185, end_min: 30 },
+        { start_min: 1305, end_min: 30 },
+      ],
+    });
+    // }
+
     return { deviceId: device_id, deviceName: device_name, status: "success" };
   } catch (error) {
     console.log("error", error);

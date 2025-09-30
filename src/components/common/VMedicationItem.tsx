@@ -21,6 +21,9 @@ interface VMedicationItemProps {
 type StatusType = "network" | "connection" | "error" | "battery";
 
 const pastelColorPairs = [
+  // { primary: "#5D9BFF", secondary: "#5D9BFF33", error: "#5D9BFF44" },
+  // { primary: "#345DA0", secondary: "#345DA01A", error: "#345DA044" },
+  // { primary: "#8044B8", secondary: "#8043B833", error: "#8043B844" },
   { primary: "#102651", secondary: "#1026511A", error: "#10265144" },
 ];
 
@@ -125,11 +128,12 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
         >
           <VText textVariant="LabelMedicine1Dark">MED</VText>
           <VText textVariant="LabelMedicine2Dark">{medLabel}</VText>
+          {/* <VText textVariant="LabelMedicine2Dark">{medicine.charAt(0)}</VText> */}
         </View>
         <TouchableOpacity
           onPress={async () => {
             if (type === "connection") {
-              const connected = await connectAndSetupDevice(item.deviceName, treatments);
+              const connected = await connectAndSetupDevice(item.deviceName);
               if (connected.error) showToast("error", connected.error.toString());
             }
           }}
@@ -139,11 +143,18 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
             { backgroundColor: randomColors.secondary },
           ]}
         >
+          {/* <View
+            style={[
+              styles.doseSectionError,
+              { backgroundColor: randomColors.secondary },
+            ]}
+          > */}
           {image && <Image source={image} style={styles.image} />}
           <View style={{ width: "100%" }}>
             <VText textVariant="LabelMedicineBold">{cfg.title}</VText>
             <VText textVariant="LabelMedicine">{cfg.message}</VText>
           </View>
+          {/* </View> */}
         </TouchableOpacity>
       </>
     );
@@ -156,6 +167,7 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
       >
         <VText textVariant="LabelMedicine1">MED</VText>
         <VText textVariant="LabelMedicine2">{medLabel}</VText>
+        {/* <VText textVariant="LabelMedicine2">{medicine.charAt(0)}</VText> */}
       </View>
       <View
         style={[
@@ -163,6 +175,7 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
           { backgroundColor: randomColors.secondary, paddingHorizontal: 18 },
         ]}
       >
+        <>{console.log("Schedule!!!!!! ", schedule)}</>
         {schedule.length > 0 ? (
           <ScrollView
             ref={scrollRef}

@@ -92,7 +92,7 @@ export const syncTreatmentsAndSchedules = async () => {
   
   const { clearOldSchedules, storeSchedules } = useScheduleStore.getState();
   const now = getLocalISOString();
-  const end = getLocalISOString(new Date(now + 604800000));
+  const end = getLocalISOString(new Date(Date.now() + 604800000));
 
   const outdatedTreatments = await getOutdatedTreatments();
   if (outdatedTreatments.length !== 0) {
@@ -147,12 +147,31 @@ export const refreshExpiringSchedules = async () => {
   }
 
   // Is it time to refresh?
-  const last = Math.max(...Object.values(lastUpdated));
-  if (now - last < SCHEDULE_EXPIRY_DAYS_MS) {
-    console.log(`[Scheduler] Less than ${SCHEDULE_EXPIRY_DAYS_MS} days since last refresh. Skipping.`);
+  const lastUpdatedValues = Object.values(lastUpdated);
+
+  if (lastUpdatedValues.length === 0) {
+    console.log("[Scheduler] No lastUpdated timestamps found. Skipping refresh.");
     return;
   }
 
+  const last = Math.max(...lastUpdatedValues);
+
+  if (now - last < SCHEDULE_EXPIRY_DAYS_MS) {
+    const days = Math.floor((now - last) / (1000 * 60 * 60 * 24));
+    console.log(`[Scheduler] Less than ${SCHEDULE_EXPIRY_DAYS_MS}ms (~${days} days) since last refresh. Skipping.`);
+    return;
+  }
+
+  console.log(`[Scheduler] Been ${Math.floor((now - last) / (1000 * 60 * 60 * 24))} days since last refresh.`);
+
+  // const last = Math.max(...Object.values(lastUpdated));
+  // if (now - last < SCHEDULE_EXPIRY_DAYS_MS) {
+  //   console.log(`[Scheduler] Less than ${SCHEDULE_EXPIRY_DAYS_MS} days since last refresh. Skipping.`);
+  //   return;
+  // }
+
+  // console.log(`[Scheduler] Been ${Math.floor((now - last) / (1000 * 60 * 60 * 24))} days since last refresh.`);
+  console.log("[Scheduler] Proceeding with refresh..");
   // Proceed with refreshing
   const start = getLocalISOString(new Date(now));
   const end = getLocalISOString(new Date(now + SCHEDULE_EXPIRY_DAYS_MS));

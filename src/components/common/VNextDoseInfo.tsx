@@ -62,7 +62,12 @@ const styles = StyleSheet.create({
   },
 });
 
+// This should be imported from utils/labels.ts or similar
+// TODO: Move this to utils & fix labels logic
 function getDoseLabels(schedulesByDevice: Record<string, Schedule[]>): LabelInfo {
+  // Placeholder logic for grouping & labeling
+  // You would replace this with proper grouping and status determination logic
+
   const allSchedules = Object.values(schedulesByDevice).flat();
   const now = new Date();
 
@@ -96,7 +101,8 @@ function getDoseLabels(schedulesByDevice: Record<string, Schedule[]>): LabelInfo
       : isAboutToMiss
       ? "About to be Missed Dose"
       : "Upcoming Dose",
-    timeLabel: "from now",
+    timeLabel: eventTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    // timeLabel: "from now",
     detailsLabel: next.medication_code,
     state: isMissed ? 2 : isAboutToMiss ? 1 : 0,
   };

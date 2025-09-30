@@ -25,7 +25,7 @@ const useNetworkStore = create<NetworkStore>((set) => ({
   },
 
   isStaleSync: () => {
-    const lastUpdated = useScheduleStore.getState().lastUpdated;
+    const lastUpdated = useScheduleStore.getState().lastUpdated;  // TODO: Update this logic for backend dose event syncing instead of when the schedule store is updated
     if (!lastUpdated) return true;
 
     const diff = Date.now() - new Date(lastUpdated).getTime();

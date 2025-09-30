@@ -22,7 +22,6 @@ import { showToast } from "@/components/common/VToast";
 import { useAuth, AuthenticationProvider } from "@/providers/auth";
 import { LogProvider } from "@/providers/log";
 import useDeviceStore from "@/store/device";
-import useTreatmentStore from "@/store/treatment";
 import { AllowedPaths } from "@/types/navigation";
 import { connectAndSetupDevice } from "@/utils/ble";
 import { refreshExpiringSchedules } from "@/utils/schedule";
@@ -32,7 +31,6 @@ SplashScreen.setOptions({ fade: false });
 
 function AppInitializer({ onReady }: { onReady: () => void }) {
   const { user, isLoading } = useAuth();                  // COMMENT WHILE DEBUGGING AUTH
-  const { treatments } = useTreatmentStore();
   const router = useRouter();
 
   // const { user, isLoading, signOut } = useAuth();      // UNCOMMENT FOR DEBUGGING AUTH
