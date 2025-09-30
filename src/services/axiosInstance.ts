@@ -1,5 +1,5 @@
 import axios, { AxiosError, AxiosResponse } from "axios";
-import { getAccessToken, getRefreshToken, invokeSignIn } from "@/providers/auth";
+import { getAccessToken, getRefreshToken, invokeSignIn, invokeSignOut } from "@/providers/auth";
 import { AuthTokenResponse } from "@/types/auth";
 import { logAPIRequest, logAPIResponse, logAPIError } from "@/utils/log";
 
@@ -13,12 +13,53 @@ if (!BASE_URL) {
   );
 }
 
+const MAX_REFRESH_ATTEMPTS = 3;
+
+async function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function refreshAccessToken(): Promise<AuthTokenResponse> {
   const refresh_token = await getRefreshToken();
-  const { data } = await axiosInstance.post<AuthTokenResponse>("/auth/refresh", {
-    refresh_token,
-  });
-  return data;
+
+  if (!refresh_token) {
+    await invokeSignOut().catch((err) =>
+      console.error("Failed to sign out after missing refresh token:", err)
+    );
+    throw new Error("No refresh token available");
+  }
+
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= MAX_REFRESH_ATTEMPTS; attempt++) {
+    try {
+      const { data } = await axios.post<AuthTokenResponse>(
+        `${BASE_URL || ""}${SUFFIX}/auth/refresh`,
+        { refresh_token },
+        { headers: { "Content-Type": "application/json" } }
+      );
+      return data;
+    } catch (error) {
+      lastError = error;
+
+      if (attempt < MAX_REFRESH_ATTEMPTS) {
+        const backoffMs = attempt * 300;
+        console.warn(
+          `Refresh token attempt ${attempt} failed. Retrying in ${backoffMs}ms...`
+        );
+        await sleep(backoffMs);
+        continue;
+      }
+    }
+  }
+
+  await invokeSignOut().catch((err) =>
+    console.error("Failed to sign out after refresh retries:", err)
+  );
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Unable to refresh session");
 }
 
 // Create axios instance with base URL and JSON headers
@@ -76,7 +117,7 @@ axiosInstance.interceptors.response.use(
             return axiosInstance(originalRequest); // retry original request
         }
       } catch (refreshError) {
-        console.error("Token refresh failed:", refreshError);
+        console.error("Token refresh failed after retries:", refreshError);
         return Promise.reject(refreshError);
       }
     }

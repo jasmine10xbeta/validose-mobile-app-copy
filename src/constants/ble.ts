@@ -10,6 +10,7 @@ export const CHARACTERISTIC_UUIDS = {
   ERROR_CODE: "00001503-eb00-430a-a8ff-c7ad4211bf86",
   DOSE_SCHEDULE: "00001502-eb00-430a-a8ff-c7ad4211bf86",
   TIME: "00001501-eb00-430a-a8ff-c7ad4211bf86",
+  RESET: "00001506-eb00-430a-a8ff-c7ad4211bf86",
 };
 
 // Firmware Unit IDs

@@ -72,6 +72,7 @@ export async function connectAndSetupDevice(deviceName: string) {
     }
 
     await discoverServicesAndCharacteristics();
+    await resetBufferCharacteristic();
     await subscribeToDoseEvent(device_id);
     await subscribeToBatteryLevel(device_id);
     await subscribeToError(device_id);
@@ -263,6 +264,22 @@ async function writeSystemTime() {
     console.log(`Value (base64): ${base64Time}`);
   } catch (err) {
     console.log("Error writing system time:", err);
+  }
+}
+
+async function resetBufferCharacteristic() {
+  try {
+    const buf = Buffer.alloc(1);
+    buf.writeUInt8(0x02, 0);
+    const base64Value = buf.toString("base64");
+
+    const result = await writeCharacteristic(CHARACTERISTIC_UUIDS.RESET, base64Value);
+
+    console.log(`\n📝 [BLE] Writing reset buffer flag (0x02) to device..`);
+    console.log(`Successful? ${result}`);
+    console.log(`Value (base64): ${base64Value}`);
+  } catch (err) {
+    console.log("Error writing reset buffer flag:", err);
   }
 }
 
