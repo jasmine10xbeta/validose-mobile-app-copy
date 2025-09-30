@@ -262,12 +262,11 @@ export function getDoseState(dose: Schedule): number {
   const now = new Date();
   const start = new Date(dose.window_starts_at_local);
   const end = new Date(dose.window_ends_at_local);
-  const event = new Date(dose.event_at_local);
 
-  if (dose.firmware_acknowledged) return 3;
+  if (dose.firmware_acknowledged) return 2;
   if (now < start) return 0;
   if (now >= start && now < end) return 1;
-  if (now >= end) return 2;
+  if (now >= end) return 4;
 
-  return 0;
+  return 5;
 }

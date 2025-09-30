@@ -19,10 +19,9 @@ function withOpacity(hex: string, opacity: number = 0.4) {
 
 export function VDoseItem(props: VDoseItemProps) {
   const isUpcoming = props.state === 0;
-  const isUnknown = props.state === 6;
-
-  const isTaken = props.state === 4;
-  const isMissed = props.state === 5;
+  const isTaken = props.state === 2;
+  const isMissed = props.state === 4;
+  const isUnknown = props.state === 5;
   
   const borderColor = isUpcoming ? withOpacity(props.color, 0.4) : props.color;
   const textColor = isTaken ? validoseWhite : borderColor;
