@@ -28,27 +28,21 @@ const pastelColorPairs = [
 ];
 
 export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
-  const { treatments } = useTreatmentStore();
-  const getDeviceTreatmentId = useTreatmentStore((s) => s.getDeviceTreatmentId);
-  const getTreatmentById = useTreatmentStore((s) => s.getTreatmentById);
-
+  const deviceId = (item as any).deviceId ?? (item as any).device_id ?? item.deviceId;
+  const treatment = useTreatmentStore((state) => state.getDeviceTreatment(deviceId));
   const isNetworkConnected = useNetworkStore((s) => s.isConnected);
 
-  const deviceId = (item as any).deviceId ?? (item as any).device_id ?? item.deviceId;
-
-  // Find the treatment for this device, then compute the first letter of its medication code.
+  // Prefer the schedule's medication code, fall back to the treatment's code.
   const medLabel = useMemo(() => {
-    try {
-      const treatmentId = getDeviceTreatmentId?.(deviceId);
-      const treatment   = treatmentId ? getTreatmentById?.(treatmentId) : undefined;
-      const code        = (treatment as any)?.medication_code as string | undefined;
+    const scheduleCode = schedule.find((dose) =>
+      typeof dose?.medication_code === "string" && dose.medication_code.trim().length > 0
+    )?.medication_code;
 
-      const first = code?.trim()?.[0];
-      return first ? first.toUpperCase() : "M"; // fallback if missing
-    } catch {
-      return "M";
-    }
-  }, [deviceId, getDeviceTreatmentId, getTreatmentById, treatments]);
+    const code = scheduleCode ?? treatment?.medication_code;
+    const first = code?.trim()?.[0];
+
+    return first ? first.toUpperCase() : "M";
+  }, [schedule, treatment?.medication_code]);
 
   const statusFlags = {
     connected: item.connected === true,

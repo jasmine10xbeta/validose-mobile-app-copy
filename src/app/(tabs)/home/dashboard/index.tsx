@@ -29,13 +29,26 @@ export default function DashboardScreen() {
   }, []);
 
   useEffect(() => {
-    // console.log("\n");
-    // console.log("All schedules in store..");
-    // console.log(schedules);
+    const entries = Object.entries(todaySchedulesByDevice);
 
-    // console.log("\n");
-    // console.log("Today's schedules by device..");
-    // console.log(todaySchedulesByDevice);
+    if (entries.length === 0) {
+      console.log("[Dashboard] No doses scheduled for today.");
+      return;
+    }
+
+    console.log("[Dashboard] Today's dose schedule:");
+    entries.forEach(([deviceName, deviceSchedules]) => {
+      if (!deviceSchedules || deviceSchedules.length === 0) {
+        console.log(`  • ${deviceName}: no remaining doses today.`);
+        return;
+      }
+
+      const times = deviceSchedules
+        .map((scheduleItem) => new Date(scheduleItem.event_at_local).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))
+        .join(", ");
+
+      console.log(`  • ${deviceName}: ${times}`);
+    });
   }, [todaySchedulesByDevice]);
 
   // UNCOMMENT FOR DEBUG MODE
