@@ -7,6 +7,7 @@ import {
   UnitId,
 } from "@/constants/ble";
 import { sendDoseEvent } from "@/services/schedule";
+import { sendTelemetry } from "@/services/telemetry";
 import useDeviceStore from "@/store/device";
 import useScheduleStore from "@/store/schedule";
 import useTreatmentStore from "@/store/treatment";
@@ -72,7 +73,7 @@ export async function connectAndSetupDevice(deviceName: string) {
     }
 
     await discoverServicesAndCharacteristics();
-    await resetBufferCharacteristic();
+    // await resetBufferCharacteristic();
     await subscribeToDoseEvent(device_id);
     await subscribeToBatteryLevel(device_id);
     await subscribeToError(device_id);
@@ -164,6 +165,20 @@ async function subscribeToError(device_id: string) {
         console.log(`Code: ${error.errorNumber} \nMessage: ${error.errorMessage}`);
         console.log(`Hex: ${hex}`);
 
+        const device = useDeviceStore.getState().getDevice(device_id);
+        const deviceName = device?.deviceName ?? "Unknown Device";
+        const treatment = useTreatmentStore.getState().getDeviceTreatment(deviceName);
+        if (treatment?.id) {
+          sendTelemetry(treatment.id, {
+            device_id,
+            characteristic: "ERROR",
+            value: error.errorMessage ?? `Code ${error.errorNumber}`,
+          }).catch((telemetryErr) => {
+            console.log("\n");
+            console.warn("[Telemetry] Failed to log error event", telemetryErr)
+          });
+        }
+
         updateDevice(device_id, { error: `Error: ${error.errorMessage}` });
         return;
       }
@@ -182,14 +197,28 @@ async function subscribeToBatteryLevel(device_id: string) {
       if (uuid.toLowerCase() !== CHARACTERISTIC_UUIDS.BATTERY_LEVEL || deviceId !== device_id) return;
       
       try {
-        // TODO: Send data to backend to telemetry endpoint
         const battery = Buffer.from(hex, "hex").readUInt8(0);
         updateDevice(device_id, { batteryLevel: battery });
 
+        // TODO: Optimize logging to reduce noise & get device name from store
         console.log("\n");
         console.log(`🔋 [BLE] Received and parsed battery level from device.. `);
         console.log(`Battery level: ${battery}%`);
         console.log(`Hex: ${hex}`);
+
+        const device = useDeviceStore.getState().getDevice(device_id);
+        const deviceName = device?.deviceName ?? "Unknown Device";
+        const treatment = useTreatmentStore.getState().getDeviceTreatment(deviceName);
+        if (treatment?.id) {
+          sendTelemetry(treatment.id, {
+            device_id: deviceName,
+            characteristic: "BATTERY",
+            value: battery,
+          }).catch((telemetryErr) => {
+            console.log("\n");
+            console.warn("[Telemetry] Failed to log battery event", telemetryErr)
+          });
+        }
 
       } catch (err) {
         console.error("Error parsing battery level:", err);
