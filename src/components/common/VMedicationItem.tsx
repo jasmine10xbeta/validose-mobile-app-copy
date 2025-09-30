@@ -175,7 +175,6 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
           { backgroundColor: randomColors.secondary, paddingHorizontal: 18 },
         ]}
       >
-        <>{console.log("Schedule!!!!!! ", schedule)}</>
         {schedule.length > 0 ? (
           <ScrollView
             ref={scrollRef}
