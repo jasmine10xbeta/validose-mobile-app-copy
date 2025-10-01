@@ -153,13 +153,13 @@ function getDoseLabels(schedulesByDevice: Record<string, Schedule[]>): LabelInfo
     : `Upcoming Dose${countSuffix}`;
 
   const details: string[] = [];
-  if (deviceNames) details.push(deviceNames);
+  // if (deviceNames) details.push(deviceNames);
   if (medicationCodes) details.push(medicationCodes);
 
   return {
     mainLabel,
     timeLabel,
-    detailsLabel: details.join(" • "),
+    detailsLabel: `Take medication ${details.join(", ")}`,
     state,
   };
 }
