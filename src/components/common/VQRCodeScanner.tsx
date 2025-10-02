@@ -1,5 +1,12 @@
 import { CameraType, CameraView } from "expo-camera";
-import { StatusBar, StyleSheet, View } from "react-native";
+import { useCallback, useState } from "react";
+import {
+  ActivityIndicator,
+  StatusBar,
+  StyleSheet,
+  View,
+  Vibration,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { VButton } from "./VButton";
@@ -16,6 +23,19 @@ export function QRCodeScanner({
   onBarcodeScanned,
   onClose,
 }: VQRCodeScannerProps) {
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const handleBarcodeScanned = useCallback(
+    (result: { data: string }) => {
+      if (isProcessing || !result?.data) return;
+
+      setIsProcessing(true);
+      Vibration.vibrate(5);
+      onBarcodeScanned(result);
+    },
+    [isProcessing, onBarcodeScanned]
+  );
+
   return (
     <SafeAreaView style={styles.dimBackground}>
       <StatusBar hidden />
@@ -24,7 +44,7 @@ export function QRCodeScanner({
           style={styles.camera}
           facing={facing}
           barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-          onBarcodeScanned={onBarcodeScanned}
+          onBarcodeScanned={handleBarcodeScanned}
         />
         <View style={styles.overlay}>
           <VText textVariant="Header" style={styles.overlayText}>
@@ -41,6 +61,16 @@ export function QRCodeScanner({
           style={styles.closeButton}
           labelStyle={styles.closeButtonLabel}
         />
+        {isProcessing && (
+          <View style={styles.loaderOverlay}>
+            {/* <View style={styles.loaderCard}> */}
+              <ActivityIndicator size="large" color="#7ce3ff" />
+              <VText textVariant="Body" style={styles.loaderText}>
+                Validating QR Code…
+              </VText>
+            {/* </View> */}
+          </View>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -132,5 +162,31 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "bold",
     color: "#FFF",
+  },
+  loaderOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loaderCard: {
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(20, 22, 36, 0.9)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(124, 227, 255, 0.4)",
+    gap: 22,
+  },
+  loaderText: {
+    color: "#E9F8FF",
+    fontSize: 14,
+    fontWeight: "500",
   },
 });
