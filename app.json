@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.anonymous.x10xbetamobilemdkpoc",
-      "buildNumber": "33",
+      "buildNumber": "37",
       "infoPlist": {
         "NSCameraUsageDescription": "Validose needs access to your camera for QRCode"
       },
@@ -33,7 +33,7 @@
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ],
-      "versionCode": 33,
+      "versionCode": 37,
       "package": "com.anonymous.x10xbetamobilemdkpoc"
     },
     "web": {
