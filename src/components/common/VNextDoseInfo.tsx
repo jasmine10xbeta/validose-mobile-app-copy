@@ -36,7 +36,7 @@ const styles = StyleSheet.create({
   nextDoseInfo: {
     flexDirection: "column",
     alignItems: "center",
-    marginTop: 40,
+    marginTop: 24,
     paddingTop: 35,
     paddingBottom: 15,
     borderColor: "#E6E7E8",

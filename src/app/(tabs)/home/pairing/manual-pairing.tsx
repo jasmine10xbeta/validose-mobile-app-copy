@@ -46,13 +46,10 @@ export default function ManualPairingScreen() {
       console.log("\n");
       console.log("[APP] Received device address:", address);
 
-      if (
-        authorizedDevices &&
-        !authorizedDevices.device_ids.includes(address)
-      ) {
+      if (Array.isArray(authorizedDevices) && !authorizedDevices.some((device) => device.deviceId === address)) {
         console.log("[APP] Device not found in list");
         showToast("error", "Device not assigned to this patient");
-        // return false;
+        return false;
       }
 
       console.log(
