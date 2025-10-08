@@ -1,5 +1,6 @@
 import { Buffer } from "buffer";
 
+import { showToast } from "@/components/common/VToast";
 import {
   SERVICE_UUIDS,
   CHARACTERISTIC_UUIDS,
@@ -26,8 +27,8 @@ const { addDevice, updateDevice } = useDeviceStore.getState();
 export async function connectAndSetupDevice(deviceName: string) {
   const scanResponse = await scanLeDevice(1);
 
-  // console.log("\n");
-  // console.log("\can result:", scanResponse);
+  console.log("\n");
+  console.log("Scan result:", scanResponse);
 
   let device_id, device_name;
 
@@ -77,6 +78,8 @@ export async function connectAndSetupDevice(deviceName: string) {
     await subscribeToDoseEvent(device_id);
     await subscribeToBatteryLevel(device_id);
     await subscribeToError(device_id);
+
+    await new Promise((res) => setTimeout(res, 300));
 
     await writeSystemTime();
 
@@ -141,6 +144,17 @@ async function subscribeToDoseEvent(device_id: string) {
             const ack_response = useScheduleStore.getState().acknowledgeDoseEvent(deviceName, res.event_id, parsed);
             console.log("\n");
             console.log(`Locally acknowledged dose event?`, ack_response);
+            if (ack_response !== null) {
+              showToast(
+                "success",
+                `Dose recorded for ${treatment?.medication_code}`,
+              );
+            } else {
+              showToast(
+                "error",
+                `Dose detected but was outside valid dosing window`,
+              );
+            }
           }
         }
       }
@@ -278,21 +292,26 @@ function encodeDoseSchedule({
   return new Uint8Array(buffer);
 }
 
-async function writeSystemTime() {
+async function writeSystemTime(): Promise<boolean> {
+  const unixTime = Math.floor(Date.now() / 1000);
+  const buffer = Buffer.alloc(4);
+  buffer.writeUInt32LE(unixTime, 0);
+  const base64Time = buffer.toString("base64");
+
+  console.log("\n");
+  console.log(`📝 [BLE] Writing system time to device..`);
+  console.log(`Unix time: ${unixTime}`);
+  console.log(`Payload (base64): ${base64Time}`);
+
   try {
-    const unixTime = Math.floor(Date.now() / 1000);
-    const buf = Buffer.alloc(4);
-    buf.writeUInt32LE(unixTime, 0);
-    const base64Time = buf.toString("base64");
-
     const result = await writeCharacteristic(CHARACTERISTIC_UUIDS.TIME, base64Time);
-
-    console.log("\n");
-    console.log(`📝 [BLE] Attempting to write time to device..`);
-    console.log(`Successful? ${result}`);
-    console.log(`Value (base64): ${base64Time}`);
+    const success = result === true;
+    console.log(`Success? ${success}`);
+    return success;
+    // return true;
   } catch (err) {
-    console.log("Error writing system time:", err);
+    console.error("Error writing system time:", err);
+    throw err;
   }
 }
 

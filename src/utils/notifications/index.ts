@@ -147,18 +147,31 @@ function groupNearbyDoses(schedules: Schedule[]): Schedule[][] {
   }, [] as Schedule[][]);
 }
 
-/** Ask for permissions and set Android channel */
-async function ensureNotificationsReady() {
-  const { status } = await Notifications.requestPermissionsAsync();
-  if (status !== "granted") return false;
+async function configureNotificationChannel() {
+  if (Platform.OS !== "android") return;
 
-  if (Platform.OS === "android") {
-    await Notifications.setNotificationChannelAsync("default", {
-      name: "Default",
-      importance: Notifications.AndroidImportance.DEFAULT,
-    });
-  }
-  return true;
+  await Notifications.setNotificationChannelAsync("default", {
+    name: "Default",
+    importance: Notifications.AndroidImportance.DEFAULT,
+  });
+}
+
+async function scheduleDoseNotifications(schedules: Schedule[]) {
+  console.log("\n[Notifications] Updating based on schedule..");
+
+  await configureNotificationChannel();
+
+  await Notifications.cancelAllScheduledNotificationsAsync();
+  await Notifications.dismissAllNotificationsAsync();
+
+  const sorted = [...schedules].sort(
+    (a, b) => +new Date(a.event_at_local) - +new Date(b.event_at_local)
+  );
+  const groups = groupNearbyDoses(sorted);
+
+  console.log(`\n[Notifications] Found ${groups.length} groups`);
+
+  await Promise.all(groups.map((g) => scheduleNotificationsForGroup(g)));
 }
 
 /**
@@ -174,24 +187,28 @@ async function ensureNotificationsReady() {
 export const updateNotificationsForSchedules = async (
   schedules: Schedule[]
 ) => {
-  const ready = await ensureNotificationsReady();
-  if (!ready) return;
+  const { status, canAskAgain } = await Notifications.getPermissionsAsync();
 
-  console.log("\n[Notifications] Updating based on schedule..");
+  if (status === "granted") {
+    await scheduleDoseNotifications(schedules);
+    return;
+  }
 
-  // Clear anything previously scheduled/delivered
-  await Notifications.cancelAllScheduledNotificationsAsync();
-  await Notifications.dismissAllNotificationsAsync();
-
-  // Keep grouping deterministic
-  const sorted = [...schedules].sort(
-    (a, b) => +new Date(a.event_at_local) - +new Date(b.event_at_local)
-  );
-  const groups = groupNearbyDoses(sorted);
-
-  console.log(`\n[Notifications] Found ${groups.length} groups`);
-
-  await Promise.all(groups.map((g) => scheduleNotificationsForGroup(g)));
+  if (canAskAgain) {
+    Notifications.requestPermissionsAsync()
+      .then(async ({ status: newStatus }) => {
+        if (newStatus === "granted") {
+          try {
+            await scheduleDoseNotifications(schedules);
+          } catch (err) {
+            console.warn("[Notifications] Failed to schedule after permission granted", err);
+          }
+        }
+      })
+      .catch((err) => {
+        console.warn("[Notifications] Permission prompt failed", err);
+      });
+  }
 };
 
 /**
