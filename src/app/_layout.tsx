@@ -11,6 +11,7 @@ import { useRouter, Slot } from "expo-router";              // UNCOMMENT FOR DEB
 import {} from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
+import * as Notifications from "expo-notifications";
 import { useEffect, useState } from "react";
 import { useColorScheme } from "react-native";
 import "react-native-reanimated";
@@ -28,6 +29,14 @@ import { refreshExpiringSchedules } from "@/utils/schedule";
 
 SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ fade: false });
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 function AppInitializer({ onReady }: { onReady: () => void }) {
   const { user, isLoading } = useAuth();                  // COMMENT WHILE DEBUGGING AUTH

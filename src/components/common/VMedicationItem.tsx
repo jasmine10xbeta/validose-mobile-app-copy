@@ -224,7 +224,6 @@ const styles = StyleSheet.create({
   medSectionError: {
     borderTopLeftRadius: 12,
     borderBottomLeftRadius: 12,
-    gap: 5,
     width: 65,
     // backgroundColor: validoseMedicationError,
     justifyContent: "center",
