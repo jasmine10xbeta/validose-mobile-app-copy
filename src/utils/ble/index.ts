@@ -184,7 +184,7 @@ async function subscribeToError(device_id: string) {
         const treatment = useTreatmentStore.getState().getDeviceTreatment(deviceName);
         if (treatment?.id) {
           sendTelemetry(treatment.id, {
-            device_id,
+            device_id: deviceName,
             characteristic: "ERROR",
             value: error.errorMessage ?? `Code ${error.errorNumber}`,
           }).catch((telemetryErr) => {
