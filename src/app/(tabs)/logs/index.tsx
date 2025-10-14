@@ -13,12 +13,18 @@ export default function LogsTab() {
   const navigation = useNavigation();
 
   // Only show non-empty logs
-  const filteredLogs = logs.filter(
-    (msg) =>
-      msg !== null &&
-      msg !== undefined &&
-      String(msg).replace(/\s+/g, "") !== ""
-  );
+  const filteredLogs = logs.filter((entry) => {
+    if (entry === null || entry === undefined) return false;
+
+    const message =
+      typeof entry === "string"
+        ? entry
+        : typeof entry === "object" && "message" in entry
+        ? String((entry as { message?: unknown }).message ?? "")
+        : String(entry);
+
+    return message.replace(/\s+/g, "") !== "";
+  });
 
   // Scroll to bottom when logs change
   useEffect(() => {
