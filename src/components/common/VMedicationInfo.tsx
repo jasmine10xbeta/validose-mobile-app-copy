@@ -17,6 +17,8 @@ const getBackgroundColor = (state: number) => {
       return "#65BB8D33"; // Green (taken)
     case 5:
       return "#FFC88399"; // Orange (missed)
+    case 6:
+      return "#F3F3F3"; // Grey with alarm icon
     default:
       return "#F3F3F3"; // Gray (no dose or future)
   }
@@ -31,6 +33,8 @@ const getIconIndex = (state: number) => {
       return 1; // check-circle
     case 5:
       return 2; // alert-diamond-orange
+    case 6:
+      return 3; // pill-timer-alert
     default:
       return 3; // pill-timer-alert (default/gray/future)
   }

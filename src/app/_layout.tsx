@@ -18,7 +18,7 @@ import { PaperProvider } from "react-native-paper";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
 
-import { showToast } from "@/components/common/VToast";
+import { showToast, toastConfig } from "@/components/common/VToast";
 import { useAuth, AuthenticationProvider } from "@/providers/auth";
 import { LogProvider } from "@/providers/log";
 import useDeviceStore from "@/store/device";
@@ -138,7 +138,7 @@ export default function RootLayout() {
                   </Stack> */}
               <Slot />
               <StatusBar style="auto" />
-              <Toast />
+              <Toast config={toastConfig} />
             </LogProvider>
           </AuthenticationProvider>
 

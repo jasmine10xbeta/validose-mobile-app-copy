@@ -40,18 +40,29 @@ const useDeviceStore = create<DeviceStore>()(
         set((state) => ({ devices: [...state.devices, device] }));
         return true;
       },
-      updateDevice: (deviceId, data) => {
+      updateDevice: (deviceIdentifier, data) => {
         console.log("\n");
-        console.log(`Attempting to update the device id ${deviceId} in the store..`);
+        console.log(`Attempting to update the device id ${deviceIdentifier} in the store..`);
         console.log(data);
 
         set((state) => ({
-          devices: state.devices.map((d) =>
-            d.deviceId === deviceId ? { ...d, ...data } : d
-          ),
+          devices: state.devices.map((device) => {
+            const matches =
+              device.deviceId === deviceIdentifier ||
+              device.deviceName === deviceIdentifier;
+
+            if (matches) {
+              return { ...device, ...data };
+            }
+
+            return device;
+          }),
         }));
       },
-      getDevice: (deviceId) => get().devices.find((d) => d.deviceId === deviceId),
+      getDevice: (deviceId) =>
+        get().devices.find(
+          (device) => device.deviceId === deviceId || device.deviceName === deviceId
+        ),
       getDeviceList: () => get().devices,
       removeDevice: (deviceId) => {
         set((state) => ({

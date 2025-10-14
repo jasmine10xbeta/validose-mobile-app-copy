@@ -1,9 +1,9 @@
 import { Pressable, StyleSheet, View, ActivityIndicator } from "react-native";
-import { Device } from "@/store/device";
+import { ValidoseDevice } from "@/types/device";
 import { VText } from "./VText";
 
 interface VDeviceItemProps {
-  item: Device;
+  item: ValidoseDevice;
   state: boolean;
   reconnect: () => void;
   isReconnecting: boolean;

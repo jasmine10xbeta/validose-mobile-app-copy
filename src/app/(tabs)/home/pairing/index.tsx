@@ -149,7 +149,7 @@ export default function PairingScreen() {
               renderItem={({ item }) => (
                 <VDeviceItem
                   item={item}
-                  state={item.connected}
+                  state={item?.connected}
                   reconnect={() => reconnectDevice(item.deviceName)}
                   isReconnecting={reconnectingDeviceId === item.deviceName}
                 />

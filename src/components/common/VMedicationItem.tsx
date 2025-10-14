@@ -55,7 +55,7 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
     if (!statusFlags.connected) return "connection";
     if (!isNetworkConnected) return "network";
     // if (statusFlags.error) return "error";
-    if (statusFlags.batteryLow) return "battery";
+    // if (statusFlags.batteryLow) return "battery";
     return null;
   };
 

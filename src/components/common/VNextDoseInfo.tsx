@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { Schedule } from "@/types/schedule";
@@ -15,8 +16,26 @@ interface LabelInfo {
   state: number;
 }
 
+type UpcomingEntry = {
+  schedule: Schedule;
+  deviceName: string;
+  eventTime: Date;
+  windowStart: Date;
+  windowEnd: Date;
+};
+
 export function VNextDoseInfo({ todaySchedulesByDevice }: VNextDoseInfoProps) {
-  const { mainLabel, timeLabel, detailsLabel, state } = getDoseLabels(todaySchedulesByDevice);
+  const [timestamp, setTimestamp] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setTimestamp(Date.now()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const { mainLabel, timeLabel, detailsLabel, state } = getDoseLabels(
+    todaySchedulesByDevice,
+    timestamp
+  );
 
   return (
     <View style={styles.nextDoseInfo}>
@@ -64,11 +83,75 @@ const styles = StyleSheet.create({
 
 // This should be imported from utils/labels.ts or similar
 // TODO: Move this to utils & fix labels logic
-function getDoseLabels(schedulesByDevice: Record<string, Schedule[]>): LabelInfo {
-  const UPCOMING_WINDOW_MS = 15 * 60 * 1000;
-  const now = new Date();
 
-  const upcoming = Object.entries(schedulesByDevice)
+function parseDate(value?: string | null): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function resolveWindowBounds(schedule: Schedule, eventTime: Date, fallbackWindowMs: number) {
+  const windowStart = parseDate(schedule.window_starts_at_local);
+  const windowEnd = parseDate(schedule.window_ends_at_local);
+
+  if (windowStart && windowEnd) {
+    return { windowStart, windowEnd };
+  }
+
+  if (windowStart && !windowEnd) {
+    return {
+      windowStart,
+      windowEnd: new Date(windowStart.getTime() + fallbackWindowMs),
+    };
+  }
+
+  if (!windowStart && windowEnd) {
+    return {
+      windowStart: new Date(windowEnd.getTime() - fallbackWindowMs),
+      windowEnd,
+    };
+  }
+
+  const halfWindow = fallbackWindowMs / 2;
+  return {
+    windowStart: new Date(eventTime.getTime() - halfWindow),
+    windowEnd: new Date(eventTime.getTime() + halfWindow),
+  };
+}
+
+function formatDurationLabel(diffMs: number): string {
+  const totalMinutes = Math.max(0, Math.round(diffMs / 60000));
+  if (totalMinutes >= 60) {
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
+    if (mins === 0) {
+      return `In ${hours} ${hours === 1 ? "hour" : "hours"}`;
+    }
+    return `In ${hours} ${hours === 1 ? "hour" : "hours"} ${mins} mins`;
+  }
+  const minutes = Math.max(totalMinutes, 1);
+  return `In ${minutes} ${minutes === 1 ? "min" : "mins"}`;
+}
+
+function formatMedicationList(codes: string[]): string {
+  const sanitized = codes.filter((code) => code.length > 0);
+  if (sanitized.length === 0) return "your medication";
+  if (sanitized.length === 1) return sanitized[0];
+  if (sanitized.length === 2) return `${sanitized[0]} and ${sanitized[1]}`;
+  const head = sanitized.slice(0, -1).join(", ");
+  const tail = sanitized[sanitized.length - 1];
+  return `${head} and ${tail}`;
+}
+
+function getDoseLabels(
+  schedulesByDevice: Record<string, Schedule[]>,
+  timestamp: number
+): LabelInfo {
+  const DEFAULT_WINDOW_MS = 15 * 60 * 1000;
+  const now = new Date(timestamp);
+  const nowMs = now.getTime();
+
+  const upcoming: UpcomingEntry[] = Object.entries(schedulesByDevice)
     .flatMap(([deviceName, list]) =>
       (list || []).map((schedule) => ({
         schedule,
@@ -76,7 +159,22 @@ function getDoseLabels(schedulesByDevice: Record<string, Schedule[]>): LabelInfo
         eventTime: new Date(schedule.event_at_local),
       }))
     )
-    .filter(({ eventTime }) => eventTime.getTime() >= now.getTime())
+    .map(({ schedule, deviceName, eventTime }) => {
+      const windowDurationMs =
+        typeof schedule.dosing_window_min === "number" && schedule.dosing_window_min > 0
+          ? schedule.dosing_window_min * 60 * 1000
+          : DEFAULT_WINDOW_MS;
+      const bounds = resolveWindowBounds(schedule, eventTime, windowDurationMs);
+
+      return {
+        schedule,
+        deviceName,
+        eventTime,
+        windowStart: bounds.windowStart,
+        windowEnd: bounds.windowEnd,
+      };
+    })
+    .filter(({ windowEnd }) => windowEnd.getTime() >= now.getTime())
     .sort((a, b) => a.eventTime.getTime() - b.eventTime.getTime());
 
   if (upcoming.length === 0) {
@@ -92,6 +190,7 @@ function getDoseLabels(schedulesByDevice: Record<string, Schedule[]>): LabelInfo
     items: typeof upcoming;
   }> = [];
 
+  // Group doses that fall within DEFAULT_WINDOW_MS of each other
   upcoming.forEach((entry) => {
     const currentGroup = groups[groups.length - 1];
 
@@ -101,65 +200,158 @@ function getDoseLabels(schedulesByDevice: Record<string, Schedule[]>): LabelInfo
     }
 
     const groupStartTime = currentGroup.items[0].eventTime.getTime();
-    if (entry.eventTime.getTime() - groupStartTime <= UPCOMING_WINDOW_MS) {
+    if (entry.eventTime.getTime() - groupStartTime <= DEFAULT_WINDOW_MS) {
       currentGroup.items.push(entry);
     } else {
       groups.push({ items: [entry] });
     }
   });
 
-  const nextGroup = groups[0];
-  const groupedItems = nextGroup.items;
-  const earliest = groupedItems[0].eventTime;
-  const latest = groupedItems[groupedItems.length - 1].eventTime;
+  type GroupInfo = {
+    items: UpcomingEntry[];
+    earliestEvent: Date;
+    windowStartMs: number;
+    windowEndMs: number;
+    windowDurationMs: number;
+    pendingItems: UpcomingEntry[];
+    allCodes: string[];
+    pendingCodes: string[];
+  };
 
-  const formatTime = (date: Date) =>
-    date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const groupsInfo: GroupInfo[] = groups.map(({ items }) => {
+    const earliestEvent = items[0].eventTime;
+    const windowStartMs = Math.min(
+      ...items.map((entry) => entry.windowStart.getTime())
+    );
+    const windowEndMs = Math.max(
+      ...items.map((entry) => entry.windowEnd.getTime())
+    );
+    const windowDurationMs = Math.max(
+      windowEndMs - windowStartMs,
+      DEFAULT_WINDOW_MS
+    );
 
-  const timeLabel =
-    latest.getTime() - earliest.getTime() > 0
-      ? `${formatTime(earliest)} – ${formatTime(latest)}`
-      : formatTime(earliest);
+    const pendingItems = items.filter(
+      (entry) => !entry.schedule.firmware_acknowledged
+    );
 
-  const deviceNames = Array.from(
-    new Set(groupedItems.map((entry) => entry.deviceName))
-  ).join(", ");
+    const allCodes = Array.from(
+      new Set(
+        items
+          .map((entry) => entry.schedule.medication_code?.trim())
+          .filter((code): code is string => !!code && code.length > 0)
+      )
+    );
+    const pendingCodes = Array.from(
+      new Set(
+        pendingItems
+          .map((entry) => entry.schedule.medication_code?.trim())
+          .filter((code): code is string => !!code && code.length > 0)
+      )
+    );
 
-  const medicationCodes = Array.from(
-    new Set(
-      groupedItems
-        .map((entry) => entry.schedule.medication_code)
-        .filter((code): code is string => !!code && code.trim().length > 0)
-    )
-  ).join(", ");
+    return {
+      items,
+      earliestEvent,
+      windowStartMs,
+      windowEndMs,
+      windowDurationMs,
+      pendingItems,
+      allCodes,
+      pendingCodes,
+    };
+  });
 
-  const isMissed = earliest.getTime() + UPCOMING_WINDOW_MS < now.getTime();
-  const isInWindow =
-    earliest.getTime() <= now.getTime() &&
-    now.getTime() <= earliest.getTime() + UPCOMING_WINDOW_MS;
-  const isAboutToMiss =
-    earliest.getTime() > now.getTime() &&
-    earliest.getTime() - now.getTime() <= UPCOMING_WINDOW_MS;
+  if (groupsInfo.length === 0) {
+    return {
+      mainLabel: "No Upcoming Dose",
+      timeLabel: "You're all done for today.",
+      detailsLabel: "",
+      state: 0,
+    };
+  }
 
-  const state = isMissed ? 2 : isInWindow || isAboutToMiss ? 1 : 0;
+  let activeGroup =
+    groupsInfo.find(
+      (group) =>
+        group.windowStartMs <= nowMs &&
+        nowMs <= group.windowEndMs &&
+        group.pendingItems.length > 0
+    ) ??
+    groupsInfo.find(
+      (group) =>
+        group.pendingItems.length > 0 && group.windowStartMs > nowMs
+    ) ??
+    groupsInfo.find((group) => group.windowStartMs > nowMs) ??
+    groupsInfo[0];
 
-  const doseCount = groupedItems.length;
-  const countSuffix = doseCount > 1 ? `s (${doseCount})` : "";
+  // If selected group is fully acknowledged and already active, try to look ahead.
+  if (
+    activeGroup.pendingItems.length === 0 &&
+    activeGroup.windowStartMs <= nowMs
+  ) {
+    const nextGroup = groupsInfo.find((group) => group.windowStartMs > nowMs);
+    if (nextGroup) {
+      activeGroup = nextGroup;
+    }
+  }
 
-  const mainLabel = isMissed
-    ? `Missed Dose${doseCount > 1 ? "s" : ""}`
-    : isInWindow || isAboutToMiss
-    ? `Due Soon${doseCount > 1 ? ` (${doseCount})` : ""}`
-    : `Upcoming Dose${countSuffix}`;
+  const inWindow =
+    activeGroup.windowStartMs <= nowMs && nowMs <= activeGroup.windowEndMs;
+  const allTaken = activeGroup.pendingItems.length === 0;
+  const halfWindowMs = activeGroup.windowDurationMs / 2;
+  const elapsedMs = nowMs - activeGroup.windowStartMs;
+  const halfWindowReached = inWindow && elapsedMs >= halfWindowMs;
 
-  const details: string[] = [];
-  // if (deviceNames) details.push(deviceNames);
-  if (medicationCodes) details.push(medicationCodes);
+  const codesForMessages =
+    activeGroup.pendingCodes.length > 0
+      ? activeGroup.pendingCodes
+      : activeGroup.allCodes;
+  const formattedCodes = formatMedicationList(codesForMessages);
+
+  let mainLabel: string;
+  let timeLabel: string;
+
+  if (!inWindow || allTaken) {
+    const diffMs =
+      activeGroup.windowStartMs > nowMs
+        ? activeGroup.windowStartMs - nowMs
+        : Math.max(activeGroup.earliestEvent.getTime() - nowMs, 0);
+    mainLabel = formatDurationLabel(diffMs);
+    timeLabel = "from now";
+  } else {
+    mainLabel = "Take dose now";
+    const remainingMs = Math.max(activeGroup.windowEndMs - nowMs, 0);
+    const remainingMinutes = Math.ceil(remainingMs / 60000);
+    if (remainingMinutes > 60) {
+      timeLabel = "within the hour";
+    } else {
+      timeLabel = `within ${Math.max(1, remainingMinutes)} mins`;
+    }
+  }
+
+  let detailsLabel: string;
+  let state: number;
+
+  if (allTaken) {
+    detailsLabel = "Thank you for logging a successful dose";
+    state = 4;
+  } else if (halfWindowReached) {
+    detailsLabel = `You are about to miss a scheduled dose for ${formattedCodes}. Take the dose(s) now.`;
+    state = 3;
+  } else {
+    const medicationPrompt =
+      formattedCodes === "your medication"
+        ? "your medication"
+        : `medication ${formattedCodes}`;
+    detailsLabel = `Take ${medicationPrompt}.`;
+    state = 6;
+  }
 
   return {
     mainLabel,
     timeLabel,
-    detailsLabel: `Take medication ${details.join(", ")}`,
+    detailsLabel,
     state,
   };
 }
