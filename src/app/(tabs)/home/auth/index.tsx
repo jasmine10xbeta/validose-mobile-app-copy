@@ -1,32 +1,74 @@
 import { useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
-import { useState, useRef } from "react";
-import { StyleSheet, View, PermissionsAndroid, Platform } from "react-native";
+import { useState, useRef, type ReactNode } from "react";
+import {
+  StyleSheet,
+  View,
+  Image,
+  PermissionsAndroid,
+  Platform,
+  Text,
+  type ImageSourcePropType,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { VButton } from "@/components/common/VButton";
 import { QRCodeScanner } from "@/components/common/VQRCodeScanner";
 import { VText } from "@/components/common/VText";
 import { showToast } from "@/components/common/VToast";
+import { VTopActions } from "@/components/common/VTopActions";
 import { useAuth } from "@/providers/auth";
 import { onboardWithCode, login } from "@/services/auth";
 
 // Reusable UI block for login messages and button
 function LoginMessageBlock({
+  title,
   message,
+  instructions,
+  illustration,
   buttonLabel,
   onPress,
+  onPressHelp,
+  personDisabled,
 }: {
+  title?: string;
   message: string;
+  instructions?: ReactNode;
+  illustration?: ImageSourcePropType;
   buttonLabel: string;
   onPress: () => void;
+  onPressHelp: () => void;
+  personDisabled?: boolean;
 }) {
   return (
     <SafeAreaView style={styles.alignContent}>
+      <View style={styles.topActions}>
+        <VTopActions onPressHelp={onPressHelp} personDisabled={personDisabled} />
+      </View>
       <View style={styles.loginContainer}>
-        <VText style={styles.loginMessage} textVariant="Label">
-          {message}
-        </VText>
+        <View
+          style={{
+            flexDirection: "column",
+            width: "100%",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          {title && <VText textVariant={"LabelDose"}>{title}</VText>}
+          <VText style={styles.loginMessage} textVariant="Label">
+            {message}
+          </VText>
+          {illustration && (
+            <Image
+              source={illustration}
+              style={{ width: "60%", height: "45%", resizeMode: "contain" }}
+            />
+          )}
+          {instructions && (
+            <VText textVariant="LabelDose">{instructions}</VText>
+          )}
+        </View>
+
         <VButton onPress={onPress} label={buttonLabel} />
       </View>
     </SafeAreaView>
@@ -36,10 +78,12 @@ function LoginMessageBlock({
 export default function LoginScreen() {
   const router = useRouter();
 
-  const hasScannedRef = useRef(false); // Prevents duplicate scans
-  const { isSignedOut, signIn } = useAuth();
+  const hasScannedRef = useRef(false);                      // Prevents duplicate scans
+  const { user, isSignedOut, signIn } = useAuth();
   const [showCamera, setShowCamera] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
+  const hasAccessToken = Boolean(user?.access_token);
+  const handleHelpPress = () => router.push("/home/led-info");
 
   // Handles runtime permissions for Bluetooth on Android 12+
   async function requestBluetoothPermissions(): Promise<boolean> {
@@ -76,6 +120,8 @@ export default function LoginScreen() {
         message="We need your permission to show the camera"
         buttonLabel="Grant permission"
         onPress={requestPermission}
+        onPressHelp={handleHelpPress}
+        personDisabled={!hasAccessToken}
       />
     );
   }
@@ -90,6 +136,8 @@ export default function LoginScreen() {
           const session = await login();
           await signIn(session);
         }}
+        onPressHelp={handleHelpPress}
+        personDisabled={!hasAccessToken}
       />
     );
   }
@@ -109,7 +157,7 @@ export default function LoginScreen() {
         const response = await onboardWithCode(onboardingCode);
 
         if (response?.access_token) {
-          await signIn(response);                         // Sign user in and redirect to pairing
+          await signIn(response);                           // Sign user in and redirect to pairing
           router.replace("/home/pairing");
           setShowCamera(false);
         } else {
@@ -127,7 +175,7 @@ export default function LoginScreen() {
       setShowCamera(false);
     } finally {
       setShowCamera(false);
-      setTimeout(() => hasScannedRef.current = false, 10); // Reset scanner lock after delay
+      setTimeout(() => (hasScannedRef.current = false), 10); // Reset scanner lock after delay
     }
   };
 
@@ -147,8 +195,17 @@ export default function LoginScreen() {
   // Default UI state: prompt to scan QR and request permissions
   return (
     <LoginMessageBlock
-      message="Scan QR code to link mobile device"
-      buttonLabel="Link"
+      title="Setup"
+      message="Scan QR code to link this mobile device"
+      instructions={
+        <>
+          Your Site Manager should open the three-dot menu in{" "}
+          <Text style={{ fontWeight: "bold" }}>Participant Management</Text>
+          {"and choose Onboarding to view the QR code."}
+        </>
+      }
+      illustration={require("../../../../assets/images/png/onboarding-qr.png")}
+      buttonLabel="Scan QR code"
       onPress={async () => {
         const granted = await requestBluetoothPermissions();
         if (!granted) {
@@ -170,8 +227,10 @@ export default function LoginScreen() {
           return;
         }
 
-        setShowCamera(true); // Launch camera view
+        setShowCamera(true);                                // Launch camera view
       }}
+      onPressHelp={handleHelpPress}
+      personDisabled={!hasAccessToken}
     />
   );
 }
@@ -180,19 +239,22 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   alignContent: {
     flex: 1,
+    height: "100%",
     backgroundColor: "#FFF",
+  },
+  topActions: {
+    width: "100%",
+    paddingHorizontal: 24,
+    marginTop: 16,
   },
 
   loginContainer: {
+    height: "100%",
     flexDirection: "column",
     alignItems: "center",
+    justifyContent: "space-between",
     marginHorizontal: 24,
-    marginTop: 40,
-    paddingHorizontal: 25,
-    paddingVertical: 45,
-    borderColor: "#E6E7E8",
-    borderRadius: 12,
-    borderWidth: 1,
+    paddingBottom: 100,
   },
   loginLabel: {
     position: "absolute",
@@ -204,9 +266,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF",
   },
   loginMessage: {
-    marginBottom: 35,
     textAlign: "center",
-    fontSize: 32,
+    fontSize: 30,
     color: "#252F3B",
     fontWeight: "600",
   },

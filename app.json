@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "validose-mobile-app",
-    "slug": "validose-mobile-app",
+    "name": "Validose",
+    "slug": "validose",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./src/assets/images/png/icon.png",
@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.anonymous.x10xbetamobilemdkpoc",
-      "buildNumber": "37",
+      "buildNumber": "41",
       "infoPlist": {
         "NSCameraUsageDescription": "Validose needs access to your camera for QRCode"
       },
@@ -33,7 +33,7 @@
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ],
-      "versionCode": 37,
+      "versionCode": 41,
       "package": "com.anonymous.x10xbetamobilemdkpoc"
     },
     "web": {
