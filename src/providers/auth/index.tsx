@@ -70,7 +70,7 @@ export function AuthenticationProvider({
   const signIn = async (userData: AuthTokenResponse) => {
     try {
       console.log("\n");
-      console.log("Signing in..");
+      console.log("Signing in..", userData);
       console.log(`Saving token to SecureStore and loading user..`);
 
       // Save tokens securely for persistent authentication

@@ -37,7 +37,12 @@ const renderBaseToast = (accent: Accent) =>
     return (
       <BaseToast
         {...props}
-        style={{ height: "auto", paddingTop: 10, paddingBottom: 10, borderLeftColor: accentColors[accent] }}
+        style={{
+          height: "auto",
+          paddingTop: 16,
+          paddingBottom: 16,
+          borderLeftColor: accentColors[accent],
+        }}
         contentContainerStyle={styles.content}
         text1NumberOfLines={3}
         text2NumberOfLines={4}
@@ -50,7 +55,12 @@ const renderBaseToast = (accent: Accent) =>
 const renderErrorToast = (props: any) => (
   <ErrorToast
     {...props}
-    style={{ height: "auto", paddingTop: 10, paddingBottom: 10, borderLeftColor: accentColors.error }}
+    style={{
+      height: "auto",
+      paddingTop: 16,
+      paddingBottom: 16,
+      borderLeftColor: accentColors.error,
+    }}
     contentContainerStyle={styles.content}
     text1NumberOfLines={3}
     text2NumberOfLines={4}
