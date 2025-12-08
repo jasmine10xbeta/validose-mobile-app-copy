@@ -11,6 +11,7 @@ export const validoseMedication = "#E7F0FF";
 export const validoseMedicationError = "#b9d2fa";
 export const validoseMedication1 = "#5D9BFF";
 export const validoseMedication2 = "#345DA0";
+export const validoseButtonColor = "#255F6C";
 
 export const Colors = {
   light: {

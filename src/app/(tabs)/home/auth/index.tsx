@@ -61,7 +61,7 @@ function LoginMessageBlock({
           {illustration && (
             <Image
               source={illustration}
-              style={{ width: "60%", height: "45%", resizeMode: "contain" }}
+              style={{ width: "60%", height: "45%", resizeMode: "contain", marginVertical: 12 }}
             />
           )}
           {instructions && (
@@ -179,59 +179,61 @@ export default function LoginScreen() {
     }
   };
 
-  // UI state: show camera scanner when ready
-  if (showCamera) {
-    return (
-      <QRCodeScanner
-        onBarcodeScanned={handlePatientQrScan}
-        onClose={() => {
-          hasScannedRef.current = !hasScannedRef.current;
-          setShowCamera(false);
-        }}
-      />
-    );
-  }
-
   // Default UI state: prompt to scan QR and request permissions
   return (
-    <LoginMessageBlock
-      title="Setup"
-      message="Scan QR code to link this mobile device"
-      instructions={
-        <>
-          Your Site Manager should open the three-dot menu in{" "}
-          <Text style={{ fontWeight: "bold" }}>Participant Management</Text>
-          {"and choose Onboarding to view the QR code."}
-        </>
-      }
-      illustration={require("../../../../assets/images/png/onboarding-qr.png")}
-      buttonLabel="Scan QR code"
-      onPress={async () => {
-        const granted = await requestBluetoothPermissions();
-        if (!granted) {
-          showToast(
-            "error",
-            "Bluetooth permission denied",
-            "Bluetooth features may not work."
-          );
-          return;
+    <>
+      <LoginMessageBlock
+        title="Setup"
+        message="Scan QR Code to Link This Mobile Device"
+        instructions={
+          <>
+            Your Site Manager should open the three-dot menu in{" "}
+            <Text style={{ fontWeight: "600", color: "#252F3B" }}>Participant Management</Text>
+            {" and choose Onboarding to view the QR code."}
+          </>
         }
+        illustration={require("../../../../assets/images/png/onboarding-qr.png")}
+        buttonLabel="Scan QR code"
+        onPress={async () => {
+          const granted = await requestBluetoothPermissions();
+          if (!granted) {
+            showToast(
+              "error",
+              "Bluetooth permission denied",
+              "Bluetooth features may not work."
+            );
+            return;
+          }
 
-        const cameraGranted = await requestPermission();
-        if (!cameraGranted?.granted) {
-          showToast(
-            "error",
-            "Camera permission denied",
-            "Cannot proceed without camera."
-          );
-          return;
-        }
+          const cameraGranted = await requestPermission();
+          if (!cameraGranted?.granted) {
+            showToast(
+              "error",
+              "Camera permission denied",
+              "Cannot proceed without camera."
+            );
+            return;
+          }
 
-        setShowCamera(true);                                // Launch camera view
-      }}
-      onPressHelp={handleHelpPress}
-      personDisabled={!hasAccessToken}
-    />
+          setShowCamera(true);                              // Launch camera overlay
+        }}
+        onPressHelp={handleHelpPress}
+        personDisabled={!hasAccessToken}
+      />
+      {showCamera && (
+        <QRCodeScanner
+          variant="overlay"
+          headline="Scan QR code"
+          helperText="Open the three-dot menu in Participant Management and choose Onboarding to view the QR code."
+          cancelLabel="Cancel"
+          onBarcodeScanned={handlePatientQrScan}
+          onClose={() => {
+            hasScannedRef.current = false;
+            setShowCamera(false);
+          }}
+        />
+      )}
+    </>
   );
 }
 

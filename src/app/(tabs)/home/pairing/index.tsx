@@ -1,7 +1,7 @@
 import { useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { FlatList, StyleSheet, View, Dimensions } from "react-native";
+import { FlatList, StyleSheet, View, Image, Dimensions, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { VButton } from "@/components/common/VButton";
@@ -9,6 +9,7 @@ import { VDeviceItem } from "@/components/common/VDeviceItem";
 import { QRCodeScanner } from "@/components/common/VQRCodeScanner";
 import { VText } from "@/components/common/VText";
 import { showToast } from "@/components/common/VToast";
+import { VTopActions } from "@/components/common/VTopActions";
 import { useAuth } from "@/providers/auth";
 import { getValidoseDevices } from "@/services/device";
 import useDeviceStore from "@/store/device";
@@ -19,6 +20,8 @@ export default function PairingScreen() {
 
   const { user, isLoading } = useAuth();
   const { authorizedDevices, setAuthorizedDevices } = useDeviceStore();
+  const hasAccessToken = Boolean(user?.access_token);
+  const handleHelpPress = () => router.push("/home/led-info");
 
   const hasScannedRef = useRef(false);
   const [showCamera, setShowCamera] = useState(false);
@@ -104,6 +107,11 @@ export default function PairingScreen() {
   if (!permission.granted) {
     return (
       <SafeAreaView style={styles.alignContent}>
+        <VTopActions
+          style={styles.topActions}
+          onPressHelp={handleHelpPress}
+          personDisabled={!hasAccessToken}
+        />
         <View style={styles.pairingContainer}>
           <VText textVariant="Body">
             We need your permission to show the camera
@@ -125,67 +133,111 @@ export default function PairingScreen() {
 
   return (
     <SafeAreaView style={styles.alignContent}>
+      <VTopActions
+        style={styles.topActions}
+        onPressHelp={handleHelpPress}
+        personDisabled={!hasAccessToken}
+      />
       <View
-        style={[styles.setupContainer, contentHeight > screenHeight ? { height: screenHeight } : {}]}
+        style={[
+          styles.setupContainer,
+          contentHeight > screenHeight ? { height: screenHeight } : {},
+        ]}
         onLayout={(e) => setContentHeight(e.nativeEvent.layout.height)}
       >
-        <VText style={styles.setupLabel} textVariant="Label">Setup</VText>
-        <VText style={styles.setupMessage} textVariant="Label">
-          {isDevicesConnected
-            ? "Device connection successful"
-            : "Let's connect\nyour device"}
-        </VText>
-        {isDevicesConnected ? (
-          <View
-            style={{
-              maxHeight: screenHeight * 0.35,
-              width: "100%",
-              marginTop: 50,
-              marginBottom: 40,
-            }}
-          >
-            <FlatList
-              data={devices}
-              renderItem={({ item }) => (
-                <VDeviceItem
-                  item={item}
-                  state={item?.connected}
-                  reconnect={() => reconnectDevice(item.deviceName)}
-                  isReconnecting={reconnectingDeviceId === item.deviceName}
-                />
-              )}
-              keyExtractor={(item) => item.deviceId}
-              showsVerticalScrollIndicator={false}
-            />
-          </View>
-        ) : (
-          <View style={{ marginBottom: 20 }} />
-        )}
+        <View
+          style={{
+            flexDirection: "column",
+            width: "100%",
+            alignItems: "center",
+          }}
+        >
+          <VText textVariant="LabelDose">
+            Setup
+          </VText>
+          <VText style={styles.setupMessage} textVariant="Label">
+            {isDevicesConnected
+              ? "Device Connection Status"
+              : "Let's connect\nyour device"}
+          </VText>
+          {!isDevicesConnected && (
+            <>
+              <Image
+                source={require("../../../../assets/images/png/device-qr.png")}
+                style={{ width: "65%", height: "45%", resizeMode: "contain", marginTop: 24, marginBottom: 18 }}
+              />
+              <VText textVariant="LabelDose">
+                {"Tap Scan device and scan the "}
+                <Text style={{ fontWeight: "600", color: "#505A66" }}>
+                  QR sticker underneath the device.
+                </Text>
+              </VText>
+            </>
+          )}
+          {isDevicesConnected ? (
+            <View
+              style={{
+                maxHeight: screenHeight * 0.35,
+                width: "100%",
+              }}
+            >
+              <FlatList
+                data={devices}
+                renderItem={({ item }) => (
+                  <VDeviceItem
+                    item={item}
+                    state={item?.connected}
+                    reconnect={() => reconnectDevice(item.deviceName)}
+                    isReconnecting={reconnectingDeviceId === item.deviceName}
+                  />
+                )}
+                keyExtractor={(item) => item.deviceId}
+                showsVerticalScrollIndicator={false}
+              />
+            </View>
+          ) : (
+            <View style={{ marginBottom: 0 }} />
+          )}
+        </View>
 
-        {isDevicesConnected ? (
-          <>
-            <VButton
-              onPress={() => router.push("/home/dashboard")}
-              label="Continue"
-              style={[styles.continueButton, { marginBottom: 10 }]}
-              labelStyle={{ color: "#252F3B", fontWeight: "500" }}
-            />
+        <View
+          style={{
+            flexDirection: "column",
+            width: "100%",
+            alignItems: "center",
+          }}
+        >
+          {isDevicesConnected ? (
+            <>
+              <VButton
+                onPress={() => router.push("/home/dashboard")}
+                label="Continue"
+                style={[styles.continueButton, { marginBottom: 10 }]}
+                labelStyle={{ color: "#252F3B", fontWeight: "500" }}
+              />
+              <VButton
+                onPress={() => setShowCamera(true)}
+                label="Scan device sticker"
+              />
+            </>
+          ) : (
             <VButton
               onPress={() => setShowCamera(true)}
-              label="+ Scan device"
+              label="Scan device sticker"
             />
-          </>
-        ) : (
-          <VButton onPress={() => setShowCamera(true)} label="+ Scan device" />
-        )}
-        <VButton
-          onPress={() => {
-            router.push("/home/pairing/manual-pairing");
-          }}
-          style={{ borderWidth: 0, marginTop: 5 }}
-          label="Enter device ID manually"
-          labelStyle={styles.manualPairingLabel}
-        />
+          )}
+          <VButton
+            onPress={() => {
+              router.push("/home/pairing/manual-pairing");
+            }}
+            style={{
+              borderWidth: 0,
+              marginTop: 21,
+            }}
+            label="Enter device ID manually"
+            labelStyle={styles.manualPairingLabel}
+          />
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -196,37 +248,37 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FFF",
   },
+  topActions: {
+    width: "100%",
+    paddingHorizontal: 24,
+    marginTop: 16,
+  },
 
   // Setup Container Styles
   setupContainer: {
+    flex: 1,
     flexDirection: "column",
+    justifyContent: "space-between",
     position: "relative",
     alignItems: "center",
     marginHorizontal: 24,
-    marginTop: 40,
-    paddingHorizontal: 22,
-    paddingTop: 45,
-    paddingBottom: 20,
-    borderColor: "#E6E7E8",
-    borderRadius: 12,
-    borderWidth: 1,
+    paddingHorizontal: 18,
   },
   setupLabel: {
     position: "absolute",
     top: -10,
     paddingHorizontal: 25,
-    color: "#565F6B",
+    color: "#505A66",
     fontSize: 16,
     fontWeight: "500",
     // fontFamily: "Inter",
-    backgroundColor: "#FFF",
   },
   setupMessage: {
-    marginBottom: 20,
     textAlign: "center",
-    fontSize: 32,
+    fontSize: 30,
     color: "#252F3B",
     fontWeight: "600",
+    marginTop: 8
     // fontFamily: "Inter",
   },
 
@@ -238,12 +290,12 @@ const styles = StyleSheet.create({
     gap: 25,
   },
   manualPairingLabel: {
-    color: "#000",
+    color: "#255F6C",
     fontSize: 16,
-    fontWeight: "300",
-    fontStyle: "italic",
-    textDecorationColor: "#000",
-    textDecorationLine: "underline",
+    fontWeight: "500",
+    borderBottomWidth: 1,
+    borderRadius: 1,
+    borderColor: "#255F6C",
   },
   secretContainer: {
     position: "absolute",

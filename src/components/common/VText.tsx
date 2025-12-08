@@ -29,10 +29,15 @@ interface VTextProps {
     | "DeviceItemState";
 }
 
-export function VText(props: VTextProps & TextProps<string> & TextStyle) {
+export function VText({
+  textVariant,
+  style,
+  children,
+  ...rest
+}: VTextProps & TextProps<string> & TextStyle) {
   return (
-    <Text style={styles[`text${props.textVariant}`]} {...props}>
-      {props.children}
+    <Text style={[styles[`text${textVariant}`], style]} {...rest}>
+      {children}
     </Text>
   );
 }

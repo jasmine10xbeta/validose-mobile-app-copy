@@ -105,7 +105,7 @@ export function QRCodeScanner({
               </VText>
             </TouchableOpacity>
             <View style={styles.overlayTextGroup}>
-              <VText textVariant="LabelDose">
+              <VText textVariant="LabelDose" style={styles.overlayHelperText}>
                 {helperText}
               </VText>
             </View>
@@ -191,11 +191,20 @@ const styles = StyleSheet.create({
   overlayCancelText: {
     color: "#505A66",
     fontSize: 18,
+    textAlign: "left",
+    width: "auto",
+    fontWeight: "400",
   },
   overlayTextGroup: {
     marginTop: 40,
     marginBottom: 24,
-    paddingHorizontal: 25,
+    paddingHorizontal: 12,
+  },
+  overlayHelperText: {
+    fontWeight: "600",
+    color: "#272F3A",
+    textAlign: "center",
+    fontSize: 17
   },
   overlayCameraShell: {
     flex: 1,
