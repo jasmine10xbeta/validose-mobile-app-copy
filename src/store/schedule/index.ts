@@ -124,10 +124,10 @@ const useScheduleStore = create<ScheduleStore>()(
             });
             return acc;
           },
-          {} as Record<string, Schedule[]>
+          {} as Record<string, []>
         );
 
-        set({ schedules: newSchedules });
+        set({ s: newSchedules });
       },
 
       clearSchedules: () => set({ schedules: {} }),

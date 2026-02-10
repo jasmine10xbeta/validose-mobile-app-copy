@@ -12,7 +12,36 @@ interface VDeviceItemProps {
 export function VDeviceItem(props: VDeviceItemProps) {
   return (
     <View style={styles.deviceItem}>
-      <VText textVariant="DeviceItem">{props.item.deviceName}</VText>
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <View
+          style={{
+            backgroundColor: "#F4F6F9",
+            width: 50,
+            height: 50,
+            borderTopLeftRadius: 8,
+            borderBottomLeftRadius: 8,
+            justifyContent: "center",
+            alignItems: "center",
+            marginRight: 2,
+          }}
+        >
+          <VText textVariant="DeviceItem" style={{color: "#255F6C", fontWeight: "700", fontSize: 26 }}>
+            {props.item.deviceName.slice(0, 1)}
+          </VText>
+        </View>
+        <View
+          style={{
+            backgroundColor: "#F4F6F9",
+            width: 8,
+            height: 50,
+            borderTopRightRadius: 21,
+            borderBottomRightRadius: 21,
+            marginRight: 8,
+          }}
+        />
+        <VText textVariant="DeviceItem" style={{ fontSize: 15, color: "#505A66", fontWeight: "500" }}>{props.item.deviceName}</VText>
+      </View>
+
       {props.isReconnecting ? (
         <ActivityIndicator size="small" color="#2EC4B6" />
       ) : props.state ? (
@@ -21,7 +50,7 @@ export function VDeviceItem(props: VDeviceItemProps) {
           {props.state ? "Connected" : "Disconnected"}
         </VText>
       ) : (
-        <Pressable onPress={() => props.reconnect()}>
+        <Pressable onPress={() => props.reconnect()} style={{ flexDirection: "row", alignItems: "center", backgroundColor: "#FFEDED" }}>
           <VText textVariant="DeviceItemState" style={{ color: "red" }}>
             {"Reconnect"}
           </VText>
@@ -33,15 +62,19 @@ export function VDeviceItem(props: VDeviceItemProps) {
 
 const styles = StyleSheet.create({
   deviceItem: {
+    flex: 1,
     flexDirection: "row",
     justifyContent: "space-between",
     alignContent: "center",
     alignItems: "center",
-    paddingHorizontal: 18,
-    backgroundColor: "#F8F8F8",
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    borderColor: "#FAFBFC",
+    borderWidth: 2,
     width: "100%",
-    paddingVertical: 14,
-    borderRadius: 8,
+    height: 62,
+    // paddingVertical: 14,
+    borderRadius: 7,
     marginTop: 12,
   },
 });

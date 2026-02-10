@@ -7,6 +7,7 @@ import {
   UnitErrorCodes,
   UnitId,
 } from "@/constants/ble";
+import { BleMessageProtocol, MessageProtocolInterface } from "./messageProtocol";
 import { sendDoseEvent } from "@/services/schedule";
 import { sendTelemetry } from "@/services/telemetry";
 import useDeviceStore from "@/store/device";
@@ -21,6 +22,10 @@ import {
   writeCharacteristic,
   scanLeDevice,
 } from "../../../modules/tenx-mdk-ble-rn-library/src/index";
+
+const MESSAGE_PROTOCOL_PROCESS_INTERVAL_MS = 250;
+
+let messageProtocol: BleMessageProtocol | null = null;
 
 const { addDevice, updateDevice } = useDeviceStore.getState();
 
@@ -74,6 +79,20 @@ export async function connectAndSetupDevice(deviceName: string) {
     }
 
     await discoverServicesAndCharacteristics();
+
+    if (messageProtocol) {
+      messageProtocol.stop();
+      messageProtocol = null;
+    }
+
+    messageProtocol = new BleMessageProtocol({
+      txCharacteristicUUID: CHARACTERISTIC_UUIDS.MESSAGE_PROTOCOL,
+      rxCharacteristicUUID: CHARACTERISTIC_UUIDS.MESSAGE_PROTOCOL,
+      processIntervalMs: MESSAGE_PROTOCOL_PROCESS_INTERVAL_MS,
+    });
+
+    await messageProtocol.start();
+
     // await resetBufferCharacteristic();
     await subscribeToDoseEvent(device_id);
     await subscribeToBatteryLevel(device_id);
@@ -91,17 +110,21 @@ export async function connectAndSetupDevice(deviceName: string) {
 
     await writeDoseSchedule({
       dosage_amount: 2,
-      events_per_day: 7,
-      max_temperature_threshold: 25,
+      events_per_day: 4,
+      max_temperature_threshold: 60,
       temperature_avg_time_window_min: 30,
       window: [
-        { start_min: 465, end_min: 30 },
-        { start_min: 585, end_min: 30 },
-        { start_min: 705, end_min: 30 },
-        { start_min: 885, end_min: 30 },
-        { start_min: 1005, end_min: 30 },
-        { start_min: 1185, end_min: 30 },
-        { start_min: 1305, end_min: 30 },
+        // 10:30
+        { start_min: 630, end_min: 30 },
+        // 14:00
+        { start_min: 840, end_min: 30 },
+        // 17:30
+        { start_min: 1050, end_min: 30 },
+        // 21:00
+        { start_min: 1260, end_min: 30 },
+
+        // { start_min: 465, end_min: 30 },
+        // { start_min: 585, end_min: 30 },
       ],
     });
     // }
@@ -109,6 +132,12 @@ export async function connectAndSetupDevice(deviceName: string) {
     return { deviceId: device_id, deviceName: device_name, status: "success" };
   } catch (error) {
     console.log("error", error);
+
+    if (messageProtocol) {
+      messageProtocol.stop();
+      messageProtocol = null;
+    }
+
     updateDevice(deviceName, {
       connected: false,
       color: "",
@@ -379,3 +408,9 @@ export function decodeDoseEvent(hex: string) {
     dose_event_type
   };
 }
+
+export function getMessageProtocol(): MessageProtocolInterface | null {
+  return messageProtocol;
+}
+
+export * from "./messageProtocol";

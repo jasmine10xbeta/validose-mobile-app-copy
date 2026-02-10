@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import dayjs from "dayjs";
 import { useEffect, useState } from "react";
 import {
@@ -18,6 +19,7 @@ import { VButton } from "@/components/common/VButton";
 import { VMedicationItem } from "@/components/common/VMedicationItem";
 import VNetworkInfo from "@/components/common/VNetworkInfo";
 import { VNextDoseInfo } from "@/components/common/VNextDoseInfo";
+import { VTopActions } from "@/components/common/VTopActions";
 import { showToast } from "@/components/common/VToast";
 import {
   createSupportRequest,
@@ -29,10 +31,13 @@ import useTreatmentStore from "@/store/treatment";
 import { SupportRequest } from "@/types/support";
 import { connectAndSetupDevice } from "@/utils/ble";
 import { syncTreatmentsAndSchedules } from "@/utils/schedule";
+import { useAuth } from "@/providers/auth";
 
 const INBOX_SHEET_HEIGHT = Dimensions.get("window").height * 0.9;
 
 export default function DashboardScreen() {
+  const router = useRouter();
+  const { user } = useAuth();
   const { treatments, clearTreatments } = useTreatmentStore();
   const { schedules, clearSchedules, getTodaySchedules } = useScheduleStore();
   const todaySchedulesByDevice = getTodaySchedules();
@@ -43,6 +48,8 @@ export default function DashboardScreen() {
   const [inboxLoading, setInboxLoading] = useState(false);
   const [inboxError, setInboxError] = useState<string | null>(null);
   const [supportRequests, setSupportRequests] = useState<SupportRequest[]>([]);
+  const hasAccessToken = Boolean(user?.access_token);
+  const handleHelpPress = () => router.push("/home/led-info");
 
   useEffect(() => {
     // clearTreatments();                   // UNCOMMENT FOR DEBUGGING
@@ -162,6 +169,11 @@ export default function DashboardScreen() {
   return (
     <SafeAreaView style={styles.alignContent}>
       {/* <VNetworkInfo /> */}
+      <VTopActions
+        style={styles.topActions}
+        onPressHelp={handleHelpPress}
+        personDisabled={!hasAccessToken}
+      />
       <View style={styles.headerRow}>
         <TouchableOpacity
           style={styles.notificationButton}
@@ -296,6 +308,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF",
     alignItems: "center",
     paddingHorizontal: 20,
+  },
+  topActions: {
+    alignSelf: "stretch",
+    marginTop: 8,
+    marginBottom: 12,
   },
   headerRow: {
     alignSelf: "stretch",

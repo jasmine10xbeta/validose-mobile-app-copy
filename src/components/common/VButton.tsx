@@ -1,6 +1,6 @@
 import { StyleSheet } from "react-native";
 import { Button, ButtonProps } from "react-native-paper";
-import { validoseAqua, validoseAqua3 } from "@/constants/colors";
+import { validoseAqua3, validoseButtonColor, validoseWhite } from "@/constants/colors";
 import { VText } from "./VText";
 
 interface VButtonProps {
@@ -25,11 +25,12 @@ export function VButton(props: VButtonProps & Omit<ButtonProps, "children">) {
 
 const styles = StyleSheet.create({
   button: {
-    borderColor: validoseAqua,
+    borderColor: validoseButtonColor,
+    backgroundColor: validoseButtonColor,
     borderWidth: 2,
     borderRadius: 25,
     padding: 5,
-    width: "100%",
+    width: "90%",
     textDecorationColor: validoseAqua3,
   },
   buttonDisabled: {
@@ -45,6 +46,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "500",
     // fontFamily: "Inter",
-    color: validoseAqua3
+    color: validoseWhite
   }
 });
