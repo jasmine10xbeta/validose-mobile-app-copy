@@ -52,16 +52,18 @@ export function QRCodeScanner({
     [isProcessing, onBarcodeScanned]
   );
 
-  if (variant === "overlay") {
-    useEffect(() => {
-      Animated.timing(sheetTranslateY, {
-        toValue: 0,
-        duration: 260,
-        useNativeDriver: true,
-        easing: Easing.out(Easing.ease),
-      }).start();
-    }, [sheetTranslateY]);
+  useEffect(() => {
+    if (variant !== "overlay") return;
 
+    Animated.timing(sheetTranslateY, {
+      toValue: 0,
+      duration: 260,
+      useNativeDriver: true,
+      easing: Easing.out(Easing.ease),
+    }).start();
+  }, [variant, sheetTranslateY]);
+
+  if (variant === "overlay") {
     const dismiss = () => {
       Animated.timing(sheetTranslateY, {
         toValue: 1,

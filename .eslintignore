@@ -8,6 +8,16 @@ ios/build/*
 jest.setup.js
 jest.after-env.setup.ts
 
+# Legacy root folders (current app lives in src/)
+/app/
+/components/
+/hooks/
+/store/
+/utils/
+
+# Legacy stores (unused in src app)
+/src/store/auth/
+
 # TODO:: figure out wich file is causing lint error
 # OSX
 #
