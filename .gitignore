@@ -49,3 +49,11 @@ app-example
 ios/Podfile.lock
 
 build/
+package-lock.json
+
+.vscode/
+
+# Ignore release keystore files
+android/gradle.properties
+android/app/validose-release-key.keystore
+validose-release-key.keystore

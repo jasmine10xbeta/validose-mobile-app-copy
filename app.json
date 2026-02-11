@@ -1,17 +1,17 @@
 {
   "expo": {
-    "name": "validose-mobile-app",
-    "slug": "validose-mobile-app",
+    "name": "Validose",
+    "slug": "validose",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./src/assets/images/png/icon.png",
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.anonymous.x10xbetamobilemdkpoc",
-      "buildNumber": "13",
+      "buildNumber": "41",
       "infoPlist": {
         "NSCameraUsageDescription": "Validose needs access to your camera for QRCode"
       },
@@ -21,7 +21,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "foregroundImage": "./src/assets/images/png/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "permissions": [
@@ -33,13 +33,13 @@
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ],
-      "versionCode": 13,
+      "versionCode": 41,
       "package": "com.anonymous.x10xbetamobilemdkpoc"
     },
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./src/assets/images/png/favicon.png"
     },
     "plugins": [
       "expo-router",
@@ -52,12 +52,12 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/Validose-logo.png",
+          "image": "./src/assets/images/png/validose-logo.png",
           "imageWidth": 190,
           "resizeMode": "contain",
           "backgroundColor": "#252F3B",
           "dark": {
-            "image": "./assets/images/Validose-logo.png",
+            "image": "./src/assets/images/png/validose-logo.png",
             "backgroundColor": "#252F3B"
           }
         }
@@ -78,7 +78,8 @@
         }
       ],
       "expo-build-properties",
-      "expo-asset"
+      "expo-asset",
+      "react-native-ble-plx"
     ],
     "experiments": {
       "typedRoutes": true

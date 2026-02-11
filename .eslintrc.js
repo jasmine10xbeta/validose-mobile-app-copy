@@ -16,6 +16,8 @@ module.exports = {
   ignorePatterns: ["/dist/*"],
   plugins: ["react", "react-hooks", "prettier", "@typescript-eslint"],
   rules: {
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "warn",
     "@typescript-eslint/no-explicit-any": "off",
     "@typescript-eslint/no-require-imports": "off",
     "react/prop-types": "off",
@@ -63,13 +65,14 @@ module.exports = {
     ],
   },
   settings: {
-    react: {
-      version: "detect",
-    },
     "import/resolver": {
+      typescript: {
+        project: "./tsconfig.json"
+      },
       node: {
         extensions: [".js", ".jsx", ".ts", ".tsx"],
-      },
-    },
-  },
+        paths: ["src"]
+      }
+    }
+  }
 };

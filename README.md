@@ -20,12 +20,16 @@ Validose is a mobile application designed to help users manage and track their m
 
 ## Table of Contents
 
-1.  [Features](#features)
-2.  [Getting Started](#getting-started)
-3.  [File Structure](#file-structure)
-4.  [Dependencies](#dependencies)
-5.  [Contributing](#contributing)
-6.  [License](#license)
+- [Validose Mobile Application (Expo)](#validose-mobile-application-expo)
+  - [Get started](#get-started)
+  - [Table of Contents](#table-of-contents)
+  - [Features](#features)
+  - [Getting Started](#getting-started)
+  - [File Structure](#file-structure)
+  - [🔐 Android Release Build Setup](#-android-release-build-setup)
+  - [Dependencies](#dependencies)
+  - [Contributing](#contributing)
+  - [License](#license)
 
 ## Features
 
@@ -109,6 +113,28 @@ Here's a breakdown of the project's file structure:
  ├── README.md               # Documentation for the project
  └── package.json            # Project dependencies and scripts
 ```
+
+## 🔐 Android Release Build Setup
+
+When creating a release build for Android:
+
+1.	Rename the example properties file:
+    ```bash
+    android/gradle.properties.example ➡️ android/gradle.properties
+    ```
+
+2.	Update the following values in gradle.properties using credentials from the Validose vault in 1Password:
+    ```bash
+    VALIDOSE_RELEASE_STORE_FILE=validose-release-key.keystore
+    VALIDOSE_RELEASE_KEY_ALIAS=your-alias
+    VALIDOSE_RELEASE_STORE_PASSWORD=YOUR_PASSWORD
+    VALIDOSE_RELEASE_KEY_PASSWORD=YOUR_PASSWORD
+    ```
+
+3.	Copy the keystore file into your project:
+    ```bash
+    validose-release-key.keystore ➡️ android/app/
+    ```
 
 ## Dependencies
 
