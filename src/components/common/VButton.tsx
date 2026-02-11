@@ -1,6 +1,6 @@
 import { StyleSheet } from "react-native";
 import { Button, ButtonProps } from "react-native-paper";
-import { validoseAqua, validoseAqua3 } from "@/constants/Colors";
+import { validoseAqua, validoseAqua3 } from "@/constants/colors";
 import { VText } from "./VText";
 
 interface VButtonProps {

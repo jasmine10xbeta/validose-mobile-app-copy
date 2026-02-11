@@ -1,5 +1,5 @@
-import axiosInstance from "../axiosInstance";
 import { toUtcISOString } from "@/utils/date";
+import axiosInstance from "../axiosInstance";
 
 export type TelemetryCharacteristic = "BATTERY" | "ERROR" | "TEMPERATURE";
 

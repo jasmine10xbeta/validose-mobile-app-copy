@@ -4,6 +4,7 @@ import {
   ThemeProvider,
 } from "@react-navigation/native";
 import { useFonts } from "expo-font";
+import * as Notifications from "expo-notifications";
 
 // import { Stack, useRouter, Slot } from "expo-router";    // COMMENT WHILE DEBUGGING
 import { useRouter, Slot } from "expo-router";              // UNCOMMENT FOR DEBUGGING ONLY
@@ -11,7 +12,6 @@ import { useRouter, Slot } from "expo-router";              // UNCOMMENT FOR DEB
 import {} from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import * as Notifications from "expo-notifications";
 import { useEffect, useState } from "react";
 import { useColorScheme } from "react-native";
 import "react-native-reanimated";
