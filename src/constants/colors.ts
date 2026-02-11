@@ -13,7 +13,7 @@ export const validoseMedication1 = "#5D9BFF";
 export const validoseMedication2 = "#345DA0";
 export const validoseButtonColor = "#255F6C";
 
-export const Colors = {
+export const colors = {
   light: {
     text: "#11181C",
     background: "#fff",
