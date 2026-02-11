@@ -11,7 +11,7 @@
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		13B07FC11A68108700A75B9A /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 13B07FB71A68108700A75B9A /* main.m */; };
 		3A5F07A02DEE06B90029ED34 /* CoreBluetooth.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3A5F079F2DEE06B90029ED34 /* CoreBluetooth.framework */; };
-		3AB0A1122DEA05CE006B2241 /* (null) in Frameworks */ = {isa = PBXBuildFile; };
+		3AB0A1122DEA05CE006B2241 /* BuildFile in Frameworks */ = {isa = PBXBuildFile; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
 		3E6E407622AE4C159811070E /* noop-file.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC19BC153BA04890914A42BB /* noop-file.swift */; };
 		96905EF65AED1B983A6B3ABC /* libPods-validosemobileapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 58EEBF8E8E6FB1BC6CAF49B5 /* libPods-validosemobileapp.a */; };
@@ -46,7 +46,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				3A5F07A02DEE06B90029ED34 /* CoreBluetooth.framework in Frameworks */,
-				3AB0A1122DEA05CE006B2241 /* (null) in Frameworks */,
+				3AB0A1122DEA05CE006B2241 /* BuildFile in Frameworks */,
 				96905EF65AED1B983A6B3ABC /* libPods-validosemobileapp.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -516,7 +516,10 @@
 				LIBRARY_SEARCH_PATHS = "$(SDKROOT)/usr/lib/swift\"$(inherited)\"";
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				OTHER_LDFLAGS = "$(inherited)  ";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					" ",
+				);
 				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/react-native";
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
@@ -571,7 +574,10 @@
 				);
 				LIBRARY_SEARCH_PATHS = "$(SDKROOT)/usr/lib/swift\"$(inherited)\"";
 				MTL_ENABLE_DEBUG_INFO = NO;
-				OTHER_LDFLAGS = "$(inherited)  ";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					" ",
+				);
 				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/react-native";
 				SDKROOT = iphoneos;
 				USE_HERMES = true;
