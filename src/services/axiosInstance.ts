@@ -4,7 +4,10 @@ import { AuthTokenResponse } from "@/types/auth";
 import { logAPIRequest, logAPIResponse, logAPIError } from "@/utils/log";
 
 // Base URL and API suffix for requests
-const BASE_URL = "https://api.stg.aws.validose.com";
+const envValue = (value: string | undefined) =>
+  (value || "").trim().replace(/^['"]+|['"]+$/g, "");
+
+const BASE_URL = envValue(process.env.BASE_URL) || "https://api.stg.aws.validose.com";
 const SUFFIX = "/api/mobile";
 
 if (!BASE_URL) {

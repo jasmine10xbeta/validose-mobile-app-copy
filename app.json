@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.x10xbetamobilemdkpoc",
+      "bundleIdentifier": "com.10xbeta.validose",
       "buildNumber": "41",
       "infoPlist": {
         "NSCameraUsageDescription": "Validose needs access to your camera for QRCode"
@@ -34,7 +34,7 @@
         "android.permission.RECORD_AUDIO"
       ],
       "versionCode": 41,
-      "package": "com.anonymous.x10xbetamobilemdkpoc"
+      "package": "com.10xbeta.validose"
     },
     "web": {
       "bundler": "metro",

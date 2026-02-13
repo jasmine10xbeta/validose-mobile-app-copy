@@ -35,7 +35,7 @@
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="myapp"/>
-        <data android:scheme="com.anonymous.x10xbetamobilemdkpoc"/>
+        <data android:scheme="com.10xbeta.validose"/>
       </intent-filter>
     </activity>
   </application>

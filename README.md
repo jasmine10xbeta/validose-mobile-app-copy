@@ -27,6 +27,7 @@ Validose is a mobile application designed to help users manage and track their m
   - [Getting Started](#getting-started)
   - [File Structure](#file-structure)
   - [🔐 Android Release Build Setup](#-android-release-build-setup)
+  - [🚀 CI/CD (Fastlane + Jenkins)](#-cicd-fastlane--jenkins)
   - [Dependencies](#dependencies)
   - [Contributing](#contributing)
   - [License](#license)
@@ -135,6 +136,23 @@ When creating a release build for Android:
     ```bash
     validose-release-key.keystore ➡️ android/app/
     ```
+
+## 🚀 CI/CD (Fastlane + Jenkins)
+
+This repository includes a Fastlane-based CI/CD setup that deploys branch-based environment builds to:
+
+- Google Play (Android)
+- TestFlight (iOS)
+
+Jenkins pipeline configuration and credentials mapping are documented in:
+
+- `docs/ci-cd-fastlane-jenkins.md`
+
+Default branch mapping is environment-aware:
+
+- `develop` -> `stage`
+- `main` -> `prod`
+- feature branches -> `temp` (guarded by Jenkins backdoor parameter)
 
 ## Dependencies
 
