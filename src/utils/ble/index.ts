@@ -35,12 +35,32 @@ import {
 } from "./messageProtocolPpi";
 
 const MESSAGE_PROTOCOL_PROCESS_INTERVAL_MS = 250;
+const TX_READY_TIMEOUT_MS = 5000;
+const TX_READY_POLL_MS = 50;
 // Toggle to route PPI traffic over the message protocol instead of legacy characteristics.
 const USE_MESSAGE_PROTOCOL_PPI = true;
 
 let messageProtocol: BleMessageProtocol | null = null;
 
 const { addDevice, updateDevice } = useDeviceStore.getState();
+
+async function waitForTxSendable(
+  protocol: MessageProtocolInterface,
+  timeoutMs = TX_READY_TIMEOUT_MS,
+  pollMs = TX_READY_POLL_MS
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() <= deadline) {
+    if (isTxStatusSendable(protocol.getTxPacketStatus())) {
+      return true;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+
+  return isTxStatusSendable(protocol.getTxPacketStatus());
+}
 
 export async function connectAndSetupDevice(deviceName: string) {
   const scanResponse = await scanLeDevice(1);
@@ -102,9 +122,11 @@ export async function connectAndSetupDevice(deviceName: string) {
       txCharacteristicUUID: CHARACTERISTIC_UUIDS.MESSAGE_PROTOCOL,
       rxCharacteristicUUID: CHARACTERISTIC_UUIDS.MESSAGE_PROTOCOL,
       processIntervalMs: MESSAGE_PROTOCOL_PROCESS_INTERVAL_MS,
+      // Native BLE layer negotiates MTU up front (247 target on Android); ATT payload is MTU - 3.
+      // Use 244-byte packet budget here until MTU is exposed to JS directly.
+      maxPacketLength: 244,
       isMaster: true,
       autoConsumeRx: true,
-      // packetTypes: { ... } // TODO: override once firmware packet-type values are confirmed.
     });
 
     await messageProtocol.start();
@@ -385,8 +407,9 @@ async function writeSystemTime(): Promise<boolean> {
   try {
     if (USE_MESSAGE_PROTOCOL_PPI && messageProtocol) {
       const payload = encodeUint32LE(unixTime);
+      const txReady = await waitForTxSendable(messageProtocol);
 
-      if (!isTxStatusSendable(messageProtocol.getTxPacketStatus())) {
+      if (!txReady) {
         console.warn("[MP] TX busy; cannot send time update yet.");
         return false;
       }
@@ -454,7 +477,8 @@ async function writeDoseSchedule(doseSchedule: any) {
     });
 
     if (USE_MESSAGE_PROTOCOL_PPI && messageProtocol) {
-      if (!isTxStatusSendable(messageProtocol.getTxPacketStatus())) {
+      const txReady = await waitForTxSendable(messageProtocol);
+      if (!txReady) {
         console.warn("[MP] TX busy; cannot send dose schedule yet.");
         return;
       }

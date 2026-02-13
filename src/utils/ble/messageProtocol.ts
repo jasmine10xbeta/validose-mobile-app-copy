@@ -1,16 +1,13 @@
 import { Buffer } from "buffer";
 
 import { SERVICE_UUIDS } from "@/constants/ble";
-import {
-  subscribeToCharacteristic,
-  writeCharacteristic,
-} from "../../../modules/tenx-mdk-ble-rn-library/src/index";
 
 export const MESSAGE_PROTOCOL_MAX_PAYLOAD_LEN = 256;
 export const MESSAGE_PROTOCOL_MIN_PAYLOAD_STRUCT_SIZE = 1 + 1 + 2;
 export const DEFAULT_ACK_TIMEOUT_MS = 500;
 export const DEFAULT_PROCESS_INTERVAL_MS = 250;
-export const DEFAULT_MAX_RETRIES = 3;
+export const DEFAULT_MAX_RETRIES = 20;
+export const DEFAULT_SYNC_RETRY_INTERVAL_MS = 100;
 export const DEFAULT_BLE_MTU = 23; // Safe default; effective ATT payload = MTU - 3
 
 const HEADER_LEN = 2 + 2 + 4 + 1 + 1; // pkt_crc + pkt_counter + session_id + pkt_type + status
@@ -54,8 +51,6 @@ export enum MsgProtError {
   ERROR_MAX,
 }
 
-// NOTE: Packet type values are not included in the firmware snippet.
-// These defaults MUST be validated against firmware definitions.
 export type PacketTypeMap = {
   ACK: number;
   NAK: number;
@@ -67,12 +62,12 @@ export type PacketTypeMap = {
 };
 
 export const DEFAULT_PACKET_TYPES: PacketTypeMap = {
-  ACK: 0,
-  NAK: 1,
-  DATA: 2,
+  DATA: 0,
+  ACK: 1,
+  NAK: 2,
   SYNC_START: 3,
-  SYNC_MISMATCH: 4,
-  SYNC_ACK: 5,
+  SYNC_ACK: 4,
+  SYNC_MISMATCH: 5,
   MAX: 6,
 };
 
@@ -156,6 +151,29 @@ const defaultLogger: Logger = {
   error: () => undefined,
 };
 
+type BleModule = {
+  subscribeToCharacteristic: (
+    characteristicUUID: string,
+    serviceUUID: string,
+    callback: (data: { uuid: string; fullUuid: string; hex: string; deviceId: string }) => void
+  ) => Promise<() => void>;
+  writeCharacteristic: (characteristicUUID: string, value: any) => Promise<boolean>;
+};
+
+let bleModuleCache: BleModule | null = null;
+
+function getBleModule(): BleModule {
+  if (bleModuleCache) {
+    return bleModuleCache;
+  }
+
+  // Lazy require to keep tests from importing native modules at file-load time.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const mod = require("../../../modules/tenx-mdk-ble-rn-library/src/index") as BleModule;
+  bleModuleCache = mod;
+  return mod;
+}
+
 export class BleMessageProtocol implements MessageProtocolInterface {
   private readonly txCharacteristicUUID: string;
   private readonly rxCharacteristicUUID: string;
@@ -188,6 +206,9 @@ export class BleMessageProtocol implements MessageProtocolInterface {
   private lastRxPacketLen = 0;
   private lastRxPacketValid = false;
   private lastRxPacketDeferred = false;
+  private lastTxPacketRaw = new Uint8Array(0);
+  private lastTxPacketLen = 0;
+  private lastTxPacketValid = false;
 
   private nextPacketId = 0;
   private pendingId = 0;
@@ -208,7 +229,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     this.processIntervalMs = options.processIntervalMs ?? DEFAULT_PROCESS_INTERVAL_MS;
     this.isMaster = options.isMaster ?? true;
     this.packetTypes = { ...DEFAULT_PACKET_TYPES, ...(options.packetTypes ?? {}) };
-    this.syncRetryIntervalMs = options.syncRetryIntervalMs ?? 2000;
+    this.syncRetryIntervalMs = options.syncRetryIntervalMs ?? DEFAULT_SYNC_RETRY_INTERVAL_MS;
     this.logger = { ...defaultLogger, ...(options.logger ?? {}) };
     this.onRxPacket = options.onRxPacket;
     this.autoConsumeRx = options.autoConsumeRx ?? false;
@@ -239,6 +260,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     if (this.transport) {
       this.unsubscribe = await this.transport.subscribe((bytes) => this.handleIncomingRaw(bytes));
     } else {
+      const { subscribeToCharacteristic } = getBleModule();
       this.unsubscribe = await subscribeToCharacteristic(
         this.rxCharacteristicUUID,
         this.serviceUUID,
@@ -536,17 +558,25 @@ export class BleMessageProtocol implements MessageProtocolInterface {
 
     if (this.transport) {
       const success = await this.transport.sendPacket(buffer);
-      return success ? MsgProtError.NONE : MsgProtError.BUSY;
+      if (!success) {
+        return MsgProtError.BUSY;
+      }
+
+      this.cacheLastTxPacket(buffer);
+      return MsgProtError.NONE;
     }
 
     // BLE writes accept base64 string in the native module.
     const base64Value = Buffer.from(buffer).toString("base64");
 
     try {
+      const { writeCharacteristic } = getBleModule();
       const success = await writeCharacteristic(this.txCharacteristicUUID, base64Value);
       if (!success) {
         return MsgProtError.BUSY;
       }
+
+      this.cacheLastTxPacket(buffer);
     } catch (error) {
       this.logger.error("[MP] Link layer send failed", error);
       return MsgProtError.BUSY;
@@ -579,6 +609,11 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     }
 
     const packetLength = parsed.raw.length;
+    if (this.isSelfTxEcho(parsed.raw)) {
+      this.logger.debug("[MP] Dropping self TX echo packet.");
+      return;
+    }
+
     // Suppress duplicates (same raw bytes) to avoid re-processing after NAK/ACK retries.
     let isDuplicate = false;
 
@@ -641,12 +676,18 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     const payloadLen = buffer.readUInt16LE(offset);
     offset += 2;
 
-    if (payloadLen > MESSAGE_PROTOCOL_MAX_PAYLOAD_LEN) {
+    if (
+      payloadLen > MESSAGE_PROTOCOL_MAX_PAYLOAD_LEN ||
+      (this.maxPacketPayloadLen > 0 && payloadLen > this.maxPacketPayloadLen)
+    ) {
       return { result: MsgProtError.OUT_OF_RANGE };
     }
 
     const packetLength = MIN_PACKET_LEN + payloadLen;
-    if (packetLength > raw.length) {
+    if (
+      packetLength > raw.length ||
+      (this.maxPacketLength > 0 && packetLength > this.maxPacketLength)
+    ) {
       return { result: MsgProtError.BUFFER_OVERFLOW };
     }
 
@@ -729,7 +770,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
 
     const result = await this.sendPktToLinkLayer(this.lastPacketSent);
     if (result === MsgProtError.NONE) {
-      this.startTimer(Date.now());
+      this.startTimer(this.getNow());
     }
   }
 
@@ -853,6 +894,8 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     response.header.sessionId = this.currentSessionId;
     response.header.pktType = this.packetTypes.SYNC_MISMATCH;
     response.header.status = MsgProtTxPacketStatus.NEW;
+    response.payload.type = 0;
+    response.payload.ppi = 0;
     response.payload.pktPayloadLen = 0;
     response.payload.payload = new Uint8Array(0);
 
@@ -883,6 +926,11 @@ export class BleMessageProtocol implements MessageProtocolInterface {
       return;
     }
 
+    const now = this.getNow();
+    if (this.lastResyncTimeMs > 0 && now - this.lastResyncTimeMs <= this.syncRetryIntervalMs) {
+      return;
+    }
+
     this.resetState();
 
     const providedSessionId = this.sessionIdProvider ? this.sessionIdProvider() : null;
@@ -893,7 +941,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     }
 
     this.currentSessionId = sessionId;
-    this.lastResyncTimeMs = this.getNow();
+    this.lastResyncTimeMs = now;
 
     const packet = this.createEmptyPacket();
     packet.header.pktCounter = this.nextPacketId;
@@ -923,6 +971,9 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     this.lastRxPacketLen = 0;
     this.lastRxPacketValid = false;
     this.lastRxPacketDeferred = false;
+    this.lastTxPacketRaw = new Uint8Array(0);
+    this.lastTxPacketLen = 0;
+    this.lastTxPacketValid = false;
 
     this.nextPacketId = 1;
     this.pendingId = 0;
@@ -959,6 +1010,25 @@ export class BleMessageProtocol implements MessageProtocolInterface {
         payload: new Uint8Array(packet.payload.payload),
       },
     };
+  }
+
+  private cacheLastTxPacket(raw: Uint8Array): void {
+    this.lastTxPacketRaw = new Uint8Array(raw);
+    this.lastTxPacketLen = raw.length;
+    this.lastTxPacketValid = true;
+  }
+
+  private isSelfTxEcho(raw: Uint8Array): boolean {
+    if (!this.lastTxPacketValid) {
+      return false;
+    }
+
+    if (this.lastTxPacketLen === raw.length && buffersEqual(raw, this.lastTxPacketRaw)) {
+      return true;
+    }
+
+    this.lastTxPacketValid = false;
+    return false;
   }
 
   private getNow(): number {
