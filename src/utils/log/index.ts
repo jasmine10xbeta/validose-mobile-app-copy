@@ -1,6 +1,6 @@
-import { AxiosError, AxiosResponse } from "axios";
 import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
+import type { AxiosError, AxiosResponse } from "axios";
 
 const BOLD = (text: string) => `\x1b[1m${text}\x1b[22m`;
 

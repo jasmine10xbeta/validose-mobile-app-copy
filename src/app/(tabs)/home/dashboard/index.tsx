@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import dayjs from "dayjs";
+import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -19,25 +19,27 @@ import { VButton } from "@/components/common/VButton";
 import { VMedicationItem } from "@/components/common/VMedicationItem";
 import VNetworkInfo from "@/components/common/VNetworkInfo";
 import { VNextDoseInfo } from "@/components/common/VNextDoseInfo";
-import { VTopActions } from "@/components/common/VTopActions";
 import { showToast } from "@/components/common/VToast";
+import { VTopActions } from "@/components/common/VTopActions";
+import { useAuth } from "@/providers/auth";
 import {
   createSupportRequest,
   getSupportRequests,
 } from "@/services/support";
+import useDevStore from "@/store/dev";
 import useDeviceStore from "@/store/device";
 import useScheduleStore from "@/store/schedule";
 import useTreatmentStore from "@/store/treatment";
 import { SupportRequest } from "@/types/support";
 import { connectAndSetupDevice } from "@/utils/ble";
 import { syncTreatmentsAndSchedules } from "@/utils/schedule";
-import { useAuth } from "@/providers/auth";
 
 const INBOX_SHEET_HEIGHT = Dimensions.get("window").height * 0.9;
 
 export default function DashboardScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const isMockMode = useDevStore((state) => state.isMockBleModeEnabled());
   const { treatments, clearTreatments } = useTreatmentStore();
   const { schedules, clearSchedules, getTodaySchedules } = useScheduleStore();
   const todaySchedulesByDevice = getTodaySchedules();
@@ -54,8 +56,10 @@ export default function DashboardScreen() {
   useEffect(() => {
     // clearTreatments();                   // UNCOMMENT FOR DEBUGGING
     // clearSchedules();                    // UNCOMMENT FOR DEBUGGING
-    syncTreatmentsAndSchedules();           // COMMENT FOR DEBUGGING
-  }, []);
+    if (!isMockMode) {
+      syncTreatmentsAndSchedules();           // COMMENT FOR DEBUGGING
+    }
+  }, [isMockMode]);
 
   useEffect(() => {
     const entries = Object.entries(todaySchedulesByDevice);

@@ -22,6 +22,7 @@ import { showToast } from "@/components/common/VToast";
 import { VTopActions } from "@/components/common/VTopActions";
 import { useAuth } from "@/providers/auth";
 import { getValidoseDevices } from "@/services/device";
+import useDevStore from "@/store/dev";
 import useDeviceStore from "@/store/device";
 import { connectAndSetupDevice } from "@/utils/ble";
 
@@ -51,7 +52,7 @@ const SCAN_SLIDES = [
         <Text style={{ fontWeight: "600", color: "#505A66" }}>
           Stay close to the device (within ~10m) and ensure Bluetooth is on.{" "}
         </Text>
-        If it connects, you’ll see "Connected" in the app and a solid blue light on the device - you’re all set!
+        If it connects, you’ll see Connected in the app and a solid blue light on the device - you’re all set!
       </>
     ),
     showAction: true,
@@ -78,6 +79,7 @@ export default function PairingScreen() {
   const screenHeight = Dimensions.get("window").height;
   const devices = useDeviceStore((s) => s.devices);
   const isDevicesConnected = devices.length > 0;
+  const { isMockBleModeEnabled, matchesBypassKey, enableMockBleMode, disableMockBleMode } = useDevStore();
   const [showScanIntro, setShowScanIntro] = useState(false);
   const [introSlideIndex, setIntroSlideIndex] = useState(0);
   const openScanIntro = () => {
@@ -89,13 +91,19 @@ export default function PairingScreen() {
   
   useEffect(() => {
     async function fetchDevices() {
-      if (!isLoading && user?.access_token) {
-        const list = await getValidoseDevices();
-        setAuthorizedDevices(list);
+      if (!isLoading && user?.access_token && !isMockBleModeEnabled()) {
+        try {
+          const list = await getValidoseDevices();
+          setAuthorizedDevices(list);
+        } catch (error) {
+          console.warn("[Pairing] Failed to fetch authorized devices:", error);
+          setAuthorizedDevices([]);
+        }
       }
     }
+
     fetchDevices();
-  }, []);
+  }, [isLoading, user?.access_token, setAuthorizedDevices, isMockBleModeEnabled]);
 
   async function reconnectDevice(deviceName: string) {
     if (reconnectingDeviceId) {
@@ -116,6 +124,7 @@ export default function PairingScreen() {
   async function validateDeviceAddress(scanningResult: string) {
     try {
       const parsed = scanningResult;
+      if (isMockBleModeEnabled()) return true;
 
       console.log("\n");
       console.log("[APP] Scanned device name:", parsed);
@@ -140,7 +149,40 @@ export default function PairingScreen() {
     if (hasScannedRef.current) return;
 
     hasScannedRef.current = true;
-    const deviceAddress = scanningResult.data;
+    const deviceAddress = scanningResult.data?.trim();
+    if (!deviceAddress) {
+      hasScannedRef.current = false;
+      setShowCamera(false);
+      setShowScanIntro(false);
+      showToast("error", "Invalid QR Code");
+      return;
+    }
+
+    if (matchesBypassKey(deviceAddress)) {
+      if (isMockBleModeEnabled()) {
+        disableMockBleMode();
+        hasScannedRef.current = false;
+        setShowCamera(false);
+        setShowScanIntro(false);
+        showToast("success", "Pairing mode reset");
+        return;
+      }
+
+      enableMockBleMode();
+      const connected = await connectAndSetupDevice("VAL-OP DEMO");
+      hasScannedRef.current = false;
+      setShowCamera(false);
+      setShowScanIntro(false);
+
+      if (connected?.error) {
+        showToast("error", "Connection failed", String(connected.error));
+        return;
+      }
+
+      router.push("/home/dashboard");
+      return;
+    }
+
     const isValid = await validateDeviceAddress(deviceAddress);
     if (isValid) {
       const connected = await connectAndSetupDevice(deviceAddress);

@@ -8,8 +8,8 @@ import { VButton } from "@/components/common/VButton";
 import { VDeviceItem } from "@/components/common/VDeviceItem";
 import { VText } from "@/components/common/VText";
 import { showToast } from "@/components/common/VToast";
+import useDevStore from "@/store/dev";
 import useDeviceStore from "@/store/device";
-import useTreatmentStore from "@/store/treatment";
 import { connectAndSetupDevice } from "@/utils/ble";
 
 export default function ManualPairingScreen() {
@@ -17,7 +17,7 @@ export default function ManualPairingScreen() {
 
   const [deviceId, setDeviceId] = useState("");
   const authorizedDevices = useDeviceStore((state) => state.authorizedDevices);
-  const { treatments } = useTreatmentStore();
+  const { isMockBleModeEnabled, matchesBypassKey, enableMockBleMode, disableMockBleMode } = useDevStore();
   const [reconnectingDeviceId, setReconnectingDeviceId] = useState<string | null>(null);
 
   const [contentHeight, setContentHeight] = useState(0);
@@ -43,6 +43,8 @@ export default function ManualPairingScreen() {
 
   async function validateDevice(address: string) {
     try {
+      if (isMockBleModeEnabled()) return true;
+
       console.log("\n");
       console.log("[APP] Received device address:", address);
 
@@ -113,13 +115,34 @@ export default function ManualPairingScreen() {
         />
         <VButton
           onPress={async () => {
-            validateDevice(deviceId);
-            
-            if (deviceId) {
-              const connected = await connectAndSetupDevice(deviceId);
-              if (connected?.error) showToast("error", connected?.error.toString());
+            const normalized = deviceId.trim();
+            if (!normalized) {
+              showToast("error", "No device code provided");
+              return;
             }
-            else showToast("error", "No device code provided");
+
+            if (matchesBypassKey(normalized)) {
+              if (isMockBleModeEnabled()) {
+                disableMockBleMode();
+                showToast("success", "Pairing mode reset");
+                return;
+              }
+
+              enableMockBleMode();
+              const connected = await connectAndSetupDevice("VAL-OP DEMO");
+              if (connected?.error) {
+                showToast("error", "Connection failed", String(connected.error));
+                return;
+              }
+              router.push("/home/dashboard");
+              return;
+            }
+
+            const isValid = await validateDevice(normalized);
+            if (!isValid) return;
+
+            const connected = await connectAndSetupDevice(normalized);
+            if (connected?.error) showToast("error", connected?.error.toString());
           }}
           label="Link"
         />

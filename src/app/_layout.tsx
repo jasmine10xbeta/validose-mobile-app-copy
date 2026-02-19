@@ -22,6 +22,7 @@ import Toast from "react-native-toast-message";
 import { showToast, toastConfig } from "@/components/common/VToast";
 import { useAuth, AuthenticationProvider } from "@/providers/auth";
 import { LogProvider } from "@/providers/log";
+import useDevStore from "@/store/dev";
 import useDeviceStore from "@/store/device";
 import { AllowedPaths } from "@/types/navigation";
 import { connectAndSetupDevice } from "@/utils/ble";
@@ -50,11 +51,13 @@ function AppInitializer({ onReady }: { onReady: () => void }) {
 
     const initializeApp = async () => {
       try {
+        const isMockMode = useDevStore.getState().isMockBleModeEnabled();
+
         // removeAllDevices();                              // UNCOMMENT FOR DEBUGGING AUTH
         // signOut();                                       // UNCOMMENT FOR DEBUGGING AUTH
 
         // Return to auth screen if user is not signed in
-        if (!user?.access_token) {
+        if (!user?.access_token && !isMockMode) {
           return redirectTo("/home/auth");
         }
 
@@ -65,8 +68,10 @@ function AppInitializer({ onReady }: { onReady: () => void }) {
         }
 
         await connectToAllDevices(storedDevices);
-        await refreshExpiringSchedules();
-        redirectTo("/home/pairing");
+        if (!isMockMode) {
+          await refreshExpiringSchedules();
+        }
+        redirectTo(isMockMode ? "/home/dashboard" : "/home/pairing");
       } catch (e) {
         console.error("App initialization failed:", e);
         showToast("error", "App initialization failed", `${e}`);
