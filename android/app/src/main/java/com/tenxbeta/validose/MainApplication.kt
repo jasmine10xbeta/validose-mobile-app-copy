@@ -1,4 +1,4 @@
-package com.x10beta.validose
+package com.tenxbeta.validose
 
 import android.app.Application
 import android.content.res.Configuration

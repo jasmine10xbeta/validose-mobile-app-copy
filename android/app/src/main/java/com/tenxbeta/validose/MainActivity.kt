@@ -1,4 +1,4 @@
-package com.x10beta.validose
+package com.tenxbeta.validose
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

@@ -21,6 +21,13 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import { CHARACTERISTIC_UUIDS, SERVICE_UUIDS } from "@/constants/ble";
 import {
+  validoseAqua3,
+  validoseButtonColor,
+  validoseDarkBlue,
+  validoseGrey,
+  validoseWhite,
+} from "@/constants/colors";
+import {
   bondDevice,
   connect,
   discoverServicesAndCharacteristics,
@@ -89,6 +96,14 @@ function prettifyForLog(value: unknown): string {
   return String(value);
 }
 
+function formatActionName(action: string | null) {
+  if (!action) return "Idle";
+  return action
+    .split("-")
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
 function ActionButton({
   label,
   onPress,
@@ -107,7 +122,7 @@ function ActionButton({
       ]}
     >
       <View style={styles.actionButtonInner}>
-        {loading ? <ActivityIndicator size="small" color="#173246" /> : null}
+        {loading ? <ActivityIndicator size="small" color={validoseWhite} /> : null}
         <Text
           style={[
             styles.actionButtonText,
@@ -155,6 +170,7 @@ export default function BleDebugScreen() {
     if (!q) return logs;
     return logs.filter((entry) => entry.message.toLowerCase().includes(q));
   }, [consoleSearch, logs]);
+  const latestLogs = useMemo(() => logs.slice(-5), [logs]);
 
   function addLog(message: string, payload?: unknown) {
     const body = payload === undefined ? "" : `\n${prettifyForLog(payload)}`;
@@ -434,13 +450,10 @@ export default function BleDebugScreen() {
           >
             <View style={styles.panel}>
             <View style={styles.header}>
+              <Pressable style={styles.backButton} onPress={() => router.back()}>
+                <Text style={styles.backButtonText}>{"<"}</Text>
+              </Pressable>
               <Text style={styles.title}>BLE Debug</Text>
-              <Text style={styles.subtitle}>Focused controls with realtime feedback</Text>
-            </View>
-
-            <View style={styles.headerActions}>
-              <ActionButton label="Back" onPress={() => router.back()} />
-              <ActionButton label="Clear Log" onPress={() => setLogs([])} tone="danger" />
             </View>
 
             <View style={styles.statusCard}>
@@ -448,11 +461,11 @@ export default function BleDebugScreen() {
                 <Text style={styles.statusLabel}>Current Action</Text>
                 {loadingAction ? (
                   <View style={styles.statusBusy}>
-                    <ActivityIndicator size="small" color="#0E7490" />
-                    <Text style={styles.statusBusyText}>{loadingAction}</Text>
+                    <ActivityIndicator size="small" color={validoseButtonColor} />
+                    <Text style={styles.statusBusyText}>{formatActionName(loadingAction)}</Text>
                   </View>
                 ) : (
-                  <Text style={styles.statusIdle}>idle</Text>
+                  <Text style={styles.statusIdle}>Idle</Text>
                 )}
               </View>
               <Text style={styles.statusEvent} numberOfLines={2}>
@@ -462,51 +475,17 @@ export default function BleDebugScreen() {
 
             <View style={styles.logBox}>
               <View style={styles.logHeader}>
-                <Text style={styles.logTitle}>Live Console</Text>
+                <Text style={styles.logTitle}>Console Preview</Text>
               <View style={styles.logHeaderRight}>
-                  <Text style={styles.logMeta}>
-                    {filteredLogs.length}/{logs.length} events
-                  </Text>
+                  <Text style={styles.logMeta}>{logs.length} events</Text>
+                  <Pressable onPress={() => setLogs([])} style={styles.logHeaderButtonDanger}>
+                    <Text style={styles.logHeaderButtonDangerText}>Clear</Text>
+                  </Pressable>
                   <Pressable onPress={() => setConsoleFullscreen(true)} style={styles.logHeaderButton}>
-                    <Text style={styles.logHeaderButtonText}>Full Screen</Text>
+                    <Text style={styles.logHeaderButtonText}>Open</Text>
                   </Pressable>
                 </View>
             </View>
-
-            <TextInput
-              value={consoleSearch}
-              onChangeText={setConsoleSearch}
-              placeholder="Search logs..."
-              placeholderTextColor="#7E97AA"
-              style={styles.logSearchInput}
-            />
-
-            <View style={styles.logActions}>
-                <Pressable
-                  style={styles.logActionButton}
-                  onPress={() => openCopyModal("Copy Latest Response", latestLogText())}
-                >
-                  <Text style={styles.logActionButtonText}>Copy Latest</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.logActionButton}
-                  onPress={() => openCopyModal("Copy All Responses", allLogsText())}
-                >
-                  <Text style={styles.logActionButtonText}>Copy All</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.logActionButton}
-                  onPress={() => shareText("Latest BLE Response", latestLogText())}
-                >
-                  <Text style={styles.logActionButtonText}>Share Latest</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.logActionButton}
-                  onPress={() => shareText("All BLE Responses", allLogsText())}
-                >
-                  <Text style={styles.logActionButtonText}>Share All</Text>
-                </Pressable>
-              </View>
 
               <ScrollView
                 ref={logScrollRef}
@@ -514,10 +493,10 @@ export default function BleDebugScreen() {
                 nestedScrollEnabled
                 keyboardShouldPersistTaps="handled"
               >
-                {filteredLogs.length === 0 ? (
+                {latestLogs.length === 0 ? (
                   <Text style={styles.logEmpty}>No events yet.</Text>
                 ) : (
-                  filteredLogs.map((entry) => (
+                  latestLogs.map((entry) => (
                     <Text key={entry.id} style={styles.logLine} selectable>
                       {entry.message}
                     </Text>
@@ -557,7 +536,7 @@ export default function BleDebugScreen() {
                   style={styles.input}
                   placeholder="5"
                   keyboardType="number-pad"
-                  placeholderTextColor="#8A99A7"
+                  placeholderTextColor={validoseGrey}
                 />
                 <View style={styles.row}>
                   <ActionButton label="Scan" onPress={onScan} loading={loadingAction === "scan"} />
@@ -579,7 +558,7 @@ export default function BleDebugScreen() {
                   onChangeText={setDeviceId}
                   style={styles.input}
                   placeholder="VAL-OP ..."
-                  placeholderTextColor="#8A99A7"
+                  placeholderTextColor={validoseGrey}
                 />
                 <View style={styles.row}>
                   <ActionButton label="Bond" onPress={onBond} loading={loadingAction === "bond"} />
@@ -612,14 +591,14 @@ export default function BleDebugScreen() {
                   value={serviceUuid}
                   onChangeText={setServiceUuid}
                   style={styles.input}
-                  placeholderTextColor="#8A99A7"
+                  placeholderTextColor={validoseGrey}
                 />
                 <Text style={styles.inputLabel}>Characteristic UUID</Text>
                 <TextInput
                   value={characteristicUuid}
                   onChangeText={setCharacteristicUuid}
                   style={styles.input}
-                  placeholderTextColor="#8A99A7"
+                  placeholderTextColor={validoseGrey}
                 />
                 <View style={styles.row}>
                   <ActionButton
@@ -647,7 +626,7 @@ export default function BleDebugScreen() {
                   onChangeText={setWriteValue}
                   style={[styles.input, styles.writeInput]}
                   placeholder="text / hex / base64"
-                  placeholderTextColor="#8A99A7"
+                  placeholderTextColor={validoseGrey}
                   multiline
                 />
                 <View style={styles.modeRow}>
@@ -740,7 +719,7 @@ export default function BleDebugScreen() {
             value={consoleSearch}
             onChangeText={setConsoleSearch}
             placeholder="Search logs..."
-            placeholderTextColor="#7E97AA"
+            placeholderTextColor={validoseGrey}
             style={styles.logSearchInput}
           />
 
@@ -794,34 +773,38 @@ export default function BleDebugScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#EEF2F5" },
+  container: { flex: 1, backgroundColor: validoseWhite },
   keyboardContainer: { flex: 1 },
-  content: { padding: 16, paddingBottom: 48, alignItems: "center" },
+  content: { padding: 16, paddingBottom: 48, alignItems: "center", backgroundColor: validoseWhite },
   panel: {
     width: "100%",
     maxWidth: 560,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 18,
+    backgroundColor: validoseWhite,
+    borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: "#E3E8EE",
+    borderColor: "#E6E7E8",
     gap: 12,
-    shadowColor: "#101828",
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 2,
   },
-  header: { alignItems: "center", gap: 4 },
-  headerActions: { flexDirection: "row", justifyContent: "center", gap: 8 },
-  title: { fontSize: 24, fontWeight: "700", color: "#132534", textAlign: "center" },
-  subtitle: { fontSize: 13, color: "#5B6B79", textAlign: "center" },
+  header: { flexDirection: "row", alignItems: "center", gap: 10 },
+  backButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: validoseAqua3,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: validoseWhite,
+  },
+  backButtonText: { color: validoseAqua3, fontSize: 18, lineHeight: 20, fontWeight: "700" },
+  title: { fontSize: 24, fontWeight: "700", color: validoseDarkBlue },
   statusCard: {
     borderWidth: 1,
-    borderColor: "#D6E2EB",
+    borderColor: "#D6E8EC",
     borderRadius: 12,
     padding: 12,
-    backgroundColor: "#F3FAFF",
+    backgroundColor: "#F4FBFD",
     gap: 8,
   },
   statusTop: {
@@ -829,94 +812,94 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  statusLabel: { fontSize: 12, fontWeight: "700", color: "#1E4058" },
+  statusLabel: { fontSize: 12, fontWeight: "700", color: validoseDarkBlue },
   statusBusy: { flexDirection: "row", gap: 6, alignItems: "center" },
-  statusBusyText: { fontSize: 12, fontWeight: "700", color: "#0E7490" },
-  statusIdle: { fontSize: 12, color: "#557189", fontWeight: "700" },
-  statusEvent: { fontSize: 12, color: "#2A4358" },
+  statusBusyText: { fontSize: 12, fontWeight: "700", color: validoseButtonColor },
+  statusIdle: { fontSize: 12, color: validoseGrey, fontWeight: "700" },
+  statusEvent: { fontSize: 12, color: validoseDarkBlue },
   panelTabs: { flexDirection: "row", justifyContent: "space-between", gap: 6 },
   tabButton: {
     flex: 1,
     borderWidth: 1,
-    borderColor: "#D3DEE8",
+    borderColor: "#D0D8DF",
     borderRadius: 10,
-    paddingVertical: 8,
+    paddingVertical: 10,
     alignItems: "center",
-    backgroundColor: "#F7FAFC",
+    backgroundColor: "#F9FBFC",
   },
   tabButtonActive: {
-    borderColor: "#0E7490",
-    backgroundColor: "#E7F8FC",
+    borderColor: validoseButtonColor,
+    backgroundColor: "#EAF6F8",
   },
-  tabText: { fontSize: 12, color: "#3A566C", fontWeight: "700" },
-  tabTextActive: { color: "#0E7490" },
+  tabText: { fontSize: 12, color: validoseGrey, fontWeight: "700" },
+  tabTextActive: { color: validoseButtonColor },
   section: {
     borderWidth: 1,
-    borderColor: "#E7ECF1",
+    borderColor: "#E6E7E8",
     borderRadius: 12,
     padding: 12,
     gap: 8,
-    backgroundColor: "#FAFCFE",
+    backgroundColor: validoseWhite,
   },
-  sectionTitle: { fontSize: 14, fontWeight: "700", color: "#1B3347" },
-  inputLabel: { fontSize: 12, color: "#5C6F7E", fontWeight: "600" },
+  sectionTitle: { fontSize: 14, fontWeight: "700", color: validoseDarkBlue },
+  inputLabel: { fontSize: 12, color: validoseGrey, fontWeight: "600" },
   input: {
     borderWidth: 1,
-    borderColor: "#D7DEE6",
+    borderColor: "#D2D8DF",
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     minHeight: 44,
-    backgroundColor: "#FFFFFF",
-    color: "#122535",
+    backgroundColor: "#FBFCFE",
+    color: validoseDarkBlue,
     fontSize: 14,
   },
   writeInput: { minHeight: 76, textAlignVertical: "top" },
   row: { flexDirection: "row", gap: 8, flexWrap: "wrap", alignItems: "center" },
   actionButton: {
-    borderWidth: 1,
-    borderColor: "#CAD5DF",
-    borderRadius: 999,
+    borderWidth: 2,
+    borderColor: validoseButtonColor,
+    borderRadius: 25,
     paddingHorizontal: 14,
     paddingVertical: 9,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: validoseButtonColor,
   },
   actionButtonDanger: {
-    borderColor: "#F3C9C5",
-    backgroundColor: "#FFF5F5",
+    borderColor: "#B42318",
+    backgroundColor: "#B42318",
   },
-  actionButtonDisabled: { opacity: 0.5 },
+  actionButtonDisabled: { opacity: 0.65 },
   actionButtonInner: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
   },
-  actionButtonText: { color: "#173246", fontSize: 12, fontWeight: "700" },
-  actionButtonTextDanger: { color: "#A7362D" },
+  actionButtonText: { color: validoseWhite, fontSize: 12, fontWeight: "700" },
+  actionButtonTextDanger: { color: validoseWhite },
   modeRow: { flexDirection: "row", gap: 8, justifyContent: "center" },
   modeButton: {
-    borderWidth: 1,
-    borderColor: "#CAD6E2",
-    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: validoseAqua3,
+    borderRadius: 25,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: validoseWhite,
   },
   modeButtonActive: {
-    backgroundColor: "#0E7490",
-    borderColor: "#0E7490",
+    backgroundColor: validoseButtonColor,
+    borderColor: validoseButtonColor,
   },
-  modeText: { color: "#365167", fontWeight: "700", fontSize: 11 },
-  modeTextActive: { color: "#FFFFFF" },
+  modeText: { color: validoseAqua3, fontWeight: "700", fontSize: 11 },
+  modeTextActive: { color: validoseWhite },
   logBox: {
     borderWidth: 1,
-    borderColor: "#D9E1E8",
+    borderColor: "#D2D8DF",
     borderRadius: 12,
     padding: 12,
-    backgroundColor: "#0F1B2A",
-    minHeight: 220,
-    maxHeight: 280,
+    backgroundColor: "#FAFBFC",
+    minHeight: 120,
+    maxHeight: 170,
     overflow: "hidden",
   },
   logHeader: {
@@ -926,27 +909,32 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   logHeaderRight: { flexDirection: "row", alignItems: "center", gap: 8 },
-  logTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#BFD6E8",
-  },
+  logTitle: { fontSize: 13, fontWeight: "700", color: validoseDarkBlue },
   logHeaderButton: {
     borderWidth: 1,
-    borderColor: "#2B4A63",
-    borderRadius: 999,
+    borderColor: validoseAqua3,
+    borderRadius: 25,
     paddingHorizontal: 10,
     paddingVertical: 4,
-    backgroundColor: "#10273A",
+    backgroundColor: validoseWhite,
   },
-  logHeaderButtonText: { color: "#D6E7F3", fontSize: 11, fontWeight: "700" },
-  logMeta: { fontSize: 11, color: "#8FA9BC", fontWeight: "600" },
+  logHeaderButtonDanger: {
+    borderWidth: 1,
+    borderColor: "#B42318",
+    borderRadius: 25,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: validoseWhite,
+  },
+  logHeaderButtonText: { color: validoseAqua3, fontSize: 11, fontWeight: "700" },
+  logHeaderButtonDangerText: { color: "#B42318", fontSize: 11, fontWeight: "700" },
+  logMeta: { fontSize: 11, color: validoseGrey, fontWeight: "600" },
   logSearchInput: {
     borderWidth: 1,
-    borderColor: "#24455F",
+    borderColor: "#D2D8DF",
     borderRadius: 10,
-    backgroundColor: "#112536",
-    color: "#D9E9F5",
+    backgroundColor: validoseWhite,
+    color: validoseDarkBlue,
     paddingHorizontal: 10,
     paddingVertical: 8,
     fontSize: 12,
@@ -954,26 +942,26 @@ const styles = StyleSheet.create({
   },
   logActions: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 },
   logActionButton: {
-    borderWidth: 1,
-    borderColor: "#2C4960",
-    borderRadius: 999,
-    backgroundColor: "#0F2537",
+    borderWidth: 1.5,
+    borderColor: validoseAqua3,
+    borderRadius: 25,
+    backgroundColor: validoseWhite,
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  logActionButtonText: { color: "#CFE4F2", fontSize: 11, fontWeight: "700" },
-  logScroll: { maxHeight: 180 },
-  logEmpty: { fontSize: 12, color: "#90A4B7" },
+  logActionButtonText: { color: validoseAqua3, fontSize: 11, fontWeight: "700" },
+  logScroll: { maxHeight: 100 },
+  logEmpty: { fontSize: 12, color: validoseGrey },
   logLine: {
     fontSize: 11,
     lineHeight: 16,
-    color: "#D6E4EF",
+    color: validoseDarkBlue,
     marginBottom: 7,
     fontFamily: "Courier",
   },
   copyModalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(9,16,27,0.55)",
+    backgroundColor: "rgba(37,47,59,0.35)",
     justifyContent: "flex-end",
   },
   copyModalCard: {
@@ -984,22 +972,22 @@ const styles = StyleSheet.create({
     gap: 10,
     maxHeight: "80%",
   },
-  copyModalTitle: { fontSize: 16, fontWeight: "700", color: "#17293A" },
-  copyModalHint: { fontSize: 12, color: "#607286" },
+  copyModalTitle: { fontSize: 16, fontWeight: "700", color: validoseDarkBlue },
+  copyModalHint: { fontSize: 12, color: validoseGrey },
   copyModalInput: {
     minHeight: 180,
     borderWidth: 1,
-    borderColor: "#D3DDE7",
+    borderColor: "#D2D8DF",
     borderRadius: 10,
-    backgroundColor: "#F9FBFD",
+    backgroundColor: "#FBFCFE",
     padding: 10,
-    color: "#122535",
+    color: validoseDarkBlue,
     textAlignVertical: "top",
   },
   copyModalActions: { flexDirection: "row", gap: 8, justifyContent: "flex-end" },
   fullscreenConsoleRoot: {
     flex: 1,
-    backgroundColor: "#0F1B2A",
+    backgroundColor: validoseWhite,
     padding: 14,
     gap: 10,
   },
@@ -1011,18 +999,18 @@ const styles = StyleSheet.create({
   fullscreenConsoleTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#E4F0F8",
+    color: validoseDarkBlue,
   },
   fullscreenConsoleCloseButton: {
-    borderWidth: 1,
-    borderColor: "#2B4A63",
-    borderRadius: 999,
-    backgroundColor: "#10273A",
+    borderWidth: 1.5,
+    borderColor: validoseAqua3,
+    borderRadius: 25,
+    backgroundColor: validoseWhite,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
   fullscreenConsoleCloseText: {
-    color: "#D6E7F3",
+    color: validoseAqua3,
     fontSize: 12,
     fontWeight: "700",
   },
@@ -1033,9 +1021,9 @@ const styles = StyleSheet.create({
   fullscreenConsoleScroll: {
     flex: 1,
     borderWidth: 1,
-    borderColor: "#24455F",
+    borderColor: "#D2D8DF",
     borderRadius: 10,
-    backgroundColor: "#112536",
+    backgroundColor: "#FAFBFC",
     padding: 10,
   },
 });

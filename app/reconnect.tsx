@@ -49,7 +49,7 @@ export default function ReconnectScreen() {
         const response = await onboardWithCode(onboardingCode, mobileDeviceId);
 
         if (response) {
-          router.replace("/pairing");
+          router.replace("/pairing" as never);
         }
       } else {
         showToast("error", "Invalid QR Code");

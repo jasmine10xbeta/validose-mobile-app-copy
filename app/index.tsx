@@ -108,7 +108,7 @@ export default function LoginScreen() {
             token: response.access_token,
             refreshToken: response.refresh_token,
           });
-          router.replace("/pairing");
+          router.replace("/pairing" as never);
           setShowCamera(false);
         } else {
           showToast("error", "Onboarding failed", "No token received.");

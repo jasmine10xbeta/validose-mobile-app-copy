@@ -1,7 +1,8 @@
-import axios, { AxiosError, AxiosResponse } from "axios";
+import axios from "axios/dist/browser/axios.cjs";
 import { getAccessToken, getRefreshToken, invokeSignIn, invokeSignOut } from "@/providers/auth";
 import { AuthTokenResponse } from "@/types/auth";
 import { logAPIRequest, logAPIResponse, logAPIError } from "@/utils/log";
+import type { AxiosError, AxiosResponse } from "axios";
 
 // Base URL and API suffix for requests
 const BASE_URL = "https://api.stg.aws.validose.com";
