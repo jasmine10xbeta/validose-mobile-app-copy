@@ -37,6 +37,7 @@ type AllowedPaths =
   | "/"
   | "/reconnect"
   | "/pairing"
+  | "/ble-debug"
   | "/dashboard"
   | `/dashboard?${string}`
   | `/dashboard#${string}`
@@ -106,7 +107,7 @@ function AppInitializer({ onReady }: { onReady: () => void }) {
     // customLog("\n");
     customLog("Redirecting to", path);
 
-    router.replace(path);
+    router.replace(path as never);
   };
 
   const hasStoredDevices = (devices: any[]) => {
@@ -191,6 +192,7 @@ export default function RootLayout() {
                 <Stack.Screen name="index" options={{ headerShown: false }} />
                 <Stack.Screen name="reconnect" options={{ headerShown: false }} />
                 <Stack.Screen name="pairing" options={{ headerShown: false }} />
+                <Stack.Screen name="ble-debug" options={{ headerShown: false }} />
                 <Stack.Screen name="dashboard" options={{ headerShown: false }} />
                 <Stack.Screen name="+not-found" options={{ headerShown: false }} />
               </Stack>

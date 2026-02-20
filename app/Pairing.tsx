@@ -1,7 +1,7 @@
 import { useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
-import { useState } from "react";
-import { FlatList, StyleSheet, View, Dimensions } from "react-native";
+import { useRef, useState } from "react";
+import { FlatList, StyleSheet, View, Dimensions, Pressable, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { VButton } from "@/components/common/VButton";
@@ -15,6 +15,8 @@ import { bondDevice } from "../modules/tenx-mdk-ble-rn-library/src/index";
 export default function PairingScreen() {
   const router = useRouter();
   const { addDevice } = useDeviceStore();
+  const secretTapRef = useRef({ count: 0 });
+  const resetTapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [hasScanned, setHasScanned] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
@@ -25,6 +27,46 @@ export default function PairingScreen() {
 
   const devices = useDeviceStore((s) => s.devices);
   const isDevicesConnected = devices.length > 0;
+  const debugGateEnabled =
+    String(
+      process.env.ENABLE_BLE_BYPASS ??
+        process.env.EXPO_PUBLIC_ENABLE_BLE_BYPASS ??
+        process.env.MOCK_BLE_BYPASS ??
+        ""
+    )
+      .trim()
+      .toLowerCase() === "true";
+
+  const handleSecretOpenDebug = () => {
+    if (!debugGateEnabled) {
+      showToast("info", "Debug console disabled", "Set ENABLE_BLE_BYPASS=true");
+      return;
+    }
+
+    secretTapRef.current.count += 1;
+
+    if (resetTapTimeoutRef.current) {
+      clearTimeout(resetTapTimeoutRef.current);
+    }
+    resetTapTimeoutRef.current = setTimeout(() => {
+      secretTapRef.current.count = 0;
+    }, 2500);
+
+    if (secretTapRef.current.count >= 7) {
+      secretTapRef.current.count = 0;
+      if (resetTapTimeoutRef.current) {
+        clearTimeout(resetTapTimeoutRef.current);
+        resetTapTimeoutRef.current = null;
+      }
+      showToast("success", "Opening BLE debug console");
+      router.push("/ble-debug");
+      return;
+    }
+
+    if (secretTapRef.current.count >= 3) {
+      showToast("info", `Debug unlock: ${secretTapRef.current.count}/7`, "Keep tapping Setup");
+    }
+  };
 
   if (!permission) {
     return <View />;
@@ -107,7 +149,7 @@ export default function PairingScreen() {
   }
 
   function onContinuePress() {
-    router.push("/dashboard");
+    router.push("/dashboard" as never);
   }
 
   return (
@@ -119,9 +161,10 @@ export default function PairingScreen() {
         ]}
         onLayout={(e) => setContentHeight(e.nativeEvent.layout.height)}
       >
-        <VText style={styles.setupLabel} textVariant="Label">
-          Setup
-        </VText>
+        <Pressable onPress={handleSecretOpenDebug} style={styles.debugTapZone}>
+          <Text style={styles.debugTapTitle}>Setup</Text>
+          <Text style={styles.debugTapHint}>click here</Text>
+        </Pressable>
         <VText style={styles.setupMessage} textVariant="Label">
           {isDevicesConnected
             ? "Device connection successful"
@@ -185,15 +228,29 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
   },
-  setupLabel: {
+  debugTapZone: {
     position: "absolute",
-    top: -10,
-    paddingHorizontal: 25,
-    color: "#565F6B",
-    fontSize: 16,
-    fontWeight: "500",
-    // fontFamily: "Inter",
-    backgroundColor: "#FFF",
+    top: -22,
+    minWidth: 170,
+    minHeight: 56,
+    zIndex: 10,
+    backgroundColor: "#D92D20",
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  debugTapTitle: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "700",
+    lineHeight: 18,
+  },
+  debugTapHint: {
+    color: "#FFECE9",
+    fontSize: 11,
+    lineHeight: 14,
   },
   setupMessage: {
     marginBottom: 20,

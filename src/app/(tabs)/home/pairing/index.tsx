@@ -11,6 +11,7 @@ import {
   Modal,
   ScrollView,
   TouchableOpacity,
+  Pressable,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -51,7 +52,7 @@ const SCAN_SLIDES = [
         <Text style={{ fontWeight: "600", color: "#505A66" }}>
           Stay close to the device (within ~10m) and ensure Bluetooth is on.{" "}
         </Text>
-        If it connects, you’ll see "Connected" in the app and a solid blue light on the device - you’re all set!
+        If it connects, you’ll see Connected in the app and a solid blue light on the device - you’re all set!
       </>
     ),
     showAction: true,
@@ -197,6 +198,13 @@ export default function PairingScreen() {
               alignItems: "center",
             }}
           >
+            <Pressable
+              onPress={() => router.push("/home/ble-debug")}
+              style={styles.debugEntry}
+            >
+              <Text style={styles.debugEntryTitle}>Setup</Text>
+              <Text style={styles.debugEntryHint}>click here</Text>
+            </Pressable>
             <VText textVariant="LabelDose">Setup</VText>
             <VText style={styles.setupMessage} textVariant="Label">
               {isDevicesConnected
@@ -409,6 +417,26 @@ const styles = StyleSheet.create({
     position: "relative",
     alignItems: "center",
     paddingHorizontal: 18,
+  },
+  debugEntry: {
+    backgroundColor: "#D92D20",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  debugEntryTitle: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 18,
+  },
+  debugEntryHint: {
+    color: "#FFECE9",
+    fontSize: 11,
+    lineHeight: 14,
   },
   setupLabel: {
     position: "absolute",
