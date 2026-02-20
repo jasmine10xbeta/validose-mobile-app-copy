@@ -1,4 +1,4 @@
-package com.anonymous.x10xbetamobilemdkpoc
+package com.x10beta.validose
 
 import android.app.Application
 import android.content.res.Configuration

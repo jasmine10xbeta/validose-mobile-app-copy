@@ -34,7 +34,7 @@
         "android.permission.RECORD_AUDIO"
       ],
       "versionCode": 41,
-      "package": "com.anonymous.x10xbetamobilemdkpoc"
+      "package": "com.x10beta.validose"
     },
     "web": {
       "bundler": "metro",

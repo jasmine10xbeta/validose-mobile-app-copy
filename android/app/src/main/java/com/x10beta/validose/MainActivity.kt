@@ -1,4 +1,4 @@
-package com.anonymous.x10xbetamobilemdkpoc
+package com.x10beta.validose
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
