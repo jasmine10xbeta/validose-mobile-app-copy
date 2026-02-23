@@ -1,8 +1,9 @@
-import { useAssets } from "expo-asset";
-import { Image } from "expo-image";
-import { useMemo, useRef, useEffect } from "react";
-import { StyleSheet, View, ScrollView, TouchableOpacity } from "react-native";
+import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { useMemo, useRef, useEffect, useState } from "react";
+import { StyleSheet, View, ScrollView, TouchableOpacity, Text } from "react-native";
 
+import { shouldShowReplaceMedicineBanner } from "@/constants/dashboardHighlights";
 import useNetworkStore from "@/store/network";
 import useTreatmentStore from "@/store/treatment";
 import { ValidoseDevice } from "@/types/device";
@@ -19,20 +20,56 @@ interface VMedicationItemProps {
 }
 
 type StatusType = "network" | "connection" | "error" | "battery";
+type BannerType =
+  | "replace-medicine"
+  | "reconnect"
+  | "charge-device"
+  | "device-charging"
+  | "take-missed-dose"
+  | "wait-next-dose";
 
-const pastelColorPairs = [
-  // { primary: "#5D9BFF", secondary: "#5D9BFF33", error: "#5D9BFF44" },
-  // { primary: "#345DA0", secondary: "#345DA01A", error: "#345DA044" },
-  // { primary: "#8044B8", secondary: "#8043B833", error: "#8043B844" },
-  { primary: "#102651", secondary: "#1026511A", error: "#10265144" },
-];
+type BannerPresentation = "warning" | "danger" | "success" | "neutral";
+
+const accentByMedicationLabel: Record<string, string> = {
+  A: "#F29A2D",
+  B: "#73BE95",
+  C: "#72C4CE",
+  M: "#D5DCE6",
+};
+
+const statusBannerConfig: Record<
+  StatusType,
+  { title: string; message: string; presentation: BannerPresentation }
+> = {
+  network: {
+    title: "No internet",
+    message: "Please check connection.",
+    presentation: "danger",
+  },
+  connection: {
+    title: "No connection",
+    message: "Tap to reconnect",
+    presentation: "danger",
+  },
+  battery: {
+    title: "Battery low",
+    message: "Please charge your device.",
+    presentation: "warning",
+  },
+  error: {
+    title: "Device error",
+    message: "Please contact support.",
+    presentation: "danger",
+  },
+};
 
 export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
+  const router = useRouter();
   const deviceId = (item as any).deviceId ?? (item as any).device_id ?? item.deviceId;
   const treatment = useTreatmentStore((state) => state.getDeviceTreatment(deviceId));
   const isNetworkConnected = useNetworkStore((s) => s.isConnected);
+  const [dismissedBanners, setDismissedBanners] = useState<BannerType[]>([]);
 
-  // Prefer the schedule's medication code, fall back to the treatment's code.
   const medLabel = useMemo(() => {
     const scheduleCode = schedule.find((dose) =>
       typeof dose?.medication_code === "string" && dose.medication_code.trim().length > 0
@@ -40,59 +77,27 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
 
     const code = scheduleCode ?? treatment?.medication_code;
     const first = code?.trim()?.[0];
-
     return first ? first.toUpperCase() : "M";
   }, [schedule, treatment?.medication_code]);
 
+  const accentColor = accentByMedicationLabel[medLabel] ?? accentByMedicationLabel.M;
+
   const statusFlags = {
     connected: item.connected === true,
-    batteryLow: item.batteryLevel !== undefined && item.batteryLevel < 20,
-    error: item.error,
+    batteryLow: item.batteryLevel !== undefined && item.batteryLevel >= 0 && item.batteryLevel < 20,
+    error: Boolean(item.error),
   };
 
-  // determine status precedence
   const getStatusType = (): StatusType | null => {
     if (!statusFlags.connected) return "connection";
     if (!isNetworkConnected) return "network";
-    // if (statusFlags.error) return "error";
-    // if (statusFlags.batteryLow) return "battery";
+    if (statusFlags.error) return "error";
+    if (statusFlags.batteryLow) return "battery";
     return null;
   };
 
   const statusType = getStatusType();
-
-  const statusConfig: Record<
-    StatusType,
-    { title: string; message: string; imageIndex: number }
-  > = {
-    network: {
-      title: "No internet",
-      message: "Please check connection.",
-      imageIndex: 1,
-    },
-    connection: {
-      title: "Device error",
-      message: "Click to retry or contact support.",
-      imageIndex: 0,
-    },
-    battery: {
-      title: "Battery low",
-      message: "Please charge your device.",
-      imageIndex: 2,
-    },
-    error: { title: "Device error", message: item.error, imageIndex: 0 },
-  };
-
-  const [assets] = useAssets([
-    require("./../../assets/images/png/link-broken.png"),
-    require("./../../assets/images/png/alert-diamond-red.png"),
-    require("./../../assets/images/png/alert-battery.png"),
-  ]);
-
-  const randomColors = useMemo(
-    () => pastelColorPairs[Math.floor(Math.random() * pastelColorPairs.length)],
-    []
-  );
+  const showReplaceMedicineBanner = shouldShowReplaceMedicineBanner(medLabel);
 
   const scrollRef = useRef<ScrollView>(null);
   const hasAutoScrolledRef = useRef(false);
@@ -100,93 +105,159 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
   useEffect(() => {
     if (hasAutoScrolledRef.current) return;
 
-    const idx = schedule.findIndex((s) => s === 0);
+    const idx = schedule.findIndex((dose) => getDoseState(dose) === 0);
     const index = idx !== -1 ? idx : 0;
 
     setTimeout(() => {
       scrollRef.current?.scrollTo({ x: index * 60, animated: true });
       hasAutoScrolledRef.current = true;
-    }, 300);
+    }, 260);
   }, [schedule]);
 
-  const renderStatusBlock = (type: StatusType) => {
-    const cfg = statusConfig[type];
-    const image = assets?.[cfg.imageIndex];
-    return (
-      <>
-        <View
-          style={[
-            styles.medSectionError,
-            { backgroundColor: randomColors.error },
-          ]}
-        >
-          <VText textVariant="LabelMedicine1Dark">MED</VText>
-          <VText textVariant="LabelMedicine2Dark">{medLabel}</VText>
-          {/* <VText textVariant="LabelMedicine2Dark">{medicine.charAt(0)}</VText> */}
-        </View>
-        <TouchableOpacity
-          onPress={async () => {
-            if (type === "connection") {
-              const connected = await connectAndSetupDevice(item.deviceName);
-              if (connected.error) showToast("error", connected.error.toString());
-            }
-          }}
-          activeOpacity={0.7}
-          style={[
-            styles.doseSectionError,
-            { backgroundColor: randomColors.secondary },
-          ]}
-        >
-          {/* <View
-            style={[
-              styles.doseSectionError,
-              { backgroundColor: randomColors.secondary },
-            ]}
-          > */}
-          {image && <Image source={image} style={styles.image} />}
-          <View style={{ width: "100%" }}>
-            <VText textVariant="LabelMedicineBold">{cfg.title}</VText>
-            <VText textVariant="LabelMedicine">{cfg.message}</VText>
-          </View>
-          {/* </View> */}
-        </TouchableOpacity>
-      </>
-    );
-  };
+  const doseStates = useMemo(() => schedule.map((dose) => getDoseState(dose)), [schedule]);
+  const hasMissedDose = doseStates.includes(4);
+  const firstUpcomingDoseIndex = doseStates.findIndex((state) => state === 0);
+  const hasActiveDose = doseStates.includes(1);
+
+  const availableBanners = useMemo(() => {
+    const banners: {
+      type: BannerType;
+      text: string;
+      priority: number;
+      presentation: BannerPresentation;
+      chips?: string[];
+      leadingIcon?: React.ComponentProps<typeof Feather>["name"];
+    }[] = [];
+
+    if (hasMissedDose) {
+      banners.push({
+        type: "take-missed-dose",
+        text: "Take missed dose",
+        priority: 500,
+        presentation: "danger",
+      });
+    }
+
+    if (statusFlags.batteryLow) {
+      banners.push({
+        type: "charge-device",
+        text: "Charge device",
+        priority: 420,
+        presentation: "warning",
+        leadingIcon: "battery",
+        chips: [`Ring ${Math.max(10, Math.min(100, 10))}%`, `Dock ${Math.max(1, item.batteryLevel)}%`],
+      });
+    }
+
+    if (statusType === "connection") {
+      banners.push({
+        type: "reconnect",
+        text: "Tap to reconnect",
+        priority: 400,
+        presentation: "danger",
+      });
+    }
+
+    if (showReplaceMedicineBanner) {
+      banners.push({
+        type: "replace-medicine",
+        text: "Tap to replace medicine",
+        priority: 350,
+        presentation: "warning",
+      });
+    }
+
+    if (medLabel === "B" && !hasMissedDose && !statusType && !statusFlags.batteryLow) {
+      banners.push({
+        type: "device-charging",
+        text: "Device B charging",
+        priority: 280,
+        presentation: "success",
+      });
+    }
+
+    if (!hasActiveDose && firstUpcomingDoseIndex !== -1 && !hasMissedDose) {
+      banners.push({
+        type: "wait-next-dose",
+        text: `Wait for dose ${firstUpcomingDoseIndex + 1}`,
+        priority: 120,
+        presentation: "neutral",
+      });
+    }
+
+    if (statusType && statusType !== "connection") {
+      const cfg = statusBannerConfig[statusType];
+      banners.push({
+        type: statusType === "battery" ? "charge-device" : "reconnect",
+        text: cfg.message,
+        priority: 300,
+        presentation: cfg.presentation,
+      });
+    }
+
+    return banners
+      .filter((banner) => !dismissedBanners.includes(banner.type))
+      .sort((a, b) => b.priority - a.priority);
+  }, [
+    dismissedBanners,
+    firstUpcomingDoseIndex,
+    hasActiveDose,
+    hasMissedDose,
+    item.batteryLevel,
+    medLabel,
+    showReplaceMedicineBanner,
+    statusFlags.batteryLow,
+    statusType,
+  ]);
+
+  const activeBanner = availableBanners[0] ?? null;
+
+  async function handleBannerPress() {
+    if (!activeBanner) return;
+
+    if (activeBanner.type === "replace-medicine") {
+      router.push("/home/dashboard/replace-medication");
+      return;
+    }
+
+    if (activeBanner.type === "reconnect") {
+      const connected = await connectAndSetupDevice(item.deviceName);
+      if (connected.error) {
+        showToast("error", connected.error.toString());
+        return;
+      }
+    }
+
+    setDismissedBanners((prev) => [...prev, activeBanner.type]);
+  }
 
   const renderDoseProgress = () => (
     <>
-      <View
-        style={[styles.medSection, { backgroundColor: randomColors.primary }]}
-      >
-        <VText textVariant="LabelMedicine1">MED</VText>
-        <VText textVariant="LabelMedicine2">{medLabel}</VText>
-        {/* <VText textVariant="LabelMedicine2">{medicine.charAt(0)}</VText> */}
+      <View style={styles.medSection}>
+        <VText textVariant="LabelMedicine2Dark" style={styles.medLabel}>
+          {medLabel}
+        </VText>
       </View>
-      <View
-        style={[
-          styles.doseSection,
-          { backgroundColor: randomColors.secondary, paddingHorizontal: 18 },
-        ]}
-      >
+      <View style={[styles.accentStrip, { backgroundColor: accentColor }]} />
+      <View style={styles.doseSection}>
         {schedule.length > 0 ? (
           <ScrollView
             ref={scrollRef}
             horizontal
             showsHorizontalScrollIndicator={false}
           >
-            {schedule.map((dose: Schedule, i: any) => {
+            {schedule.map((dose: Schedule, i: number) => {
               const state = getDoseState(dose);
               return (
                 <View key={i} style={{ flexDirection: "row" }}>
                   {i > 0 && (
                     <VDoseLine
-                      color={randomColors.primary}
+                      color="#1F6C83"
                       state={state === 0 ? 0 : 1}
                     />
                   )}
                   <VDoseItem
-                    color={randomColors.primary}
+                    color="#1F6C83"
                     doseNumber={i + 1}
                     state={state}
                   />
@@ -194,8 +265,7 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
               );
             })}
           </ScrollView>
-        )
-        : (
+        ) : (
           <View style={styles.noDose}>
             <VText textVariant="LabelDose">No upcoming dose</VText>
           </View>
@@ -206,54 +276,159 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
 
   return (
     <View style={styles.container}>
-      {statusType ? renderStatusBlock(statusType) : renderDoseProgress()}
+      <View style={styles.cardRow}>{renderDoseProgress()}</View>
+      {activeBanner ? (
+        <TouchableOpacity
+          onPress={handleBannerPress}
+          activeOpacity={0.82}
+          style={[
+            styles.highlightBanner,
+            activeBanner.presentation === "warning" && styles.bannerWarning,
+            activeBanner.presentation === "danger" && styles.bannerDanger,
+            activeBanner.presentation === "success" && styles.bannerSuccess,
+            activeBanner.presentation === "neutral" && styles.bannerNeutral,
+          ]}
+        >
+          {activeBanner.type === "charge-device" ? (
+            <View style={styles.bannerRow}>
+              <View style={styles.bannerLeft}>
+                <Feather name={activeBanner.leadingIcon ?? "battery"} size={15} color="#A35E0D" />
+                <Text style={styles.bannerWarningText}>Charge device</Text>
+              </View>
+              <View style={styles.bannerChips}>
+                {(activeBanner.chips ?? []).map((chip) => (
+                  <View key={chip} style={styles.bannerChip}>
+                    <Text style={styles.bannerChipText}>{chip}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : (
+            <Text
+              style={[
+                styles.bannerTextBase,
+                activeBanner.presentation === "danger" && styles.bannerDangerText,
+                activeBanner.presentation === "success" && styles.bannerSuccessText,
+                activeBanner.presentation === "neutral" && styles.bannerNeutralText,
+                activeBanner.presentation === "warning" && styles.bannerWarningText,
+              ]}
+            >
+              {activeBanner.text}
+            </Text>
+          )}
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flexDirection: "row", marginTop: 20 },
+  container: { marginTop: 12 },
+  cardRow: {
+    flexDirection: "row",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#DFE3E8",
+    backgroundColor: "#F8F9FB",
+    overflow: "hidden",
+    shadowColor: "#17202A",
+    shadowOpacity: 0.07,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
   noDose: { marginLeft: 20 },
   medSection: {
-    borderTopLeftRadius: 12,
-    borderBottomLeftRadius: 12,
-    width: 65,
+    width: 62,
+    backgroundColor: "#F4F5F7",
     justifyContent: "center",
     alignItems: "center",
   },
-  medSectionError: {
-    borderTopLeftRadius: 12,
-    borderBottomLeftRadius: 12,
-    width: 65,
-    // backgroundColor: validoseMedicationError,
-    justifyContent: "center",
-    alignItems: "center",
+  medLabel: {
+    width: "auto",
+    fontSize: 24,
+    textAlign: "center",
+    color: "#2B3645",
+    fontWeight: "700",
+  },
+  accentStrip: {
+    width: 10,
+    borderTopRightRadius: 10,
+    borderBottomRightRadius: 10,
+    marginVertical: 6,
   },
   doseSection: {
     flexDirection: "row",
-    borderTopRightRadius: 12,
-    borderBottomRightRadius: 12,
-    height: 80,
-    width: "80%",
-    // backgroundColor: validoseMedication,
+    height: 84,
+    flex: 1,
+    backgroundColor: "#F8F9FB",
     alignItems: "center",
-    // paddingLeft: 20,
+    paddingHorizontal: 12,
   },
-  doseSectionError: {
-    gap: 8,
+  highlightBanner: {
+    marginTop: 2,
+    minHeight: 40,
+    borderRadius: 7,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  bannerWarning: {
+    backgroundColor: "#F6EBDD",
+  },
+  bannerDanger: {
+    backgroundColor: "#F9E6E8",
+  },
+  bannerSuccess: {
+    backgroundColor: "#D7EADF",
+  },
+  bannerNeutral: {
+    backgroundColor: "#EDEFF3",
+  },
+  bannerTextBase: {
+    fontSize: 30 / 2,
+    fontWeight: "500",
+    textAlign: "center",
+  },
+  bannerWarningText: {
+    color: "#A35E0D",
+  },
+  bannerDangerText: {
+    color: "#B91C1C",
+  },
+  bannerSuccessText: {
+    color: "#0F7A4D",
+  },
+  bannerNeutralText: {
+    color: "#5A6574",
+  },
+  bannerRow: {
+    width: "100%",
     flexDirection: "row",
-    borderTopRightRadius: 12,
-    borderBottomRightRadius: 12,
-    height: 80,
-    width: "80%",
-    // backgroundColor: validoseMedication,
-    justifyContent: "flex-start",
+    justifyContent: "space-between",
     alignItems: "center",
-    paddingLeft: 20,
+    gap: 10,
   },
-  image: {
-    height: 30,
-    width: 30,
+  bannerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  bannerChips: {
+    flexDirection: "row",
+    gap: 4,
+  },
+  bannerChip: {
+    backgroundColor: "#EDC58C",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  bannerChipText: {
+    color: "#6A3B00",
+    fontSize: 14,
+    fontWeight: "500",
   },
 });
 

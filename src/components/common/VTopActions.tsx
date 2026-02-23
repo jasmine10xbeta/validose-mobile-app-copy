@@ -2,10 +2,12 @@ import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useState } from "react";
 import {
+  Modal,
   StyleProp,
   StyleSheet,
   Text,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
   ViewStyle,
 } from "react-native";
@@ -24,7 +26,7 @@ export function VTopActions({
   personDisabled = false,
   style,
 }: VTopActionsProps) {
-  const [showPatientInfo, setShowPatientInfo] = useState(false);
+  const [isPatientCodeOpen, setIsPatientCodeOpen] = useState(false);
   const [patientId, setPatientId] = useState<string | null>(null);
   const [isLoadingPatientId, setIsLoadingPatientId] = useState(false);
 
@@ -47,16 +49,14 @@ export function VTopActions({
 
   useEffect(() => {
     if (personDisabled) {
-      setShowPatientInfo(false);
+      setIsPatientCodeOpen(false);
     }
   }, [personDisabled]);
 
-  const handlePersonToggle = () => {
+  const handlePersonPress = () => {
     if (personDisabled) return;
-    if (!showPatientInfo) {
-      loadPatientId();
-    }
-    setShowPatientInfo((prev) => !prev);
+    loadPatientId();
+    setIsPatientCodeOpen(true);
   };
 
   const displayedPatientId = isLoadingPatientId
@@ -65,29 +65,20 @@ export function VTopActions({
 
   return (
     <View style={[styles.container, style]}>
-      <View style={styles.personRow}>
-        <TouchableOpacity
-          activeOpacity={0.8}
-          style={styles.circleButton}
-          disabled={personDisabled}
-          accessibilityRole="button"
-          accessibilityLabel={
-            showPatientInfo ? "Hide patient ID" : "Show patient ID"
-          }
-          onPress={handlePersonToggle}
-        >
-          <Feather
-            name={showPatientInfo ? "x" : "user"}
-            size={24}
-            color={personDisabled ? "#A3ADB8" : "#255F6C"}
-          />
-        </TouchableOpacity>
-        {showPatientInfo && (
-          <View style={styles.patientIdTag}>
-            <Text style={styles.patientIdText}>{displayedPatientId}</Text>
-          </View>
-        )}
-      </View>
+      <TouchableOpacity
+        activeOpacity={0.8}
+        style={styles.circleButton}
+        disabled={personDisabled}
+        accessibilityRole="button"
+        accessibilityLabel="Show patient code"
+        onPress={handlePersonPress}
+      >
+        <Feather
+          name="user"
+          size={24}
+          color={personDisabled ? "#A3ADB8" : "#255F6C"}
+        />
+      </TouchableOpacity>
 
       <TouchableOpacity
         activeOpacity={0.8}
@@ -98,6 +89,35 @@ export function VTopActions({
       >
         <Feather name="help-circle" size={26} color="#252F3B" />
       </TouchableOpacity>
+
+      <Modal
+        transparent
+        animationType="slide"
+        visible={isPatientCodeOpen}
+        onRequestClose={() => setIsPatientCodeOpen(false)}
+      >
+        <View style={styles.modalRoot}>
+          <TouchableWithoutFeedback onPress={() => setIsPatientCodeOpen(false)}>
+            <View style={styles.backdrop} />
+          </TouchableWithoutFeedback>
+          <View style={styles.sheet}>
+            <View style={styles.sheetHeader}>
+              <TouchableOpacity
+                onPress={() => setIsPatientCodeOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close patient code"
+                style={styles.closeButton}
+              >
+                <Text style={styles.closeText}>Close</Text>
+              </TouchableOpacity>
+              <Text style={styles.sheetTitle}>Patient Code</Text>
+              <View style={styles.headerSpacer} />
+            </View>
+
+            <Text style={styles.patientCodeText}>{displayedPatientId}</Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -110,26 +130,55 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingBottom: 24,
   },
-  personRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
   circleButton: {
     width: 48,
     height: 48,
     alignItems: "center",
     justifyContent: "center",
   },
-  patientIdTag: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 100,
-    borderWidth: 1,
-    backgroundColor: "#252F3B",
+  modalRoot: {
+    flex: 1,
+    justifyContent: "flex-end",
   },
-  patientIdText: {
-    color: "#FFFFFF",
-    fontSize: 14,
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0, 0, 0, 0.1)",
+  },
+  sheet: {
+    backgroundColor: "#F4F5F6",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 14,
+    paddingHorizontal: 16,
+    paddingBottom: 28,
+    minHeight: 186,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  closeButton: {
+    minWidth: 52,
+  },
+  closeText: {
+    fontSize: 15,
+    color: "#4D5A69",
+    fontWeight: "500",
+  },
+  sheetTitle: {
+    fontSize: 17,
+    color: "#2B3645",
+    fontWeight: "700",
+  },
+  headerSpacer: {
+    width: 52,
+  },
+  patientCodeText: {
+    marginTop: 30,
+    textAlign: "center",
+    color: "#2B3645",
+    fontSize: 42,
+    fontWeight: "700",
   },
 });

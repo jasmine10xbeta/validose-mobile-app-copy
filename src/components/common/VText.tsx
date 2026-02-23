@@ -36,13 +36,16 @@ export function VText({
   ...rest
 }: VTextProps & TextProps<string> & TextStyle) {
   return (
-    <Text style={[styles[`text${textVariant}`], style]} {...rest}>
+    <Text style={[styles.textBase, styles[`text${textVariant}`], style]} {...rest}>
       {children}
     </Text>
   );
 }
 
 const styles = StyleSheet.create({
+  textBase: {
+    fontFamily: "Inter",
+  },
   textBody: {
     width: "100%",
     color: validoseDarkBlue,

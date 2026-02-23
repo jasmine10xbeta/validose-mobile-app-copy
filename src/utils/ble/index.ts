@@ -7,6 +7,7 @@ import {
   UnitErrorCodes,
   UnitId,
 } from "@/constants/ble";
+import { REPLACEMENT_FLOW_SIGNAL } from "@/constants/replacementFlow";
 import { sendDoseEvent } from "@/services/schedule";
 import { sendTelemetry } from "@/services/telemetry";
 import useDeviceStore from "@/store/device";
@@ -549,6 +550,49 @@ export function decodeDoseEvent(hex: string) {
 
 export function getMessageProtocol(): MessageProtocolInterface | null {
   return messageProtocol;
+}
+
+export type BleCharacteristicUpdate = {
+  uuid: string;
+  fullUuid: string;
+  hex: string;
+  deviceId: string;
+};
+
+export async function subscribeToBleCharacteristic(
+  characteristicUUID: string,
+  serviceUUID: string,
+  callback: (data: BleCharacteristicUpdate) => void
+): Promise<() => void> {
+  return subscribeToCharacteristic(characteristicUUID, serviceUUID, callback);
+}
+
+async function writeReplacementFlowValue(hexValue: string): Promise<boolean> {
+  try {
+    const payload = Buffer.from(hexValue, "hex");
+    const base64Payload = payload.toString("base64");
+    const response = await writeCharacteristic(
+      REPLACEMENT_FLOW_SIGNAL.characteristicUuid,
+      base64Payload
+    );
+
+    return response === true;
+  } catch (error) {
+    console.warn("[Replacement] Failed to write flow signal", error);
+    return false;
+  }
+}
+
+export async function writeReplacementProcessStarted(): Promise<boolean> {
+  return writeReplacementFlowValue(REPLACEMENT_FLOW_SIGNAL.processStartedWriteHex);
+}
+
+export async function writeReplacementProcessStopped(): Promise<boolean> {
+  return writeReplacementFlowValue(REPLACEMENT_FLOW_SIGNAL.processStoppedWriteHex);
+}
+
+export async function writeReplacementProcessRestarted(): Promise<boolean> {
+  return writeReplacementFlowValue(REPLACEMENT_FLOW_SIGNAL.processRestartedWriteHex);
 }
 
 export * from "./messageProtocol";

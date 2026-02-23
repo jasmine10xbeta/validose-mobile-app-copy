@@ -13,7 +13,7 @@ import {} from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
-import { useColorScheme } from "react-native";
+import { useColorScheme, Text, TextInput } from "react-native";
 import "react-native-reanimated";
 import { PaperProvider } from "react-native-paper";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -128,6 +128,22 @@ export default function RootLayout() {
   useEffect(() => {
     if (fontsLoaded && appReady) SplashScreen.hideAsync();
   }, [fontsLoaded, appReady]);
+
+  useEffect(() => {
+    const textDefaults = Text.defaultProps ?? {};
+    const textStyleDefaults = textDefaults.style;
+    Text.defaultProps = {
+      ...textDefaults,
+      style: [textStyleDefaults, { fontFamily: "Inter" }],
+    };
+
+    const inputDefaults = TextInput.defaultProps ?? {};
+    const inputStyleDefaults = inputDefaults.style;
+    TextInput.defaultProps = {
+      ...inputDefaults,
+      style: [inputStyleDefaults, { fontFamily: "Inter" }],
+    };
+  }, []);
 
   return (
     <SafeAreaProvider>

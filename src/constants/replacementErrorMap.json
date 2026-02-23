@@ -1,0 +1,26 @@
+{
+  "defaults": {
+    "title": "Replacement Error",
+    "message": "Something went wrong during replacement. Please try again or contact support."
+  },
+  "units": {
+    "0007": {
+      "name": "MAIN_DOCK",
+      "reasons": {
+        "0001": {
+          "title": "Improper Bottle",
+          "message": "Bottle you inserted is not registered. Ensure you are using correct bottle. Or contact support."
+        }
+      }
+    },
+    "0009": {
+      "name": "BLE_CONTROL_DOCK",
+      "reasons": {
+        "0001": {
+          "title": "Dock Communication Error",
+          "message": "Could not verify the dock state. Keep the dock stable and retry."
+        }
+      }
+    }
+  }
+}

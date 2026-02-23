@@ -12,6 +12,9 @@ export const CHARACTERISTIC_UUIDS = {
   TIME: "00001501-eb00-430a-a8ff-c7ad4211bf86",
   MESSAGE_PROTOCOL: "00001505-eb00-430a-a8ff-c7ad4211bf86",
   RESET: "00001506-eb00-430a-a8ff-c7ad4211bf86",
+  // Placeholder characteristic for replacement-flow step transitions.
+  // You can change this once firmware finalizes the contract.
+  REPLACEMENT_STEP: "00001507-eb00-430a-a8ff-c7ad4211bf86",
 };
 
 // Firmware Unit IDs

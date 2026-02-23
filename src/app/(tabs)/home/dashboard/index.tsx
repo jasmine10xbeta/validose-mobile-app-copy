@@ -48,6 +48,7 @@ export default function DashboardScreen() {
   const [inboxLoading, setInboxLoading] = useState(false);
   const [inboxError, setInboxError] = useState<string | null>(null);
   const [supportRequests, setSupportRequests] = useState<SupportRequest[]>([]);
+  const [isHelpLoading, setIsHelpLoading] = useState(false);
   const hasAccessToken = Boolean(user?.access_token);
   const handleHelpPress = () => router.push("/home/led-info");
 
@@ -130,37 +131,29 @@ export default function DashboardScreen() {
   };
 
   const renderSupportRequest = ({ item }: { item: SupportRequest }) => {
-    const createdDate = item?.created_at
-      ? dayjs(item.created_at).format("DD.MM.YYYY [at] HH:mm")
-      : "—";
-    const statusLabel = item?.status
-      ? item.status.replace(/_/g, " ").toUpperCase()
-      : "UNKNOWN";
-    const isResolvedStatus = item?.status?.toUpperCase() === "RESOLVED";
-    const statusAccentColor = isResolvedStatus ? "#EDEFF1" : "#C9E3E4";
+    const createdDate = formatHistoryTime(item?.created_at);
+    const status = mapHistoryStatus(item?.status);
 
     return (
       <View style={styles.requestRow}>
-        <View
-          style={[styles.requestIcon, { backgroundColor: statusAccentColor }]}
-        >
-          <Feather
-            name="mail"
-            size={20}
-            color="#000000"
-            style={styles.mailIcon}
-          />
-        </View>
         <View style={styles.requestDetails}>
+          <Text style={styles.requestTitle}>Beginning of a message</Text>
           <Text style={styles.requestDate}>{createdDate}</Text>
         </View>
         <View
           style={[
             styles.requestStatusPill,
-            { backgroundColor: statusAccentColor },
+            { backgroundColor: status.backgroundColor },
           ]}
         >
-          <Text style={styles.requestStatusText}>{statusLabel}</Text>
+          <Text
+            style={[
+              styles.requestStatusText,
+              { color: status.textColor, textTransform: "none" },
+            ]}
+          >
+            {status.label}
+          </Text>
         </View>
       </View>
     );
@@ -207,18 +200,26 @@ export default function DashboardScreen() {
         // === COMMENT FROM HERE FOR DEBUG MODE ===
         label="Help"
         onPress={async () => {
-          const supportResponse = await createSupportRequest();
-          if (supportResponse?.id) {
-            showToast(
-              "success",
-              "Notification sent",
-              "Someone will be in touch soon."
-            );
-          } else {
-            showToast("error", "Error", "Could not create support request.");
-            return;
+          if (isHelpLoading) return;
+          setIsHelpLoading(true);
+          try {
+            const supportResponse = await createSupportRequest();
+            if (supportResponse?.id) {
+              showToast(
+                "success",
+                "Notification sent",
+                "Someone will be in touch soon."
+              );
+            } else {
+              showToast("error", "Error", "Could not create support request.");
+              return;
+            }
+          } finally {
+            setIsHelpLoading(false);
           }
         }}
+        loading={isHelpLoading}
+        disabled={isHelpLoading}
         // === COMMENT TILL HERE FOR DEBUG MODE ===
 
         // === UNCOMMENT FROM HERE FOR DEBUG ===
@@ -261,12 +262,19 @@ export default function DashboardScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Close inbox"
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={styles.closeTextButton}
               >
-                <Feather name="chevron-left" size={24} color="#000000" />
+                <Text style={styles.closeText}>Close</Text>
               </TouchableOpacity>
-              <Text style={styles.sheetTitle}>Inbox</Text>
+              <Text style={styles.sheetTitle}>History</Text>
               <View style={styles.sheetHeaderSpacer} />
             </View>
+            <Text style={styles.sheetDescription}>
+              Below is the list of help requests you placed.{"\n"}
+              <Text style={styles.sheetDescriptionBold}>
+                We will reply to each individually and contact{"\n"}you for troubleshooting.
+              </Text>
+            </Text>
             {inboxLoading ? (
               <View style={styles.loaderContainer}>
                 <ActivityIndicator size="small" color="#2E7787" />
@@ -283,14 +291,14 @@ export default function DashboardScreen() {
                 ListEmptyComponent={() => (
                   <View style={styles.messageContainer}>
                     <Text style={styles.messageText}>
-                      No open support requests.
+                      No history available yet.
                     </Text>
                   </View>
                 )}
                 contentContainerStyle={
                   supportRequests.length === 0
                     ? styles.listEmptyContent
-                    : undefined
+                    : styles.listContent
                 }
                 showsVerticalScrollIndicator={false}
               />
@@ -330,44 +338,62 @@ const styles = StyleSheet.create({
   },
   modalRoot: {
     flex: 1,
-    justifyContent: "flex-end",
+    justifyContent: "center",
+    alignItems: "center",
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(255, 255, 255, 0.95)",
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
   },
   sheetContainer: {
-    backgroundColor: "#FFF",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 32,
-    height: INBOX_SHEET_HEIGHT,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 20,
+    width: "90%",
+    height: INBOX_SHEET_HEIGHT * 0.9,
     shadowColor: "#000000",
     shadowOpacity: 0.18,
-    shadowRadius: 30,
-    shadowOffset: { width: 0, height: 15 },
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 10 },
     elevation: 24,
   },
   sheetHeader: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 38,
+    marginBottom: 26,
+  },
+  closeTextButton: {
+    width: 52,
+  },
+  closeText: {
+    fontSize: 15,
+    color: "#4D5A69",
+    fontWeight: "500",
   },
   sheetHeaderSpacer: {
-    width: 24,
+    width: 52,
     height: 24,
   },
   sheetTitle: {
     flex: 1,
     textAlign: "center",
-    fontSize: 17,
+    fontSize: 32 / 2,
     lineHeight: 22,
-    letterSpacing: -0.43,
-    fontWeight: "600",
-    fontFamily: "SF Pro",
-    color: "#333333",
+    fontWeight: "700",
+    color: "#2D3745",
+  },
+  sheetDescription: {
+    textAlign: "center",
+    fontSize: 34 / 2,
+    lineHeight: 22,
+    color: "#4D5A69",
+    marginBottom: 16,
+  },
+  sheetDescriptionBold: {
+    color: "#2D3745",
+    fontWeight: "700",
   },
   loaderContainer: {
     paddingVertical: 32,
@@ -387,51 +413,47 @@ const styles = StyleSheet.create({
   requestRow: {
     flexDirection: "row",
     alignItems: "center",
-    height: 91,
-    paddingHorizontal: 16,
+    height: 92,
+    paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: "#E0E0E0",
-    backgroundColor: "#FFFFFF",
-  },
-  requestIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  mailIcon: {
-    borderColor: "#000000",
+    borderColor: "#E1E5EA",
+    borderRadius: 11,
+    backgroundColor: "#F9FAFB",
+    marginBottom: 8,
   },
   requestDetails: {
-    marginLeft: 16,
     flex: 1,
   },
+  requestTitle: {
+    fontSize: 34 / 2,
+    color: "#2D3745",
+    fontWeight: "600",
+    marginBottom: 2,
+  },
   requestDate: {
-    fontSize: 16,
-    color: "#252F3B",
-    fontWeight: "500",
+    fontSize: 34 / 2,
+    color: "#6A7788",
+    fontWeight: "400",
   },
   requestStatusPill: {
-    height: 28,
-    borderRadius: 16,
-    paddingVertical: 7,
-    paddingHorizontal: 16,
+    height: 40,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
     justifyContent: "center",
     alignItems: "center",
   },
   requestStatusText: {
-    fontSize: 12,
-    fontWeight: "600",
-    // fontFamily: "Inter",
-    lineHeight: 12,
-    letterSpacing: -0.12,
-    textTransform: "uppercase",
-    color: "#252F3B",
+    fontSize: 17,
+    fontWeight: "500",
   },
   listEmptyContent: {
     flexGrow: 1,
     justifyContent: "center",
+  },
+  listContent: {
+    paddingTop: 2,
+    paddingBottom: 8,
   },
   // Help Button Styles
   helpButton: {
@@ -468,3 +490,50 @@ const styles = StyleSheet.create({
     // fontFamily: "Inter",
   },
 });
+
+function formatHistoryTime(createdAt?: string | null): string {
+  if (!createdAt) return "—";
+  const date = dayjs(createdAt);
+  if (!date.isValid()) return "—";
+
+  const now = dayjs();
+  const diffMinutes = now.diff(date, "minute");
+
+  if (diffMinutes < 1) return "Just now";
+  if (diffMinutes < 60) return `${diffMinutes} min ago`;
+  if (now.isSame(date, "day")) return date.format("hh:mm a");
+  if (now.subtract(1, "day").isSame(date, "day")) return "yesterday";
+  if (now.diff(date, "day") < 7) return date.format("dddd");
+  if (now.isSame(date, "year")) return date.format("MMM D");
+  return date.format("MMM D, YYYY");
+}
+
+function mapHistoryStatus(status?: string | null): {
+  label: string;
+  backgroundColor: string;
+  textColor: string;
+} {
+  const normalized = status?.toUpperCase();
+
+  if (normalized === "RESOLVED") {
+    return {
+      label: "Resolved",
+      backgroundColor: "#D5E7EC",
+      textColor: "#2A6574",
+    };
+  }
+
+  if (normalized === "IN_PROGRESS") {
+    return {
+      label: "In progress",
+      backgroundColor: "#D1E9DE",
+      textColor: "#16734A",
+    };
+  }
+
+  return {
+    label: "Send",
+    backgroundColor: "#F3EADF",
+    textColor: "#8A5A19",
+  };
+}

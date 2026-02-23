@@ -39,13 +39,11 @@ export function VNextDoseInfo({ todaySchedulesByDevice }: VNextDoseInfoProps) {
 
   return (
     <View style={styles.nextDoseInfo}>
-      <VText textVariant="LabelDose" style={styles.label}>
+      <VText textVariant="LabelDose" style={styles.topLabel}>
         Next Dose
       </VText>
-      <View style={styles.nextDoseInfoSecond}>
-        <VText textVariant="Body">{mainLabel}</VText>
-        <VText textVariant="LabelDose">{timeLabel}</VText>
-      </View>
+      <VText textVariant="Body" style={styles.mainLabel}>{mainLabel}</VText>
+      <VText textVariant="LabelDose" style={styles.timeLabel}>{timeLabel}</VText>
       {detailsLabel && <VMedicationInfo detailsLabel={detailsLabel} state={state} />}
     </View>
   );
@@ -55,29 +53,25 @@ const styles = StyleSheet.create({
   nextDoseInfo: {
     flexDirection: "column",
     alignItems: "center",
-    marginTop: 24,
-    paddingTop: 35,
-    paddingBottom: 15,
-    borderColor: "#E6E7E8",
-    borderRadius: 12,
-    borderWidth: 1,
+    marginTop: 8,
+    paddingTop: 14,
+    paddingBottom: 12,
     width: "100%",
   },
-  nextDoseInfoSecond: {
-    alignItems: "center",
-    backgroundColor: "#FFF",
-    width: "100%",
-    gap: 5,
-  },
-  label: {
-    position: "absolute",
-    top: -10,
-    paddingHorizontal: 25,
+  topLabel: {
     color: "#565F6B",
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "500",
-    // fontFamily: "Inter",
-    backgroundColor: "#FFF",
+    marginBottom: 6,
+  },
+  mainLabel: {
+    fontSize: 56,
+    lineHeight: 60,
+  },
+  timeLabel: {
+    marginTop: 2,
+    color: "#505C6C",
+    fontSize: 21,
   },
 });
 
