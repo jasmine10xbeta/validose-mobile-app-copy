@@ -7,6 +7,7 @@ import {
   Image,
   PermissionsAndroid,
   Platform,
+  Pressable,
   Text,
   type ImageSourcePropType,
 } from "react-native";
@@ -29,6 +30,7 @@ function LoginMessageBlock({
   buttonLabel,
   onPress,
   onPressHelp,
+  onPressDebug,
   personDisabled,
 }: {
   title?: string;
@@ -38,6 +40,7 @@ function LoginMessageBlock({
   buttonLabel: string;
   onPress: () => void;
   onPressHelp: () => void;
+  onPressDebug?: () => void;
   personDisabled?: boolean;
 }) {
   return (
@@ -69,7 +72,14 @@ function LoginMessageBlock({
           )}
         </View>
 
-        <VButton onPress={onPress} label={buttonLabel} />
+        <View style={styles.loginActions}>
+          <VButton onPress={onPress} label={buttonLabel} />
+          {onPressDebug && (
+            <Pressable onPress={onPressDebug} style={styles.debugTextAction}>
+              <Text style={styles.debugText}>BLE Debug Console</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -194,6 +204,7 @@ export default function LoginScreen() {
         }
         illustration={require("../../../../assets/images/png/onboarding-qr.png")}
         buttonLabel="Scan QR code"
+        onPressDebug={() => router.push("/home/ble-debug")}
         onPress={async () => {
           const granted = await requestBluetoothPermissions();
           if (!granted) {
@@ -257,6 +268,20 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginHorizontal: 24,
     paddingBottom: 100,
+  },
+  loginActions: {
+    width: "100%",
+    alignItems: "center",
+  },
+  debugTextAction: {
+    marginTop: 14,
+    paddingVertical: 4,
+  },
+  debugText: {
+    color: "#997D84",
+    fontSize: 18,
+    fontWeight: "700",
+    textDecorationLine: "underline",
   },
   loginLabel: {
     position: "absolute",

@@ -66,7 +66,7 @@ export function VTopActions({
   return (
     <View style={[styles.container, style]}>
       <View style={styles.personRow}>
-        <TouchableOpacity
+        {/* <TouchableOpacity
           activeOpacity={0.8}
           style={styles.circleButton}
           disabled={personDisabled}
@@ -81,7 +81,7 @@ export function VTopActions({
             size={24}
             color={personDisabled ? "#A3ADB8" : "#255F6C"}
           />
-        </TouchableOpacity>
+        </TouchableOpacity> */}
         {showPatientInfo && (
           <View style={styles.patientIdTag}>
             <Text style={styles.patientIdText}>{displayedPatientId}</Text>
@@ -89,7 +89,7 @@ export function VTopActions({
         )}
       </View>
 
-      <TouchableOpacity
+      {/* <TouchableOpacity
         activeOpacity={0.8}
         style={styles.circleButton}
         accessibilityRole="button"
@@ -97,7 +97,7 @@ export function VTopActions({
         onPress={onPressHelp}
       >
         <Feather name="help-circle" size={26} color="#252F3B" />
-      </TouchableOpacity>
+      </TouchableOpacity> */}
     </View>
   );
 }
