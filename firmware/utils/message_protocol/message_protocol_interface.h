@@ -66,7 +66,7 @@
    (256u) // Arbitrary limit for max payload size. Can be adjusted as needed depending on the type of link layers to be
           // supported. This refers to the variable payload size within the @ref mp_packet_payload_t packet, excluding
           // the fixed size elements in mp_packet_payload_t.
-#define ACK_TIMEOUT_MS                       (500u) // Time to wait before retry
+#define ACK_TIMEOUT_MS                       (1000u) // Time to wait before retry
 #define MESSAGE_PROTOCOL_PROCESS_INTERVAL_MS (0u)
 #define MESSAGE_PROTOCOL_MIN_PAYLOAD_STRUCT_SIZE                                                                       \
    (1u + 1u + 2u) // Minimum payload size if pkt_payload_len = 0 in mp_packet_payload_t

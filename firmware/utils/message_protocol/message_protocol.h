@@ -51,7 +51,7 @@
    (sizeof(mp_packet_header_t) + MESSAGE_PROTOCOL_MIN_PAYLOAD_STRUCT_SIZE + MESSAGE_PROTOCOL_MAX_PAYLOAD_LEN)
 
 #define MSG_PROT_MAX_RETRIES          (20u) // Number of resends before failure
-#define MAX_TIME_BEFORE_SYNC_RETRY_MS (100u)
+#define MAX_TIME_BEFORE_SYNC_RETRY_MS (1000u)
 
 /***********************************************************************************************************************
  * Types
@@ -126,6 +126,7 @@ typedef struct message_protocol
    uint32_t _current_session_id;     // Session identifier
    bool _is_this_mp_instance_master; // Whether this instance is master or slave
    bool _is_syncing;                 // Whether a sync process is ongoing
+   bool _has_attempted_sync;         // True after first SYNC_START attempt; bypasses startup throttle once.
    uint64_t _last_resync_time_ms;    // Last time a resync was attempted
 
    uint16_t _max_packet_payload_len; // Max size for payload member of mp_packet_payload_t

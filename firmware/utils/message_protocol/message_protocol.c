@@ -240,7 +240,8 @@ static result_t reset_mp_state(message_protocol_t *self)
    memset(&self->_rx_packet, 0, sizeof(mp_packet_t));
    self->_rx_packet.header.status = (uint8_t)MSG_PROT_RX_PACKET_STATUS_PROCESSED;
    memset(&self->_tx_packet, 0, sizeof(mp_packet_t));
-   self->_tx_packet.header.status = (uint8_t)MSG_PROT_TX_PACKET_STATUS_COMPLETED;
+   // TX packet status is set to abandoned to indicate to application layer that tx packet was not successfully sent.
+   self->_tx_packet.header.status = (uint8_t)MSG_PROT_TX_PACKET_STATUS_ABANDONED;
 
    memset(self->_last_rx_packet_raw, 0, sizeof(self->_last_rx_packet_raw));
    self->_last_rx_packet_len = 0u;
@@ -553,8 +554,9 @@ static result_t mp_sync_start(message_protocol_t *self)
    uint64_t current_ms = 0;
    result = self->_systick_ifc->get_time_ms(self->_systick_ifc, &current_ms);
    uint64_t time_since_last_sync = current_ms - self->_last_resync_time_ms;
+   bool is_first_sync_attempt = !self->_has_attempted_sync;
 
-   if(IS_OK(result) && (time_since_last_sync > MAX_TIME_BEFORE_SYNC_RETRY_MS))
+   if(IS_OK(result) && (is_first_sync_attempt || (time_since_last_sync > MAX_TIME_BEFORE_SYNC_RETRY_MS)))
    {
       // Reset MP state
       result = reset_mp_state(self);
@@ -566,6 +568,7 @@ static result_t mp_sync_start(message_protocol_t *self)
       if(IS_OK(result))
       {
          self->_last_resync_time_ms = current_ms;
+         self->_has_attempted_sync = true;
          DEBUG_INFO(" Generated new session ID: %d", self->_current_session_id);
       }
       if(IS_OK(result))
@@ -761,7 +764,6 @@ static result_t on_link_layer_packet(message_protocol_t *self, const mp_packet_t
       break;
       case MP_PACKET_TYPE_SYNC_MISMATCH:
       {
-         // Check if we are currently synching
          if(self->_is_this_mp_instance_master)
          {
             // Master received SYNC_MISMATCH, restart sync process
@@ -777,12 +779,10 @@ static result_t on_link_layer_packet(message_protocol_t *self, const mp_packet_t
       break;
       case MP_PACKET_TYPE_SYNC_ACK:
       {
-         // Check if we are currently synching
          if(self->_is_this_mp_instance_master)
          {
             if(packet->header.session_id != self->_current_session_id)
             {
-               // Session mismatch
                DEBUG_ERROR(" Session ID mismatch. Expected: %d, Received: %d",
                            self->_current_session_id,
                            packet->header.session_id);
@@ -917,9 +917,10 @@ static result_t process_inbound_packets(message_protocol_t *self)
 
    // Check the link layer for incoming data.
    uint8_t link_layer_data[MP_MAX_PACKET_LENGTH] = {0};
+   uint8_t blank_data[MP_MAX_PACKET_LENGTH] = {0};
    result = self->_get_link_layer_pkt(self, link_layer_data, sizeof(link_layer_data));
 
-   if(IS_OK(result))
+   if(IS_OK(result) && (0 != memcmp(link_layer_data, blank_data, sizeof(blank_data))))
    {
       // Data received from the link layer: parse it
       // Expected format from link layer data: |[mp_packet_header_t][mp_packet_payload_t]............|
@@ -992,7 +993,7 @@ static result_t process_inbound_packets(message_protocol_t *self)
             // Compare CRCs
             if(calc_crc != packet.header.pkt_crc)
             {
-               DEBUG_TRACE("Corrupted frame payload CRC detected.");
+               DEBUG_WARNING("Corrupted frame payload CRC detected.");
                // Ignore packet so that the sender will timeout and retry.
             }
             else
@@ -1024,7 +1025,45 @@ static result_t process_inbound_packets(message_protocol_t *self)
 
                   if(is_duplicate)
                   {
-                     DEBUG_TRACE("Dropping duplicate packet.");
+                     DEBUG_WARNING("Dropping duplicate packet with ID: %d, ppi: %d, pkt_type: %d, payload_type: %d",
+                                   packet.header.pkt_counter,
+                                   packet.payload.ppi,
+                                   packet.header.pkt_type,
+                                   packet.payload.type);
+
+                     if(MP_PACKET_TYPE_DATA == packet.header.pkt_type)
+                     {
+                        if(packet.header.session_id == self->_current_session_id)
+                        {
+                           // Re-ACK duplicate DATA packets to suppress sender retries for this active session.
+                           result = send_ack_or_nak(self, &packet, ACK);
+                        }
+                        else
+                        {
+                           // Duplicate stale-session DATA indicates peer may have missed our prior SYNC_MISMATCH.
+                           // Re-send SYNC_MISMATCH from slave to improve recovery from a lost control packet.
+                           if(!self->_is_this_mp_instance_master)
+                           {
+                              mp_packet_t response_packet = {0};
+                              memcpy(&response_packet.header, &packet.header, sizeof(mp_packet_header_t));
+                              response_packet.header.session_id = self->_current_session_id; // Expected session ID.
+                              response_packet.header.pkt_type = MP_PACKET_TYPE_SYNC_MISMATCH;
+                              response_packet.header.status = MSG_PROT_TX_PACKET_STATUS_NEW;
+                              response_packet.payload.type = 0u;
+                              response_packet.payload.ppi = 0u;
+                              response_packet.payload.pkt_payload_len = 0u;
+                              result = send_pkt_to_link_layer_cached(self, &response_packet);
+                              DEBUG_INFO(" Re-sent SYNC_MISMATCH for duplicate stale-session DATA packet.");
+                           }
+                           else
+                           {
+                              DEBUG_WARNING(" Not ACKing duplicate stale-session DATA packet. Expected session ID: %u, "
+                                            "Received: %u",
+                                            self->_current_session_id,
+                                            packet.header.session_id);
+                           }
+                        }
+                     }
                   }
                   else
                   {
@@ -1120,6 +1159,12 @@ static result_t send(const message_protocol_interface_t *const interface, mp_pac
       SET_ERR(result, MSG_PROT_ERROR_BUSY);
    }
 
+   if(self->_is_syncing)
+   {
+      DEBUG_ERROR("Cannot send new packet while syncing.");
+      SET_ERR(result, MSG_PROT_ERROR_BUSY);
+   }
+
    if(IS_OK(result))
    {
       // Set the new tx packet header fields
@@ -1159,7 +1204,16 @@ static result_t get_tx_packet_status(const message_protocol_interface_t *const i
 
    message_protocol_t *self = interface->parent;
 
-   *status = (MSG_PROT_TX_PACKET_STATUS)(self->_tx_packet.header.status);
+   if(self->_is_syncing)
+   {
+      // If currently syncing, override status to indicate that the link is busy. This prevents new packets from
+      // being sent while syncing is in progress.
+      *status = MSG_PROT_TX_PACKET_STATUS_ERROR;
+   }
+   else
+   {
+      *status = (MSG_PROT_TX_PACKET_STATUS)(self->_tx_packet.header.status);
+   }
 
    return RESULT_OK;
 }
@@ -1208,15 +1262,15 @@ static result_t get_max_payload_length(const message_protocol_interface_t *const
  * Global function definitions
  **********************************************************************************************************************/
 
-result_t message_protocol_init(
-   message_protocol_t *const self,
-   const system_time_interface_t *systick_ifc,
-   const comms_driver_interface_t *serial_link_ifc,
-   bool is_master,
-   get_link_layer_pkt_cb_t get_link_layer_pkt_cb_opt, // These callbacks can and should be NULL during normal operation.
-   send_pkt_to_link_layer_cb_t send_pkt_to_link_layer_cb_opt,
-   get_max_packet_length_cb_t get_max_packet_length_cb_opt,
-   generate_mp_session_id_cb_t generate_mp_session_id_cb_opt)
+result_t message_protocol_init(message_protocol_t *const self,
+                               const system_time_interface_t *systick_ifc,
+                               const comms_driver_interface_t *serial_link_ifc,
+                               bool is_master,
+                               get_link_layer_pkt_cb_t get_link_layer_pkt_cb_opt, // These callbacks can and should
+                                                                                  // be NULL during normal operation.
+                               send_pkt_to_link_layer_cb_t send_pkt_to_link_layer_cb_opt,
+                               get_max_packet_length_cb_t get_max_packet_length_cb_opt,
+                               generate_mp_session_id_cb_t generate_mp_session_id_cb_opt)
 {
    // Example implementation of message_protocol_init below
    RETURN_ERR_IF_NULL(self, MSG_PROT_ERROR_NULL_PTR);
@@ -1231,6 +1285,7 @@ result_t message_protocol_init(
 
    self->_is_this_mp_instance_master = is_master;
    self->_is_syncing = false;
+   self->_has_attempted_sync = false;
    self->_last_resync_time_ms = 0u;
 
    self->_tx_packet = (mp_packet_t){0};

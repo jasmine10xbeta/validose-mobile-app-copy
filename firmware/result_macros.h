@@ -12,7 +12,7 @@
  * @details
  *
  * @file result_macros.h
- * @version 1.0.4
+ * @version 1.0.5
  * @ingroup common
  * @brief
  */
@@ -27,6 +27,10 @@
 /***********************************************************************************************************************
  * Definitions
  **********************************************************************************************************************/
+// Magic number indicating initialization has ocurred.
+// Specifically chosen not to be a hexword or ASCII that could appear randomly in uninitialized memory.
+// Included here because a module's initializer will need to include result.h for the return value anyway
+#define INITIALIZED (0x1A2B3C4Du)
 
 #define RESULT_NO_ERROR (0u)
 
@@ -299,6 +303,29 @@ typedef uint16_t result_t;
       if((statement))                                                                                                  \
       {                                                                                                                \
          return RESULT_OK;                                                                                             \
+      }                                                                                                                \
+   } while(0)
+
+/**
+ * @brief Check if an interface or its parent is NULL or unitialized and return an error result if true.
+ *
+ * This macro checks if the given `interface` or its `parent` is NULL. If either is NULL, it invokes `RETURN_ERR` with
+ * the error set to the provided `null_err` value. It then checks if the parent is initialized and returns the error
+ * if it is not
+ *
+ * @param[in] interface The interface to check.
+ * @param[in] null_err The error value to return if the interface or its parent is NULL or uninitialized
+ */
+#define RETURN_ERR_IF_UNINITIALIZED(interface, null_err)                                                               \
+   do                                                                                                                  \
+   {                                                                                                                   \
+      if(((interface) == NULL) || ((interface->parent) == NULL))                                                       \
+      {                                                                                                                \
+         RETURN_ERR(null_err);                                                                                         \
+      }                                                                                                                \
+      else if((interface->parent->_initialization_status) != INITIALIZED)                                              \
+      {                                                                                                                \
+         RETURN_ERR(null_err);                                                                                         \
       }                                                                                                                \
    } while(0)
 

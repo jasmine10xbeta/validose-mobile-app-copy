@@ -580,6 +580,32 @@ TEST_F(message_protocol_suite, send_rejects_when_tx_busy)
    ASSERT_EQ(MSG_PROT_ERROR_BUSY, GET_ERR_CODE(result));
 }
 
+TEST_F(message_protocol_suite, send_and_get_tx_status_blocked_while_syncing)
+{
+   // Edge case: while syncing, send() must reject new packets and TX status must report ERROR.
+   m_mp_a._tx_packet.header.status = (uint8_t)MSG_PROT_TX_PACKET_STATUS_COMPLETED;
+   m_mp_a._is_syncing = true;
+
+   MSG_PROT_TX_PACKET_STATUS tx_status = MSG_PROT_TX_PACKET_STATUS_NONE;
+   ASSERT_TRUE(IS_OK(m_mp_a.interface.get_tx_packet_status(&m_mp_a.interface, &tx_status)));
+   ASSERT_EQ(MSG_PROT_TX_PACKET_STATUS_ERROR, tx_status);
+
+   mp_packet_payload_t payload = {0};
+   payload.ppi = (uint8_t)TEST_PPI_STATUS_UPDATE;
+   payload.pkt_payload_len = 1u;
+   payload.payload[0] = 0xA5u;
+
+   result_t result = m_mp_a.interface.send(&m_mp_a.interface, &payload);
+   ASSERT_EQ(SW_UNIT_ID_MESSAGE_PROTOCOL, GET_ERR_UNIT(result));
+   ASSERT_EQ(MSG_PROT_ERROR_BUSY, GET_ERR_CODE(result));
+
+   // Once syncing clears, status should reflect the real TX state and send should be allowed again.
+   m_mp_a._is_syncing = false;
+   ASSERT_TRUE(IS_OK(m_mp_a.interface.get_tx_packet_status(&m_mp_a.interface, &tx_status)));
+   ASSERT_EQ(MSG_PROT_TX_PACKET_STATUS_COMPLETED, tx_status);
+   ASSERT_TRUE(IS_OK(m_mp_a.interface.send(&m_mp_a.interface, &payload)));
+}
+
 TEST_F(message_protocol_suite, send_rejects_payload_too_large)
 {
    // Edge case: payload larger than the negotiated MP payload size should return MSG_PROT_ERROR_PAYLOAD_TOO_BIG.
@@ -931,6 +957,60 @@ TEST_F(message_protocol_suite, stale_data_packet_is_dropped)
    ASSERT_EQ(MSG_PROT_RX_PACKET_STATUS_PROCESSED, rx_status);
 }
 
+TEST_F(message_protocol_suite, duplicate_stale_session_data_on_slave_resends_sync_mismatch)
+{
+   // Scenario: slave receives repeated stale-session DATA (same bytes) because master did not receive SYNC_MISMATCH.
+   // Expectation: slave re-sends SYNC_MISMATCH for each duplicate stale-session DATA packet.
+   ASSERT_TRUE(IS_OK(message_protocol_init(
+      &m_mp_a, &m_time.interface, &m_link_a.interface, false, stale_link_get_packet, NULL, NULL, NULL)));
+
+   prime_process(&m_mp_a.interface);
+   m_mp_a._current_session_id = 0x1111u;
+
+   mp_packet_t stale_data = {0};
+   stale_data.header.pkt_counter = 7u;
+   stale_data.header.session_id = 0x2222u; // Mismatch to force SYNC_MISMATCH on slave.
+   stale_data.header.pkt_type = MP_PACKET_TYPE_DATA;
+   stale_data.header.status = MSG_PROT_TX_PACKET_STATUS_NEW;
+   stale_data.payload.type = 0x10u;
+   stale_data.payload.ppi = (uint8_t)TEST_PPI_STATUS_UPDATE;
+   stale_data.payload.pkt_payload_len = 1u;
+   stale_data.payload.payload[0] = 0xA5u;
+
+   uint8_t wire_buf[MP_MAX_PACKET_LENGTH] = {0};
+   uint16_t wire_len = 0u;
+   build_wire_packet_full(&stale_data, wire_buf, &wire_len);
+   stale_mailbox_load_bytes(wire_buf, wire_len);
+
+   // First process(): mismatch DATA -> SYNC_MISMATCH
+   uint32_t send_before = m_link_a.send_count;
+   (void)m_mp_a.interface.process(&m_mp_a.interface);
+   ASSERT_EQ(send_before + 1u, m_link_a.send_count);
+   ASSERT_GE(m_link_a.last_tx_len, (uint16_t)(2u + 2u + 4u + 1u + 1u + MESSAGE_PROTOCOL_MIN_PAYLOAD_STRUCT_SIZE));
+   ASSERT_EQ(MP_PACKET_TYPE_SYNC_MISMATCH, m_link_a.last_tx_buf[8]);
+   const uint32_t first_tx_session_id = (uint32_t)m_link_a.last_tx_buf[4] | ((uint32_t)m_link_a.last_tx_buf[5] << 8u)
+                                        | ((uint32_t)m_link_a.last_tx_buf[6] << 16u)
+                                        | ((uint32_t)m_link_a.last_tx_buf[7] << 24u);
+   ASSERT_EQ(m_mp_a._current_session_id, first_tx_session_id);
+
+   // Clear peer RX slot in the single-slot mock transport so a second send can be observed.
+   // (Without this, send_packet() returns BUSY and send_count won't increment.)
+   m_link_b.has_data = false;
+   m_link_b.rx_len = 0u;
+   memset(m_link_b.rx_buf, 0, sizeof(m_link_b.rx_buf));
+
+   // Second process(): duplicate stale-session DATA -> SYNC_MISMATCH again
+   uint32_t send_after_first = m_link_a.send_count;
+   (void)m_mp_a.interface.process(&m_mp_a.interface);
+   ASSERT_EQ(send_after_first + 1u, m_link_a.send_count);
+   ASSERT_GE(m_link_a.last_tx_len, (uint16_t)(2u + 2u + 4u + 1u + 1u + MESSAGE_PROTOCOL_MIN_PAYLOAD_STRUCT_SIZE));
+   ASSERT_EQ(MP_PACKET_TYPE_SYNC_MISMATCH, m_link_a.last_tx_buf[8]);
+   const uint32_t second_tx_session_id = (uint32_t)m_link_a.last_tx_buf[4] | ((uint32_t)m_link_a.last_tx_buf[5] << 8u)
+                                         | ((uint32_t)m_link_a.last_tx_buf[6] << 16u)
+                                         | ((uint32_t)m_link_a.last_tx_buf[7] << 24u);
+   ASSERT_EQ(m_mp_a._current_session_id, second_tx_session_id);
+}
+
 TEST_F(message_protocol_suite, mailbox_echoed_tx_packet_is_dropped)
 {
    // Scenario: mailbox returns the sender's own TX bytes until a peer overwrites them.
@@ -1266,6 +1346,60 @@ TEST_F(message_protocol_suite, stale_ack_packet_does_not_trigger_multiple_sync_s
    ASSERT_EQ(send_after_first, m_link_a.send_count);
 }
 
+TEST_F(message_protocol_suite, startup_stale_session_data_on_master_triggers_immediate_sync_start)
+{
+   // Scenario: master just booted and receives stale-session DATA before MAX_TIME_BEFORE_SYNC_RETRY_MS.
+   // Expectation: first mismatch must trigger SYNC_START immediately; duplicate retries are then dropped.
+   ASSERT_TRUE(IS_OK(message_protocol_init(&m_mp_a,
+                                           &m_time.interface,
+                                           &m_link_a.interface,
+                                           true,
+                                           stale_link_get_packet,
+                                           NULL,
+                                           NULL,
+                                           generate_session_id_master)));
+
+   prime_process(&m_mp_a.interface);
+   uint64_t startup_time_ms = 0u;
+   ASSERT_TRUE(IS_OK(m_time.interface.get_time_ms(&m_time.interface, &startup_time_ms)));
+   ASSERT_EQ(0u, startup_time_ms); // Reproduce startup timing (no delay before first inbound packet).
+
+   mp_packet_t stale_data = {0};
+   stale_data.header.pkt_counter = 1u;
+   stale_data.header.session_id = 0x2222u; // Mismatch with master's startup session_id (0).
+   stale_data.header.pkt_type = MP_PACKET_TYPE_DATA;
+   stale_data.header.status = MSG_PROT_TX_PACKET_STATUS_NEW;
+   stale_data.payload.type = 0x10u;
+   stale_data.payload.ppi = (uint8_t)TEST_PPI_STATUS_UPDATE;
+   stale_data.payload.pkt_payload_len = 1u;
+   stale_data.payload.payload[0] = 0x5Au;
+
+   uint8_t wire_buf[MP_MAX_PACKET_LENGTH] = {0};
+   uint16_t wire_len = 0u;
+   build_wire_packet_full(&stale_data, wire_buf, &wire_len);
+   stale_mailbox_load_bytes(wire_buf, wire_len);
+
+   uint32_t send_before = m_link_a.send_count;
+   (void)m_mp_a.interface.process(&m_mp_a.interface);
+   ASSERT_EQ(send_before + 1u, m_link_a.send_count);
+   ASSERT_TRUE(m_mp_a._is_syncing);
+   ASSERT_EQ(MP_PACKET_TYPE_SYNC_START, m_link_a.last_tx_buf[8]);
+
+   const uint32_t tx_session_id = (uint32_t)m_link_a.last_tx_buf[4] | ((uint32_t)m_link_a.last_tx_buf[5] << 8u)
+                                  | ((uint32_t)m_link_a.last_tx_buf[6] << 16u)
+                                  | ((uint32_t)m_link_a.last_tx_buf[7] << 24u);
+   ASSERT_EQ(m_mp_a._current_session_id, tx_session_id);
+
+   // Clear peer RX slot in the single-slot mock transport to detect accidental re-send.
+   m_link_b.has_data = false;
+   m_link_b.rx_len = 0u;
+   memset(m_link_b.rx_buf, 0, sizeof(m_link_b.rx_buf));
+
+   uint32_t send_after_first = m_link_a.send_count;
+   (void)m_mp_a.interface.process(&m_mp_a.interface);
+   ASSERT_EQ(send_after_first, m_link_a.send_count);
+}
+
 TEST_F(message_protocol_suite, stale_nak_packet_does_not_trigger_multiple_resends)
 {
    // Scenario: mailbox repeatedly returns a valid NAK for a pending TX.
@@ -1389,10 +1523,10 @@ TEST_F(message_protocol_suite, stale_sync_mismatch_packet_is_dropped)
    ASSERT_EQ(send_after_first, m_link_a.send_count);
 }
 
-TEST_F(message_protocol_suite, stale_sync_ack_packet_does_not_trigger_resync)
+TEST_F(message_protocol_suite, stale_sync_ack_packet_is_dropped_without_resync)
 {
    // Scenario: mailbox repeatedly returns a valid SYNC_ACK to a master.
-   // Expectation: MP clears syncing once, then drops duplicates without resyncing.
+   // Expectation: MP clears syncing once, then drops duplicate SYNC_ACK packets without resyncing.
    ASSERT_TRUE(IS_OK(message_protocol_init(&m_mp_a,
                                            &m_time.interface,
                                            &m_link_a.interface,
@@ -1405,6 +1539,7 @@ TEST_F(message_protocol_suite, stale_sync_ack_packet_does_not_trigger_resync)
    prime_process(&m_mp_a.interface);
    m_mp_a._current_session_id = 0xBEEFu;
    m_mp_a._is_syncing = true;
+   const uint32_t session_before = m_mp_a._current_session_id;
 
    // Allow sync start (respect MAX_TIME_BEFORE_SYNC_RETRY_MS guard).
    ASSERT_TRUE(IS_OK(
@@ -1430,10 +1565,12 @@ TEST_F(message_protocol_suite, stale_sync_ack_packet_does_not_trigger_resync)
    ASSERT_EQ(send_before, m_link_a.send_count);
 
    uint32_t send_after_first = m_link_a.send_count;
-   // Step 3: Second process() sees stale SYNC_ACK again and must drop it.
+   // Step 3: Second process() sees stale SYNC_ACK again, must drop duplicate, and must not resync.
    ASSERT_TRUE(IS_OK(
       m_time.interface.inc_time_by_set_val_ms(&m_time.interface, (uint16_t)(MAX_TIME_BEFORE_SYNC_RETRY_MS + 1u))));
    (void)m_mp_a.interface.process(&m_mp_a.interface);
+   ASSERT_FALSE(m_mp_a._is_syncing);
+   ASSERT_EQ(session_before, m_mp_a._current_session_id);
    ASSERT_EQ(send_after_first, m_link_a.send_count);
 }
 
@@ -1471,6 +1608,71 @@ TEST_F(message_protocol_suite, master_slave_sync_on_session_mismatch)
 
    ASSERT_FALSE(m_mp_a._is_syncing);
    ASSERT_EQ(m_mp_a._current_session_id, m_mp_b._current_session_id);
+}
+
+TEST_F(message_protocol_suite, sync_start_while_tx_waiting_marks_tx_abandoned_not_completed)
+{
+   // Scenario: master has an in-flight DATA packet and receives a mismatched ACK that starts sync.
+   // Expectation: reset_mp_state marks TX as ABANDONED so app layer does not treat it as COMPLETED.
+   ASSERT_TRUE(IS_OK(message_protocol_init(
+      &m_mp_a, &m_time.interface, &m_link_a.interface, true, NULL, NULL, NULL, generate_session_id_master)));
+   ASSERT_TRUE(
+      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false, NULL, NULL, NULL, NULL)));
+
+   prime_process(&m_mp_a.interface);
+   prime_process(&m_mp_b.interface);
+
+   m_mp_a._current_session_id = 0x1111u;
+   m_mp_b._current_session_id = 0x1111u;
+
+   mp_packet_payload_t tx_payload = {0};
+   tx_payload.ppi = (uint8_t)TEST_PPI_STATUS_UPDATE;
+   tx_payload.pkt_payload_len = 1u;
+   tx_payload.payload[0] = 0x9Cu;
+
+   ASSERT_TRUE(IS_OK(m_mp_a.interface.send(&m_mp_a.interface, &tx_payload)));
+   ASSERT_TRUE(IS_OK(m_mp_a.interface.process(&m_mp_a.interface))); // Send DATA, now waiting for ACK.
+
+   MSG_PROT_TX_PACKET_STATUS tx_status = MSG_PROT_TX_PACKET_STATUS_NONE;
+   ASSERT_TRUE(IS_OK(m_mp_a.interface.get_tx_packet_status(&m_mp_a.interface, &tx_status)));
+   ASSERT_EQ(MSG_PROT_TX_PACKET_STATUS_WAITING_FOR_ACK, tx_status);
+
+   // Clear peer RX slot so master can transmit SYNC_START in this single-slot mock transport.
+   m_link_b.has_data = false;
+   m_link_b.rx_len = 0u;
+   memset(m_link_b.rx_buf, 0, sizeof(m_link_b.rx_buf));
+
+   // Allow sync start (respect MAX_TIME_BEFORE_SYNC_RETRY_MS guard).
+   ASSERT_TRUE(IS_OK(
+      m_time.interface.inc_time_by_set_val_ms(&m_time.interface, (uint16_t)(MAX_TIME_BEFORE_SYNC_RETRY_MS + 1u))));
+
+   mp_packet_t mismatch_ack = {0};
+   mismatch_ack.header.pkt_counter = m_mp_a._pending_id;
+   mismatch_ack.header.session_id = 0x2222u; // Mismatch triggers master sync start.
+   mismatch_ack.header.pkt_type = MP_PACKET_TYPE_ACK;
+   mismatch_ack.header.status = MSG_PROT_TX_PACKET_STATUS_NEW;
+   mismatch_ack.payload.type = 0u;
+   mismatch_ack.payload.ppi = 0u;
+   mismatch_ack.payload.pkt_payload_len = 0u;
+
+   uint8_t wire_buf[MP_MAX_PACKET_LENGTH] = {0};
+   uint16_t wire_len = 0u;
+   build_wire_packet_full(&mismatch_ack, wire_buf, &wire_len);
+   link_inject_packet(&m_link_a, wire_buf, wire_len);
+
+   ASSERT_TRUE(IS_OK(m_mp_a.interface.process(&m_mp_a.interface))); // Trigger sync start + reset_mp_state().
+   ASSERT_TRUE(m_mp_a._is_syncing);
+   ASSERT_EQ((uint8_t)MSG_PROT_TX_PACKET_STATUS_ABANDONED, m_mp_a._tx_packet.header.status);
+   ASSERT_NE((uint8_t)MSG_PROT_TX_PACKET_STATUS_COMPLETED, m_mp_a._tx_packet.header.status);
+
+   // Complete sync handshake to check externally visible TX status after syncing clears.
+   ASSERT_TRUE(IS_OK(m_mp_b.interface.process(&m_mp_b.interface))); // Handle SYNC_START -> send SYNC_ACK
+   ASSERT_TRUE(IS_OK(m_mp_a.interface.process(&m_mp_a.interface))); // Handle SYNC_ACK
+   ASSERT_FALSE(m_mp_a._is_syncing);
+
+   tx_status = MSG_PROT_TX_PACKET_STATUS_NONE;
+   ASSERT_TRUE(IS_OK(m_mp_a.interface.get_tx_packet_status(&m_mp_a.interface, &tx_status)));
+   ASSERT_EQ(MSG_PROT_TX_PACKET_STATUS_ABANDONED, tx_status);
 }
 
 TEST_F(message_protocol_suite, sync_steps_slave_detects_mismatch_first)

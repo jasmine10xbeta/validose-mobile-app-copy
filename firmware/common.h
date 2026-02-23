@@ -44,17 +44,16 @@
 
 #define NFC_MAILBOX_BUFFER_SIZE (255u)
 
-// Schedule specific
-#define MAX_STATUS_DOSES       (10u)
-#define MAX_DOSES_PER_DAY      (10u)
-#define MAX_DOSES_PER_DAY      (10u)
-#define MAX_MINUTES_IN_DAY     ((uint16_t)1440u)
-#define MAX_START_MINUTE_VALUE (MAX_MINUTES_IN_DAY - 1u)
+// Dose schedule parameters
+#define DOSE_SCHEDULE_MAX_DOSES_PER_DAY        (10u)    /**< Maximum number of dose events per day */
+#define DOSE_SCHEDULE_MAX_DOSAGE_MG            (10000u) /**< Maximum dosage amount in milligrams */
+#define DOSE_SCHEDULE_MAX_TEMP_THRESHOLD_DEG_C (60)     /**< Maximum temperature threshold in degrees Celsius */
+#define DOSE_SCHEDULE_MIN_TEMP_THRESHOLD_DEG_C (0)      /**< Minimum temperature threshold in degrees Celsius */
+#define DOSE_SCHEDULE_MAX_TEMP_AVG_WINDOW_SEC  (3600u)  /**< Maximum temperature averaging window duration in seconds */
+#define DOSE_SCHEDULE_MAX_DOSE_WINDOW_MINUTES  (60u)    /**< Maximum dose window duration in minutes */
 
-#define MAX_DOSAGE_AMOUNT_MG                    (10000u)
-#define MAX_TEMPERATURE_THRESHOLD_DEG_C         ((int8_t)60u)
-#define MAX_TEMPERATURE_AVG_TIME_WINDOW_MINUTES ((uint16_t)60u)
-#define MAX_DOSE_WINDOW_WIDTH_MINUTES           (60u)
+#define COMMON_SECONDS_IN_MINUTE           (60u)
+#define DOSE_DETECTION_MAX_DOSE_DURATION_S (4u * COMMON_SECONDS_IN_MINUTE) /**< 4 minutes in seconds */
 
 #ifdef UNIT_TEST
 #   define PRIVATE
@@ -62,10 +61,8 @@
 #   define PRIVATE static
 #endif
 
-#define COMMON_1K_CST (1000u)
-
-#define MAX_ERROR_ARGS (6u) /**< Maximum number of arguments for error logs */
-
+#define COMMON_1K_CST          (1000u)
+#define MAX_ERROR_ARGS         (6u)  /**< Maximum number of arguments for error logs */
 #define MAC_ADDRESS_SIZE_BYTES (10u) /**< Size of a MAC address in bytes */
 
 /**
@@ -124,6 +121,7 @@ typedef enum
    BATTERY_STATE_ERROR,
    BATTERY_STATE_MAX
 } BATTERY_STATE;
+
 typedef enum
 {
    DEVICE_BLE_EVT_NONE = 0,
@@ -140,33 +138,74 @@ typedef enum
 typedef struct
 {
    int32_t zero_offset;
-   bool is_zero_offset_calibrated;
    int32_t calibration_factor;
-   bool is_calibration_factor_calibrated;
    uint32_t full_assembly_weight_mg;
-   bool is_full_assembly_weight_calibrated;
 } weight_stack_calibration_record_t;
 
-#define MAX_DOSE_DOSE_WINDOW_BYTES (4u)
-typedef struct __attribute__((packed))
+/**
+ * @brief Medication type
+ *
+ * @todo Reserved for future use. Implement additional medication types once needed.
+ */
+typedef enum
 {
-   uint16_t start_min; /**< 0 - 1439  (minute of day, inclusive. Counted from midnight)  */
-   uint16_t duration;  /**< 0 - MAX_DOSE_WINDOW_WIDTH_MINUTES  (Duration of the dose window)  */
-} dose_window_t;
-STATIC_ASSERT(sizeof(dose_window_t) == MAX_DOSE_DOSE_WINDOW_BYTES,
-              "Size of dose_window_t does not match expected size of 4 bytes");
+   MEDICATION_TYPE_UNDEFINED = 0,
 
-#define DOSE_SCHEDULE_T_SIZE_BYTES (45u)
+   MEDICATION_TYPE_MAX /**< Sentinel value */
+} MEDICATION_TYPE;
+
+#define DOSE_SCHEDULE_FIXED_SIZE_BYTES         (10u)
+#define DOSE_SCHEDULE_WINDOWS_ARRAY_SIZE_BYTES (DOSE_SCHEDULE_MAX_DOSES_PER_DAY * sizeof(uint16_t))
+#define DOSE_SCHEDULE_SIZE_BYTES               (DOSE_SCHEDULE_FIXED_SIZE_BYTES + DOSE_SCHEDULE_WINDOWS_ARRAY_SIZE_BYTES)
+
+/**
+ * @brief Dose schedule
+ *
+ * @note Packed to minimize memory usage and ensure consistency over communication interfaces.
+ */
 typedef struct __attribute__((packed))
 {
-   uint8_t dosage_amount;                        /**< Units in drops per eye per dose event (for Validose Ophthalmic)*/
-   uint8_t events_per_day;                       /**< Number of required dose events per day*/
-   int8_t temperature_threshold_deg_c;           /**< Maximum allowable environment temperature in degrees Celsius*/
-   uint16_t temperature_avg_time_window_minutes; /**< Time window in minutes over which the temperature is averaged*/
-   dose_window_t window[MAX_DOSES_PER_DAY];      /**< Dose time slots per day*/
+   uint8_t medication_type; /**< Medication type. Reserved for future use. See @ref MEDICATION_TYPE */
+   uint16_t dosage_mg;      /**< Dosage amount in milligrams.*/
+
+   int8_t temp_upper_limit_deg_c;         /**< Upper limit for temperature in degrees Celsius */
+   int8_t temp_lower_limit_deg_c;         /**< Lower limit for temperature in degrees Celsius */
+   uint16_t temp_avg_window_duration_sec; /**< Duration over which temperature is averaged in seconds */
+
+   /**
+    * @brief Bitfield used to determine the days on which doses are scheduled.
+    *
+    * The bitfield works as follows:
+    *
+    * - If `b[7] = 1`, `b[6:0]` represent number of days to skip between dose days.
+    *   E.g., `0b10000010` = dose every 3rd day (i.e., dose day, skip 2 days, dose day, etc.).
+    *   The first dose day is determined by the `active_since_unix` timestamp.
+    *
+    * - If `b[7] = 0`, `b[6:0]` represent days of the week for dosing where `b[0] = Monday` and `b[6] = Sunday`.
+    *   E.g., `0b00010110` = dose on Tuesdays, Wednesdays, and Fridays.
+    */
+   uint8_t dose_days_bitfield;
+   uint8_t dose_window_duration_minutes; /**< Duration of each dose window in minutes */
+   uint8_t dose_window_count;            /**< Number of dose windows defined in the schedule */
+   uint16_t dose_window_start_times_minutes[DOSE_SCHEDULE_MAX_DOSES_PER_DAY]; /**< Start times of dose windows in
+                                                                                 minutes from midnight */
 } dose_schedule_t;
-STATIC_ASSERT(sizeof(dose_schedule_t) == DOSE_SCHEDULE_T_SIZE_BYTES,
+
+STATIC_ASSERT(sizeof(dose_schedule_t) == DOSE_SCHEDULE_SIZE_BYTES,
               "Size of dose_schedule_t does not match expected size of 45 bytes");
+
+/**
+ * @brief Dose schedule record
+ *
+ * A dose schedule and related metadata that should be stored in NVM.
+ *
+ * @note Packed to minimize memory usage and ensure consistency over communication interfaces.
+ */
+typedef struct __attribute__((packed))
+{
+   dose_schedule_t dose_schedule;    /**< Dose schedule data */
+   uint32_t start_date_unix_seconds; /**< Start date of the schedule in UNIX epoch format */
+} dose_schedule_record_t;
 
 /**
  * @brief Event ID structure, contains days since epoch and event counter. The event counter is incremented each time a
@@ -191,19 +230,15 @@ STATIC_ASSERT(EVENT_ID_T_SIZE_BYTES == sizeof(event_id_t),
  * indication of whether the dose was completed withing the permitted time
  *
  * @note The structure is packed to minimize memory usage.
- * @note Proximity sensor values are in an ADC measurement of light entering the proximity sensor. Higher values
- *       correspond to closer proximity of an object to the sensor reflecting back more IR light. A value of 14000
- *       corresponds to an object being very close to the sensor. Lower values correspond to objects being further away.
  */
-#define DOSE_EVENT_T_SIZE_BYTES (14u)
+#define DOSE_EVENT_T_SIZE_BYTES (12u)
 typedef struct __attribute__((packed))
 {
-   event_id_t event_id;                /**< Unique identifier for the dose event.*/
-   uint32_t dose_start_timestamp_unix; /**< Start (Cap off) timestamp of the dose event in epoch format. */
-   uint16_t dose_end_timestamp_s;      /**< End (Cap on) timestamp - Time since dose start in seconds */
-   uint8_t dose_completed_in_time;     /**< Boolean indicating if the dose was completed in the allowed time limit.*/
-   uint16_t dose_start_prox_value;     /**< Proximity sensor value at the start of the dose event. (Cap off)*/
-   uint16_t dose_end_prox_value;       /**< Proximity sensor value at the end of dose event. (Cap on) */
+   event_id_t event_id;             /**< Unique identifier for the dose event.*/
+   uint32_t start_timestamp_unix_s; /**< Start (Cap off) timestamp of the dose event in unix format. */
+   uint16_t duration_s;             /**< End (Cap on) timestamp - Time since dose start in seconds */
+   uint8_t dose_completed_in_time;  /**< Boolean indicating if the dose was completed in the allowed time limit.*/
+   uint16_t tilt_count;             /**< Number of tilts detected during the dose event. */
 } dose_event_t;
 STATIC_ASSERT(DOSE_EVENT_T_SIZE_BYTES == sizeof(dose_event_t),
               "Size of dose_event_t does not match defined DOSE_EVENT_T_SIZE_BYTES");
@@ -224,7 +259,7 @@ STATIC_ASSERT(DOSE_DATA_T_SIZE_BYTES == sizeof(dose_data_t),
               "Size of dose_data_t does not match defined DOSE_DATA_T_SIZE_BYTES");
 
 #define SEMANTIC_VERSION_T_SIZE_BYTES (3u)
-typedef struct __attribute__((packed))
+typedef struct __attribute__((packed)) semantic_version
 {
    uint8_t major; /**< Major version number. */
    uint8_t minor; /**< Minor version number. */
@@ -233,7 +268,7 @@ typedef struct __attribute__((packed))
 STATIC_ASSERT(SEMANTIC_VERSION_T_SIZE_BYTES == sizeof(semantic_version_t),
               "Size of semantic_version_t does not match defined SEMANTIC_VERSION_T_SIZE_BYTES");
 
-#define RING_STATUS_T_SIZE_BYTES (43u)
+#define RING_STATUS_T_SIZE_BYTES (41u)
 typedef struct __attribute__((packed))
 {
    semantic_version_t hardware_version;         /**< Hardware version of the ring. */
@@ -247,12 +282,10 @@ typedef struct __attribute__((packed))
    uint8_t dose_fifo_used_percent;              /**< Percentage of dose FIFO used. */
    uint8_t battery_fifo_used_percent;           /**< Percentage of battery FIFO used. */
    uint8_t imu_fifo_used_percent;               /**< Percentage of IMU FIFO used. */
-   uint8_t docking_fifo_used_percent;           /**< Percentage of docking FIFO used. */
    uint8_t error_fifo_used_percent;             /**< Percentage of error FIFO used. */
    uint8_t dose_fifo_used_percent_watermark;    /**< Watermark percentage of dose FIFO used. */
    uint8_t battery_fifo_used_percent_watermark; /**< Watermark percentage of battery FIFO used. */
    uint8_t imu_fifo_used_percent_watermark;     /**< Watermark percentage of IMU FIFO used. */
-   uint8_t docking_fifo_used_percent_watermark; /**< Watermark percentage of docking FIFO used. */
    uint8_t error_fifo_used_percent_watermark;   /**< Watermark percentage of error FIFO used. */
    uint16_t battery_sample_frequency_millihz;   /**< Battery sample frequency in millihertz. */
 } ring_status_t;
@@ -281,13 +314,13 @@ typedef struct __attribute__((packed))
 STATIC_ASSERT(TEMPERATURE_LOG_T_SIZE_BYTES == sizeof(temperature_log_t),
               "Size of temperature_log_t does not match defined TEMPERATURE_LOG_T_SIZE_BYTES");
 
-#define DOCK_WEIGHT_MEASUREMENT_T_SIZE_BYTES (13u)
+#define DOCK_WEIGHT_MEASUREMENT_T_SIZE_BYTES (16u)
 typedef struct __attribute__((packed))
 {
-   int32_t weight_mg;               /**< Weight measurement in milligrams. */
-   uint16_t std_dev;                /**< Standard deviation for all raw ADC data used for averaged weight sample. */
+   int32_t weight_mg;           /**< Weight measurement in milligrams. */
+   uint32_t total_dispensed_mg; /**< Total dispensed weight since start of previous baselining (i.e. new medication). */
+   uint16_t std_dev;            /**< Standard deviation for all raw ADC data used for averaged weight sample. */
    int16_t temperature_deg_c_div10; /**< Load Cell Temperature in degrees Celsius / 10 */
-   uint8_t is_ring_present;         /**< Boolean indicating whether a ring is present on the dock. */
    uint32_t timestamp_unix_s;       /**< Unix timestamp in seconds */
 } dock_weight_measurement_t;
 STATIC_ASSERT(DOCK_WEIGHT_MEASUREMENT_T_SIZE_BYTES == sizeof(dock_weight_measurement_t),
