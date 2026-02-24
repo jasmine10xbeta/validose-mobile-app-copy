@@ -4,10 +4,10 @@ import { SERVICE_UUIDS } from "@/constants/ble";
 
 export const MESSAGE_PROTOCOL_MAX_PAYLOAD_LEN = 256;
 export const MESSAGE_PROTOCOL_MIN_PAYLOAD_STRUCT_SIZE = 1 + 1 + 2;
-export const DEFAULT_ACK_TIMEOUT_MS = 500;
+export const DEFAULT_ACK_TIMEOUT_MS = 1000;
 export const DEFAULT_PROCESS_INTERVAL_MS = 250;
 export const DEFAULT_MAX_RETRIES = 20;
-export const DEFAULT_SYNC_RETRY_INTERVAL_MS = 100;
+export const DEFAULT_SYNC_RETRY_INTERVAL_MS = 1000;
 export const DEFAULT_BLE_MTU = 23; // Safe default; effective ATT payload = MTU - 3
 
 const HEADER_LEN = 2 + 2 + 4 + 1 + 1; // pkt_crc + pkt_counter + session_id + pkt_type + status
@@ -216,6 +216,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
   private deadlineMs = 0;
   private currentSessionId = 0;
   private isSyncing = false;
+  private hasAttemptedSync = false;
   private lastResyncTimeMs = 0;
 
   private rxHandlers = new Map<string, RxHandler>();
@@ -290,6 +291,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
       this.unsubscribe = null;
     }
 
+    this.hasAttemptedSync = false;
     this.resetState();
   }
 
@@ -323,6 +325,11 @@ export class BleMessageProtocol implements MessageProtocolInterface {
       this.txPacket.header.status !== MsgProtTxPacketStatus.COMPLETED
     ) {
       this.logger.error("[MP] Cannot send new packet while another is being processed.");
+      return MsgProtError.BUSY;
+    }
+
+    if (this.isSyncing) {
+      this.logger.error("[MP] Cannot send new packet while syncing.");
       return MsgProtError.BUSY;
     }
 
@@ -370,6 +377,10 @@ export class BleMessageProtocol implements MessageProtocolInterface {
    * Get the current TX packet status (WAITING_FOR_ACK, COMPLETED, etc.).
    */
   getTxPacketStatus(): MsgProtTxPacketStatus {
+    if (this.isSyncing) {
+      return MsgProtTxPacketStatus.ERROR;
+    }
+
     return this.txPacket.header.status as MsgProtTxPacketStatus;
   }
 
@@ -603,6 +614,11 @@ export class BleMessageProtocol implements MessageProtocolInterface {
   }
 
   private handleIncomingRaw(raw: Uint8Array): void {
+    // Mirror firmware behavior for blank mailbox reads.
+    if (raw.length > 0 && raw.every((value) => value === 0)) {
+      return;
+    }
+
     const parsed = this.parseIncomingPacket(raw);
     if (parsed.result !== MsgProtError.NONE || !parsed.packet || !parsed.raw) {
       return;
@@ -633,6 +649,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
 
     if (isDuplicate) {
       this.logger.debug("[MP] Dropping duplicate packet.");
+      void this.handleDuplicatePacket(parsed.packet);
       return;
     }
 
@@ -642,10 +659,39 @@ export class BleMessageProtocol implements MessageProtocolInterface {
 
     void this.onLinkLayerPacket(parsed.packet);
 
-    this.lastRxPacketRaw = parsed.raw;
+    this.lastRxPacketRaw = new Uint8Array(parsed.raw);
     this.lastRxPacketLen = packetLength;
     this.lastRxPacketValid = true;
     this.lastRxPacketDeferred = rxBusy;
+  }
+
+  private async handleDuplicatePacket(packet: MpPacket): Promise<void> {
+    if (packet.header.pktType !== this.packetTypes.DATA) {
+      return;
+    }
+
+    if (packet.header.sessionId === this.currentSessionId) {
+      await this.sendAckOrNak(packet, true);
+      return;
+    }
+
+    if (!this.isMaster) {
+      const response = this.clonePacket(packet);
+      response.header.sessionId = this.currentSessionId;
+      response.header.pktType = this.packetTypes.SYNC_MISMATCH;
+      response.header.status = MsgProtTxPacketStatus.NEW;
+      response.payload.type = 0;
+      response.payload.ppi = 0;
+      response.payload.pktPayloadLen = 0;
+      response.payload.payload = new Uint8Array(0);
+
+      await this.sendPktToLinkLayer(response);
+      return;
+    }
+
+    this.logger.warn(
+      `[MP] Not ACKing duplicate stale-session DATA packet. Expected session ${this.currentSessionId}, received ${packet.header.sessionId}`
+    );
   }
 
   private parseIncomingPacket(raw: Uint8Array): ParsedPacketResult {
@@ -927,7 +973,8 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     }
 
     const now = this.getNow();
-    if (this.lastResyncTimeMs > 0 && now - this.lastResyncTimeMs <= this.syncRetryIntervalMs) {
+    const isFirstSyncAttempt = !this.hasAttemptedSync;
+    if (!isFirstSyncAttempt && now - this.lastResyncTimeMs <= this.syncRetryIntervalMs) {
       return;
     }
 
@@ -942,6 +989,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
 
     this.currentSessionId = sessionId;
     this.lastResyncTimeMs = now;
+    this.hasAttemptedSync = true;
 
     const packet = this.createEmptyPacket();
     packet.header.pktCounter = this.nextPacketId;
@@ -963,7 +1011,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     this.rxPacket.header.status = MsgProtRxPacketStatus.PROCESSED;
 
     this.txPacket = this.createEmptyPacket();
-    this.txPacket.header.status = MsgProtTxPacketStatus.COMPLETED;
+    this.txPacket.header.status = MsgProtTxPacketStatus.ABANDONED;
 
     this.lastPacketSent = this.createEmptyPacket();
 

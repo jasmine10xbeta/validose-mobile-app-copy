@@ -170,6 +170,25 @@ function crc16Update(data: Uint8Array, seed?: number): number {
   return crc & 0xffff;
 }
 
+function getPacketType(raw?: Uint8Array): number | null {
+  if (!raw || raw.length < 9) {
+    return null;
+  }
+  return raw[8];
+}
+
+function getSessionId(raw?: Uint8Array): number | null {
+  if (!raw || raw.length < 8) {
+    return null;
+  }
+  return (
+    (raw[4] ?? 0) |
+    ((raw[5] ?? 0) << 8) |
+    ((raw[6] ?? 0) << 16) |
+    ((raw[7] ?? 0) << 24)
+  ) >>> 0;
+}
+
 describe("BleMessageProtocol", () => {
   test("send rejects when TX busy", async () => {
     const now = { value: 0 };
@@ -221,6 +240,36 @@ describe("BleMessageProtocol", () => {
       payload,
     });
     expect(second).toBe(MsgProtError.BUSY);
+  });
+
+  test("send is blocked and tx status reports ERROR while syncing", async () => {
+    const now = { value: 0 };
+    const transport = new SinkTransport();
+
+    const mp = new BleMessageProtocol({
+      txCharacteristicUUID: "tx",
+      rxCharacteristicUUID: "rx",
+      transport,
+      isMaster: true,
+      processIntervalMs: 0,
+      autoConsumeRx: false,
+      nowProvider: () => now.value,
+      sessionIdProvider: () => 0x1234,
+    });
+
+    await mp.start();
+
+    expect(mp.getTxPacketStatus()).toBe(MsgProtTxPacketStatus.ERROR);
+
+    const payload = new Uint8Array([0xa5]);
+    expect(
+      mp.send({
+        type: PpiType.PUSH,
+        ppi: 0,
+        pktPayloadLen: payload.length,
+        payload,
+      })
+    ).toBe(MsgProtError.BUSY);
   });
 
   test("send rejects payload too large", () => {
@@ -419,7 +468,7 @@ describe("BleMessageProtocol", () => {
     expect(mpB.getRxPacketStatus()).toBe(MsgProtRxPacketStatus.PROCESSED);
   });
 
-  test("duplicate frame is dropped", async () => {
+  test("duplicate active-session DATA is dropped but re-ACKed", async () => {
     const now = { value: 0 };
     const { a, b } = createLinkedEndpoints(96);
 
@@ -464,9 +513,146 @@ describe("BleMessageProtocol", () => {
     b.flush();
     const sendAfterFirst = b.sendCount;
 
+    // Clear peer queue in this single-slot transport so duplicate ACK can be sent.
+    a.queue = null;
+
     b.injectRaw(raw);
     b.flush();
 
-    expect(b.sendCount).toBe(sendAfterFirst);
+    expect(b.sendCount).toBe(sendAfterFirst + 1);
+    expect(getPacketType(b.lastTx)).toBe(DEFAULT_PACKET_TYPES.ACK);
+  });
+
+  test("duplicate stale-session DATA on slave resends SYNC_MISMATCH", async () => {
+    const now = { value: 0 };
+    const { a, b } = createLinkedEndpoints(96);
+
+    const mpB = new BleMessageProtocol({
+      txCharacteristicUUID: "tx",
+      rxCharacteristicUUID: "rx",
+      transport: b,
+      isMaster: false,
+      processIntervalMs: 0,
+      autoConsumeRx: false,
+      nowProvider: () => now.value,
+    });
+
+    const mpA = new BleMessageProtocol({
+      txCharacteristicUUID: "tx",
+      rxCharacteristicUUID: "rx",
+      transport: a,
+      isMaster: true,
+      processIntervalMs: 0,
+      autoConsumeRx: false,
+      nowProvider: () => now.value,
+      sessionIdProvider: () => 0x7777,
+    });
+
+    await startLinked(mpA, mpB, a, b);
+
+    const staleRaw = buildWirePacketFull({
+      header: {
+        pktCounter: 7,
+        sessionId: 0x2222, // stale/mismatched session for slave.
+        pktType: DEFAULT_PACKET_TYPES.DATA,
+        status: MsgProtTxPacketStatus.NEW,
+      },
+      payload: {
+        type: PpiType.PUSH,
+        ppi: 0,
+        payload: new Uint8Array([0xa5]),
+      },
+    });
+
+    b.injectRaw(staleRaw);
+    b.flush();
+    expect(getPacketType(b.lastTx)).toBe(DEFAULT_PACKET_TYPES.SYNC_MISMATCH);
+    const firstSessionId = getSessionId(b.lastTx);
+    expect(firstSessionId).not.toBeNull();
+
+    // Clear peer queue to avoid mailbox backpressure in this single-slot transport.
+    a.queue = null;
+
+    const sendAfterFirst = b.sendCount;
+    b.injectRaw(staleRaw);
+    b.flush();
+
+    expect(b.sendCount).toBe(sendAfterFirst + 1);
+    expect(getPacketType(b.lastTx)).toBe(DEFAULT_PACKET_TYPES.SYNC_MISMATCH);
+    expect(getSessionId(b.lastTx)).toBe(firstSessionId);
+  });
+
+  test("session-mismatch ACK while waiting forces sync and keeps TX abandoned", async () => {
+    const now = { value: 0 };
+    const { a, b } = createLinkedEndpoints(96);
+
+    const mpB = new BleMessageProtocol({
+      txCharacteristicUUID: "tx",
+      rxCharacteristicUUID: "rx",
+      transport: b,
+      isMaster: false,
+      processIntervalMs: 0,
+      autoConsumeRx: false,
+      nowProvider: () => now.value,
+    });
+
+    const mpA = new BleMessageProtocol({
+      txCharacteristicUUID: "tx",
+      rxCharacteristicUUID: "rx",
+      transport: a,
+      isMaster: true,
+      processIntervalMs: 0,
+      autoConsumeRx: false,
+      nowProvider: () => now.value,
+      sessionIdProvider: () => 0x8888,
+    });
+
+    await startLinked(mpA, mpB, a, b);
+
+    const payload = new Uint8Array([0x9c]);
+    expect(
+      mpA.send({
+        type: PpiType.PUSH,
+        ppi: 0,
+        pktPayloadLen: payload.length,
+        payload,
+      })
+    ).toBe(MsgProtError.NONE);
+
+    await mpA.process(); // Send DATA packet.
+    b.flush(); // Slave receives DATA and emits ACK (to a.queue).
+
+    // Drop normal ACK so we can inject mismatch ACK instead.
+    a.queue = null;
+    now.value += 1001;
+
+    const mismatchAck = buildWirePacketFull({
+      header: {
+        pktCounter: 1,
+        sessionId: 0x2222,
+        pktType: DEFAULT_PACKET_TYPES.ACK,
+        status: MsgProtTxPacketStatus.NEW,
+      },
+      payload: {
+        type: 0,
+        ppi: 0,
+        payload: new Uint8Array(),
+      },
+    });
+
+    a.injectRaw(mismatchAck);
+    a.flush(); // Triggers master sync start; TX state reset to ABANDONED.
+    await Promise.resolve();
+
+    expect((mpA as any).txPacket.header.status).toBe(MsgProtTxPacketStatus.ABANDONED);
+
+    // Complete sync handshake and verify externally visible TX status.
+    b.flush();
+    await Promise.resolve();
+    a.flush();
+    await Promise.resolve();
+
+    expect((mpA as any).isSyncing).toBe(false);
+    expect(mpA.getTxPacketStatus()).toBe(MsgProtTxPacketStatus.ABANDONED);
   });
 });

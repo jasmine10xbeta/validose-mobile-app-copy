@@ -23,6 +23,7 @@ import {
 } from "../../../modules/tenx-mdk-ble-rn-library/src/index";
 import { BleMessageProtocol, MessageProtocolInterface } from "./messageProtocol";
 import {
+  MAX_DOSES_PER_DAY,
   buildPpiPayload,
   decodeDoseEventPpi,
   decodePpiPayload,
@@ -463,17 +464,67 @@ async function resetBufferCharacteristic() {
 
 async function writeDoseSchedule(doseSchedule: any) {
   try {
+    const rawWindows = Array.isArray(doseSchedule?.window) ? doseSchedule.window : [];
+    const doseWindowStartTimesMinutes = rawWindows
+      .map((event: any) => Math.max(0, Math.trunc(Number(event?.start_min ?? 0))))
+      .slice(0, MAX_DOSES_PER_DAY);
+
+    const doseWindowDurationMinutes = Math.max(
+      0,
+      Math.trunc(
+        Number(
+          doseSchedule?.dose_window_duration_minutes ??
+            doseSchedule?.dosing_window_min ??
+            rawWindows[0]?.duration ??
+            rawWindows[0]?.end_min ??
+            0
+        )
+      )
+    );
+
+    const doseWindowCount = Math.min(
+      MAX_DOSES_PER_DAY,
+      Math.max(
+        0,
+        Math.trunc(
+          Number(doseSchedule?.dose_window_count ?? doseWindowStartTimesMinutes.length)
+        )
+      )
+    );
+
+    const tempAvgWindowDurationSec = Math.max(
+      0,
+      Math.trunc(
+        Number(
+          doseSchedule?.temp_avg_window_duration_sec ??
+            ((doseSchedule?.temperature_avg_time_window_min ?? 0) * 60)
+        )
+      )
+    );
+
     const schedule = encodeDoseSchedulePpi({
-      dosage_amount: doseSchedule.dosage_amount,
-      events_per_day: doseSchedule.events_per_day,
-      temperature_threshold_deg_c: doseSchedule.max_temperature_threshold,
-      temperature_avg_time_window_minutes: doseSchedule.temperature_avg_time_window_min,
-      // Firmware expects a fixed list of 10 windows (duration, not end_min).
-      // The existing app shape uses end_min as a duration; keep that mapping.
-      window: (doseSchedule.window ?? []).map((ev: any) => ({
-        start_min: ev.start_min,
-        duration: ev.end_min,
-      })),
+      medication_type: Math.max(0, Math.trunc(Number(doseSchedule?.medication_type ?? 0))),
+      dosage_mg: Math.max(
+        0,
+        Math.trunc(Number(doseSchedule?.dosage_mg ?? doseSchedule?.dosage_amount ?? 0))
+      ),
+      temp_upper_limit_deg_c: Math.trunc(
+        Number(
+          doseSchedule?.temp_upper_limit_deg_c ??
+            doseSchedule?.max_temperature_threshold ??
+            60
+        )
+      ),
+      temp_lower_limit_deg_c: Math.trunc(Number(doseSchedule?.temp_lower_limit_deg_c ?? 0)),
+      temp_avg_window_duration_sec: tempAvgWindowDurationSec,
+      // b[7]=0 => weekdays mask in b[6:0]. 0x7F defaults to daily schedule.
+      dose_days_bitfield: Math.max(
+        0,
+        Math.trunc(Number(doseSchedule?.dose_days_bitfield ?? 0x7f))
+      ),
+      dose_window_duration_minutes: doseWindowDurationMinutes,
+      dose_window_count: doseWindowCount,
+      dose_window_start_times_minutes: doseWindowStartTimesMinutes,
     });
 
     if (USE_MESSAGE_PROTOCOL_PPI && messageProtocol) {

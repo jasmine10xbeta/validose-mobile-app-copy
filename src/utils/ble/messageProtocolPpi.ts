@@ -33,14 +33,14 @@ export enum PpiId {
 }
 
 // Sizes in bytes from firmware common.h
-export const DOSE_SCHEDULE_T_SIZE_BYTES = 45;
-export const DOSE_EVENT_T_SIZE_BYTES = 14;
+export const DOSE_SCHEDULE_T_SIZE_BYTES = 30;
+export const DOSE_EVENT_T_SIZE_BYTES = 12;
 export const TEMPERATURE_LOG_T_SIZE_BYTES = 6;
-export const DOCK_WEIGHT_MEASUREMENT_T_SIZE_BYTES = 13;
+export const DOCK_WEIGHT_MEASUREMENT_T_SIZE_BYTES = 16;
 export const DOCK_CHARGE_STATUS_T_SIZE_BYTES = 5;
 export const RING_DOCKED_STATUS_T_SIZE_BYTES = 25;
 export const BATTERY_LEVEL_T_SIZE_BYTES = 5;
-export const RING_STATUS_T_SIZE_BYTES = 43;
+export const RING_STATUS_T_SIZE_BYTES = 41;
 
 export const MAX_DOSES_PER_DAY = 10;
 
@@ -139,17 +139,16 @@ export const PPI_DEFINITIONS: Record<PpiId, PpiDefinition> = {
   },
 };
 
-export type DoseWindowPpi = {
-  start_min: number;
-  duration: number;
-};
-
 export type DoseSchedulePpi = {
-  dosage_amount: number;
-  events_per_day: number;
-  temperature_threshold_deg_c: number;
-  temperature_avg_time_window_minutes: number;
-  window: DoseWindowPpi[];
+  medication_type: number;
+  dosage_mg: number;
+  temp_upper_limit_deg_c: number;
+  temp_lower_limit_deg_c: number;
+  temp_avg_window_duration_sec: number;
+  dose_days_bitfield: number;
+  dose_window_duration_minutes: number;
+  dose_window_count: number;
+  dose_window_start_times_minutes: number[];
 };
 
 export type EventId = {
@@ -159,11 +158,10 @@ export type EventId = {
 
 export type DoseEventPpi = {
   event_id: EventId;
-  dose_start_timestamp_unix: number;
-  dose_end_timestamp_s: number;
+  start_timestamp_unix_s: number;
+  duration_s: number;
   dose_completed_in_time: number;
-  dose_start_prox_value: number;
-  dose_end_prox_value: number;
+  tilt_count: number;
 };
 
 export type TemperatureLog = {
@@ -173,9 +171,9 @@ export type TemperatureLog = {
 
 export type DockWeightMeasurement = {
   weight_mg: number;
+  total_dispensed_mg: number;
   std_dev: number;
   temperature_deg_c_div10: number;
-  is_ring_present: number;
   timestamp_unix_s: number;
 };
 
@@ -214,12 +212,10 @@ export type RingStatus = {
   dose_fifo_used_percent: number;
   battery_fifo_used_percent: number;
   imu_fifo_used_percent: number;
-  docking_fifo_used_percent: number;
   error_fifo_used_percent: number;
   dose_fifo_used_percent_watermark: number;
   battery_fifo_used_percent_watermark: number;
   imu_fifo_used_percent_watermark: number;
-  docking_fifo_used_percent_watermark: number;
   error_fifo_used_percent_watermark: number;
   battery_sample_frequency_millihz: number;
 };
@@ -294,21 +290,30 @@ export function decodeUint32LE(payload: Uint8Array): number | null {
 }
 
 export function encodeDoseSchedulePpi(input: DoseSchedulePpi): Uint8Array {
-  // Fixed-size struct, always 45 bytes with 10 windows.
+  // Fixed-size struct from firmware dose_schedule_t.
   const buffer = new ArrayBuffer(DOSE_SCHEDULE_T_SIZE_BYTES);
   const view = new DataView(buffer);
 
-  view.setUint8(0, input.dosage_amount);
-  view.setUint8(1, input.events_per_day);
-  view.setInt8(2, input.temperature_threshold_deg_c);
-  view.setUint16(3, input.temperature_avg_time_window_minutes, true);
+  const doseWindowCount = Math.min(
+    MAX_DOSES_PER_DAY,
+    Math.max(0, input.dose_window_count >>> 0)
+  );
+  const doseWindowStartTimes = input.dose_window_start_times_minutes ?? [];
 
-  let offset = 5;
+  view.setUint8(0, input.medication_type & 0xff);
+  view.setUint16(1, input.dosage_mg & 0xffff, true);
+  view.setInt8(3, input.temp_upper_limit_deg_c);
+  view.setInt8(4, input.temp_lower_limit_deg_c);
+  view.setUint16(5, input.temp_avg_window_duration_sec & 0xffff, true);
+  view.setUint8(7, input.dose_days_bitfield & 0xff);
+  view.setUint8(8, input.dose_window_duration_minutes & 0xff);
+  view.setUint8(9, doseWindowCount);
+
+  let offset = 10;
   for (let i = 0; i < MAX_DOSES_PER_DAY; i += 1) {
-    const window = input.window[i] ?? { start_min: 0, duration: 0 };
-    view.setUint16(offset, window.start_min, true);
-    view.setUint16(offset + 2, window.duration, true);
-    offset += 4;
+    const startMin = doseWindowStartTimes[i] ?? 0;
+    view.setUint16(offset, startMin & 0xffff, true);
+    offset += 2;
   }
 
   return new Uint8Array(buffer);
@@ -320,26 +325,32 @@ export function decodeDoseSchedulePpi(payload: Uint8Array): DoseSchedulePpi | nu
   }
 
   const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
-  const dosage_amount = view.getUint8(0);
-  const events_per_day = view.getUint8(1);
-  const temperature_threshold_deg_c = view.getInt8(2);
-  const temperature_avg_time_window_minutes = view.getUint16(3, true);
+  const medication_type = view.getUint8(0);
+  const dosage_mg = view.getUint16(1, true);
+  const temp_upper_limit_deg_c = view.getInt8(3);
+  const temp_lower_limit_deg_c = view.getInt8(4);
+  const temp_avg_window_duration_sec = view.getUint16(5, true);
+  const dose_days_bitfield = view.getUint8(7);
+  const dose_window_duration_minutes = view.getUint8(8);
+  const dose_window_count = view.getUint8(9);
 
-  const window: DoseWindowPpi[] = [];
-  let offset = 5;
+  const dose_window_start_times_minutes: number[] = [];
+  let offset = 10;
   for (let i = 0; i < MAX_DOSES_PER_DAY; i += 1) {
-    const start_min = view.getUint16(offset, true);
-    const duration = view.getUint16(offset + 2, true);
-    window.push({ start_min, duration });
-    offset += 4;
+    dose_window_start_times_minutes.push(view.getUint16(offset, true));
+    offset += 2;
   }
 
   return {
-    dosage_amount,
-    events_per_day,
-    temperature_threshold_deg_c,
-    temperature_avg_time_window_minutes,
-    window,
+    medication_type,
+    dosage_mg,
+    temp_upper_limit_deg_c,
+    temp_lower_limit_deg_c,
+    temp_avg_window_duration_sec,
+    dose_days_bitfield,
+    dose_window_duration_minutes,
+    dose_window_count,
+    dose_window_start_times_minutes,
   };
 }
 
@@ -352,19 +363,17 @@ export function decodeDoseEventPpi(payload: Uint8Array): DoseEventPpi | null {
   // Field layout matches firmware dose_event_t (packed).
   const days_since_epoch = view.getUint16(0, true);
   const event_ctr = view.getUint8(2);
-  const dose_start_timestamp_unix = view.getUint32(3, true);
-  const dose_end_timestamp_s = view.getUint16(7, true);
+  const start_timestamp_unix_s = view.getUint32(3, true);
+  const duration_s = view.getUint16(7, true);
   const dose_completed_in_time = view.getUint8(9);
-  const dose_start_prox_value = view.getUint16(10, true);
-  const dose_end_prox_value = view.getUint16(12, true);
+  const tilt_count = view.getUint16(10, true);
 
   return {
     event_id: { days_since_epoch, event_ctr },
-    dose_start_timestamp_unix,
-    dose_end_timestamp_s,
+    start_timestamp_unix_s,
+    duration_s,
     dose_completed_in_time,
-    dose_start_prox_value,
-    dose_end_prox_value,
+    tilt_count,
   };
 }
 
@@ -388,10 +397,10 @@ export function decodeDockWeightMeasurement(payload: Uint8Array): DockWeightMeas
   const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
   return {
     weight_mg: view.getInt32(0, true),
-    std_dev: view.getUint16(4, true),
-    temperature_deg_c_div10: view.getInt16(6, true),
-    is_ring_present: view.getUint8(8),
-    timestamp_unix_s: view.getUint32(9, true),
+    total_dispensed_mg: view.getUint32(4, true),
+    std_dev: view.getUint16(8, true),
+    temperature_deg_c_div10: view.getInt16(10, true),
+    timestamp_unix_s: view.getUint32(12, true),
   };
 }
 
@@ -477,12 +486,10 @@ export function decodeRingStatus(payload: Uint8Array): RingStatus | null {
   const dose_fifo_used_percent = view.getUint8(offset++);
   const battery_fifo_used_percent = view.getUint8(offset++);
   const imu_fifo_used_percent = view.getUint8(offset++);
-  const docking_fifo_used_percent = view.getUint8(offset++);
   const error_fifo_used_percent = view.getUint8(offset++);
   const dose_fifo_used_percent_watermark = view.getUint8(offset++);
   const battery_fifo_used_percent_watermark = view.getUint8(offset++);
   const imu_fifo_used_percent_watermark = view.getUint8(offset++);
-  const docking_fifo_used_percent_watermark = view.getUint8(offset++);
   const error_fifo_used_percent_watermark = view.getUint8(offset++);
 
   const battery_sample_frequency_millihz = view.getUint16(offset, true);
@@ -499,12 +506,10 @@ export function decodeRingStatus(payload: Uint8Array): RingStatus | null {
     dose_fifo_used_percent,
     battery_fifo_used_percent,
     imu_fifo_used_percent,
-    docking_fifo_used_percent,
     error_fifo_used_percent,
     dose_fifo_used_percent_watermark,
     battery_fifo_used_percent_watermark,
     imu_fifo_used_percent_watermark,
-    docking_fifo_used_percent_watermark,
     error_fifo_used_percent_watermark,
     battery_sample_frequency_millihz,
   };
