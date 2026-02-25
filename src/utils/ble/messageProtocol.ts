@@ -127,6 +127,9 @@ export interface BleMessageProtocolOptions {
   sessionIdProvider?: () => number;
   // Optional time provider for tests.
   nowProvider?: () => number;
+  // Debug/testing aid: when true, ACK handling is tolerant to counter mismatch
+  // and can recover a TX packet from ABANDONED -> COMPLETED if a valid-session ACK arrives.
+  relaxedAckMatching?: boolean;
 }
 
 type MpPacketHeader = {
@@ -190,6 +193,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
   private readonly transport?: MessageProtocolTransport;
   private readonly sessionIdProvider?: () => number;
   private readonly nowProvider?: () => number;
+  private readonly relaxedAckMatching: boolean;
 
   private processTimer: ReturnType<typeof setInterval> | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -237,6 +241,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     this.transport = options.transport;
     this.sessionIdProvider = options.sessionIdProvider;
     this.nowProvider = options.nowProvider;
+    this.relaxedAckMatching = options.relaxedAckMatching ?? false;
 
     if (options.maxPacketLength !== undefined) {
       this.setMaxPacketLength(options.maxPacketLength);
@@ -410,6 +415,14 @@ export class BleMessageProtocol implements MessageProtocolInterface {
    */
   getMaxPayloadLength(): number {
     return this.maxPacketPayloadLen;
+  }
+
+  /**
+   * Returns raw bytes of the last packet written to the link layer.
+   * Exposed for debug tooling and tests.
+   */
+  getLastTxPacketRaw(): Uint8Array {
+    return new Uint8Array(this.lastTxPacketRaw);
   }
 
   /**
@@ -602,11 +615,28 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     }
 
     // Incoming data from BLE subscription arrives as hex string.
+    // Normalize common user-entered formats: 0x prefix, spaces, angle brackets.
+    const cleanedHex = hex.replace(/0x/gi, "").replace(/[^0-9a-fA-F]/g, "").trim();
+    if (!cleanedHex || cleanedHex.length % 2 !== 0) {
+      this.logger.warn("[MP] Ignoring invalid hex payload from BLE notification.", {
+        raw: hex,
+        cleanedHex,
+      });
+      return;
+    }
+
     let raw: Uint8Array;
     try {
-      raw = Buffer.from(hex, "hex");
+      raw = Buffer.from(cleanedHex, "hex");
     } catch (error) {
       this.logger.error("[MP] Failed to parse hex payload", error);
+      return;
+    }
+
+    if (raw.length === 0) {
+      this.logger.warn("[MP] Ignoring empty parsed payload from BLE notification.", {
+        raw: hex,
+      });
       return;
     }
 
@@ -619,8 +649,27 @@ export class BleMessageProtocol implements MessageProtocolInterface {
       return;
     }
 
-    const parsed = this.parseIncomingPacket(raw);
+    let parsed = this.parseIncomingPacket(raw);
     if (parsed.result !== MsgProtError.NONE || !parsed.packet || !parsed.raw) {
+      const asciiDecoded = this.tryDecodeAsciiHexFrame(raw);
+      if (asciiDecoded) {
+        const reparsed = this.parseIncomingPacket(asciiDecoded);
+        if (reparsed.result === MsgProtError.NONE && reparsed.packet && reparsed.raw) {
+          this.logger.warn("[MP] Incoming payload was ASCII-hex; auto-decoded packet.", {
+            originalHex: Buffer.from(raw).toString("hex"),
+            decodedHex: Buffer.from(asciiDecoded).toString("hex"),
+          });
+          parsed = reparsed;
+        }
+      }
+    }
+
+    if (parsed.result !== MsgProtError.NONE || !parsed.packet || !parsed.raw) {
+      this.logger.warn("[MP] Dropping invalid MP frame.", {
+        parseResult: parsed.result,
+        rawLen: raw.length,
+        rawHex: Buffer.from(raw).toString("hex"),
+      });
       return;
     }
 
@@ -663,6 +712,37 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     this.lastRxPacketLen = packetLength;
     this.lastRxPacketValid = true;
     this.lastRxPacketDeferred = rxBusy;
+  }
+
+  private tryDecodeAsciiHexFrame(raw: Uint8Array): Uint8Array | null {
+    if (raw.length < MIN_PACKET_LEN * 2) {
+      return null;
+    }
+
+    const isTextLike = raw.every(
+      (value) =>
+        // Printable ASCII, tabs/newlines, and carriage return.
+        (value >= 0x20 && value <= 0x7e) || value === 0x09 || value === 0x0a || value === 0x0d
+    );
+    if (!isTextLike) {
+      return null;
+    }
+
+    const text = Buffer.from(raw).toString("utf8");
+    const cleanedHex = text.replace(/0x/gi, "").replace(/[^0-9a-fA-F]/g, "").trim();
+    if (!cleanedHex || cleanedHex.length % 2 !== 0 || cleanedHex.length < MIN_PACKET_LEN * 2) {
+      return null;
+    }
+
+    try {
+      const decoded = Buffer.from(cleanedHex, "hex");
+      if (decoded.length < MIN_PACKET_LEN) {
+        return null;
+      }
+      return decoded;
+    } catch {
+      return null;
+    }
   }
 
   private async handleDuplicatePacket(packet: MpPacket): Promise<void> {
@@ -740,7 +820,11 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     // Validate CRC (skip the CRC field itself).
     const calcCrc = crc16Update(raw.subarray(2, packetLength));
     if (calcCrc !== pktCrc) {
-      this.logger.debug("[MP] CRC mismatch; dropping packet.");
+      this.logger.warn("[MP] CRC mismatch; dropping packet.", {
+        packetHex: Buffer.from(raw.subarray(0, packetLength)).toString("hex"),
+        expectedCrc: pktCrc,
+        calculatedCrc: calcCrc,
+      });
       return { result: MsgProtError.INVALID_ARG };
     }
 
@@ -796,16 +880,50 @@ export class BleMessageProtocol implements MessageProtocolInterface {
 
   private async handleAckPacket(packet: MpPacket): Promise<void> {
     if (packet.header.sessionId !== this.currentSessionId) {
+      this.logger.warn("[MP] ACK session mismatch.", {
+        expectedSessionId: this.currentSessionId,
+        receivedSessionId: packet.header.sessionId,
+        pendingCounter: this.pendingId,
+        receivedCounter: packet.header.pktCounter,
+      });
       await this.handleSessionMismatch(packet);
       return;
     }
 
+    const txStatus = this.txPacket.header.status;
+    const waitingForAck = txStatus === MsgProtTxPacketStatus.WAITING_FOR_ACK;
+    const abandoned = txStatus === MsgProtTxPacketStatus.ABANDONED;
+    const counterMatches = packet.header.pktCounter === this.pendingId;
+    const canRelaxedComplete =
+      this.relaxedAckMatching &&
+      (waitingForAck || abandoned);
+
     if (
-      this.txPacket.header.status === MsgProtTxPacketStatus.WAITING_FOR_ACK &&
-      packet.header.pktCounter === this.pendingId
+      (waitingForAck && counterMatches) ||
+      canRelaxedComplete
     ) {
+      if (canRelaxedComplete && !counterMatches) {
+        this.logger.warn("[MP] Relaxed ACK accept: counter mismatch.", {
+          pendingCounter: this.pendingId,
+          receivedCounter: packet.header.pktCounter,
+          txStatus,
+        });
+      }
+      if (canRelaxedComplete && abandoned) {
+        this.logger.warn("[MP] Relaxed ACK accept: recovering ABANDONED TX packet.", {
+          pendingCounter: this.pendingId,
+          receivedCounter: packet.header.pktCounter,
+        });
+      }
       this.txPacket.header.status = MsgProtTxPacketStatus.COMPLETED;
+      return;
     }
+
+    this.logger.warn("[MP] ACK ignored: counter/status mismatch.", {
+      txStatus: this.txPacket.header.status,
+      pendingCounter: this.pendingId,
+      receivedCounter: packet.header.pktCounter,
+    });
   }
 
   private async handleNakPacket(packet: MpPacket): Promise<void> {

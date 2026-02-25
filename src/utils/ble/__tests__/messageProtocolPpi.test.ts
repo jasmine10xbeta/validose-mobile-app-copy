@@ -2,12 +2,17 @@ import {
   DOCK_WEIGHT_MEASUREMENT_T_SIZE_BYTES,
   DOSE_EVENT_T_SIZE_BYTES,
   DOSE_SCHEDULE_T_SIZE_BYTES,
+  PpiId,
+  PpiType,
   RING_STATUS_T_SIZE_BYTES,
   decodeDockWeightMeasurement,
   decodeDoseEventPpi,
   decodeDoseSchedulePpi,
+  decodePpiPayload,
   decodeRingStatus,
   encodeDoseSchedulePpi,
+  encodeUint32LE,
+  getExpectedPayloadLength,
 } from "../messageProtocolPpi";
 
 describe("messageProtocolPpi firmware layout parity", () => {
@@ -120,5 +125,25 @@ describe("messageProtocolPpi firmware layout parity", () => {
     expect(decoded?.error_fifo_used_percent).toBe(13);
     expect(decoded?.battery_sample_frequency_millihz).toBe(250);
     expect((decoded as any)?.docking_fifo_used_percent).toBeUndefined();
+  });
+
+  test("AD_TIME payload lengths match firmware contract", () => {
+    expect(getExpectedPayloadLength(PpiId.AD_TIME, PpiType.RQ)).toBe(0);
+    expect(getExpectedPayloadLength(PpiId.AD_TIME, PpiType.RE)).toBe(4);
+    expect(getExpectedPayloadLength(PpiId.AD_TIME, PpiType.PUSH)).toBe(4);
+  });
+
+  test("AD_TIME decode handles RQ as empty and RE/PUSH as unix uint32", () => {
+    const rqDecoded = decodePpiPayload(PpiId.AD_TIME, PpiType.RQ, new Uint8Array(0));
+    expect(rqDecoded.value).toBeNull();
+
+    const unixTime = 1700000000;
+    const payload = encodeUint32LE(unixTime);
+
+    const reDecoded = decodePpiPayload(PpiId.AD_TIME, PpiType.RE, payload);
+    expect(reDecoded.value).toBe(unixTime);
+
+    const pushDecoded = decodePpiPayload(PpiId.AD_TIME, PpiType.PUSH, payload);
+    expect(pushDecoded.value).toBe(unixTime);
   });
 });

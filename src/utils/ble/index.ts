@@ -420,12 +420,12 @@ async function writeSystemTime(): Promise<boolean> {
         return false;
       }
 
-      if (!validatePayloadLength(PpiId.AD_TIME, PpiType.RQ, payload)) {
-        console.warn("[MP] Payload length mismatch for PPI_AD_TIME request.");
+      if (!validatePayloadLength(PpiId.AD_TIME, PpiType.PUSH, payload)) {
+        console.warn("[MP] Payload length mismatch for PPI_AD_TIME push.");
         return false;
       }
 
-      const result = messageProtocol.send(buildPpiPayload(PpiId.AD_TIME, PpiType.RQ, payload));
+      const result = messageProtocol.send(buildPpiPayload(PpiId.AD_TIME, PpiType.PUSH, payload));
       console.log(`Message protocol send result: ${result}`);
       return result === 0;
     }

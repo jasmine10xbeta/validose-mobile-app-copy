@@ -75,7 +75,7 @@ export const PPI_DEFINITIONS: Record<PpiId, PpiDefinition> = {
   [PpiId.AD_TIME]: {
     id: PpiId.AD_TIME,
     name: "PPI_AD_TIME",
-    lengths: { rq: 4, re: 1 },
+    lengths: { rq: 0, re: 4, push: 4 },
   },
   [PpiId.AD_DOSE_EVENT_REPORT]: {
     id: PpiId.AD_DOSE_EVENT_REPORT,
@@ -535,7 +535,11 @@ export function decodePpiPayload(ppi: number, type: PpiType, payload: Uint8Array
       return { ppi, type, value };
     }
     case PpiId.AD_TIME: {
-      const value = type === PpiType.RQ ? decodeUint32LE(payload) : decodeBool(payload);
+      if (type === PpiType.RQ) {
+        const value = payload.length === 0 ? null : payload;
+        return { ppi, type, value };
+      }
+      const value = decodeUint32LE(payload);
       return { ppi, type, value: value ?? payload };
     }
     case PpiId.AD_DOSE_EVENT_REPORT: {
