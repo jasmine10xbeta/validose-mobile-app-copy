@@ -1,10 +1,15 @@
 const fs = require("fs");
+const path = require("path");
 const dotenv = require("dotenv");
 
+const envFilePath = process.env.ENV_FILE
+  ? path.resolve(process.env.ENV_FILE)
+  : path.resolve(".env");
+
 let env = {};
-if (fs.existsSync(".env")) {
-  // Read and parse .env
-  env = dotenv.parse(fs.readFileSync(".env"));
+if (fs.existsSync(envFilePath)) {
+  // Read and parse env file used for compile-time replacements
+  env = dotenv.parse(fs.readFileSync(envFilePath));
 }
 
 // Convert to Babel-compatible `process.env` definitions

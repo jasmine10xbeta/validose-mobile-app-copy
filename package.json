@@ -13,7 +13,11 @@
     "expo-lint": "expo lint",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "lint-fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
-    "prettier": "prettier . --write"
+    "prettier": "prettier . --write",
+    "ci:checks": "npm run lint && npm run test",
+    "deploy:android:develop": "bundle exec fastlane android develop",
+    "deploy:ios:develop": "bundle exec fastlane ios develop",
+    "deploy:develop": "bundle exec fastlane ci_checks && bundle exec fastlane android develop && bundle exec fastlane ios develop"
   },
   "jest": {
     "preset": "jest-expo"

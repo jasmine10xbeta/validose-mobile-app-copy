@@ -44,6 +44,14 @@ app-example
 *.aab
 *.apk
 
+# Fastlane / Ruby
+.bundle/
+vendor/bundle/
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/test_output/
+fastlane/.env
+
 .env
 
 ios/Podfile.lock

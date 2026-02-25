@@ -1,0 +1,261 @@
+require "shellwords"
+
+def truthy?(value)
+  %w[1 true yes y on].include?(value.to_s.strip.downcase)
+end
+
+def safe_label(value, fallback = "build")
+  label = value.to_s.strip.downcase.gsub(/[^a-z0-9._-]+/, "-").gsub(/^-+|-+$/, "")
+  label.empty? ? fallback : label
+end
+
+def release_notes_text
+  notes_from_file = ""
+  notes_path = ENV["RELEASE_NOTES_FILE"].to_s.strip
+  unless notes_path.empty?
+    notes_from_file = File.read(notes_path).strip if File.exist?(notes_path)
+  end
+
+  return notes_from_file unless notes_from_file.empty?
+
+  ENV["RELEASE_NOTES"].to_s.strip
+end
+
+def truncate_text(text, max_chars)
+  return text if max_chars <= 0 || text.length <= max_chars
+  return text[0, max_chars] if max_chars <= 3
+
+  "#{text[0, max_chars - 3]}..."
+end
+
+default_platform(:ios)
+
+private_lane :require_file_path do |options|
+  key = options.fetch(:key)
+  path = ENV[key].to_s
+  UI.user_error!("Missing required env var: #{key}") if path.empty?
+  UI.user_error!("File not found for #{key}: #{path}") unless File.exist?(path)
+  path
+end
+
+private_lane :ensure_output_dirs do
+  sh("mkdir -p build/android build/ios")
+end
+
+private_lane :app_store_connect_key_from_env do
+  ensure_env_vars(env_vars: %w[APP_STORE_CONNECT_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_API_KEY_PATH])
+
+  app_store_connect_api_key(
+    key_id: ENV.fetch("APP_STORE_CONNECT_KEY_ID"),
+    issuer_id: ENV.fetch("APP_STORE_CONNECT_ISSUER_ID"),
+    key_filepath: require_file_path(key: "APP_STORE_CONNECT_API_KEY_PATH"),
+    duration: 1200,
+    in_house: false
+  )
+end
+
+private_lane :ios_build_number_for do |options|
+  explicit_build = ENV["IOS_BUILD_NUMBER"].to_s
+  return explicit_build unless explicit_build.empty?
+
+  begin
+    latest_build = latest_testflight_build_number(
+      app_identifier: options.fetch(:app_identifier),
+      api_key: options.fetch(:api_key),
+      initial_build_number: 1
+    )
+    (latest_build + 1).to_s
+  rescue StandardError => e
+    UI.important("Could not read latest TestFlight build number: #{e.message}")
+
+    fallback_build = ENV["BUILD_NUMBER"].to_s
+    unless fallback_build.empty?
+      UI.important("Falling back to BUILD_NUMBER=#{fallback_build}")
+      return fallback_build
+    end
+
+    UI.user_error!("Set IOS_BUILD_NUMBER or provide access to read TestFlight builds.")
+  end
+end
+
+private_lane :android_build_code_for do |options|
+  explicit_code = ENV["ANDROID_VERSION_CODE"].to_s
+  return explicit_code.to_i unless explicit_code.empty?
+
+  json_key = ENV["PLAY_STORE_JSON_KEY"].to_s
+  unless json_key.empty? || !File.exist?(json_key)
+    existing_codes = google_play_track_version_codes(
+      package_name: options.fetch(:package_name),
+      track: options.fetch(:track),
+      json_key: json_key
+    )
+    return ((existing_codes || []).max || 0) + 1
+  end
+
+  fallback_code = ENV["BUILD_NUMBER"].to_s
+  return fallback_code.to_i unless fallback_code.empty?
+
+  UI.important("Falling back to ANDROID_VERSION_CODE=13")
+  13
+end
+
+before_all do
+  ENV["FASTLANE_SKIP_UPDATE_CHECK"] = "1"
+  ENV["FASTLANE_DISABLE_COLORS"] = "1" if is_ci
+  ensure_output_dirs
+end
+
+desc "Run lint + tests"
+lane :ci_checks do
+  sh("npm run lint")
+  sh("npm run test")
+end
+
+platform :android do
+  desc "Build and upload Android develop build to Google Play"
+  lane :develop do
+    ensure_env_vars(env_vars: %w[ANDROID_KEYSTORE_PATH VALIDOSE_RELEASE_KEY_ALIAS VALIDOSE_RELEASE_STORE_PASSWORD VALIDOSE_RELEASE_KEY_PASSWORD])
+
+    package_name = ENV.fetch("ANDROID_APPLICATION_ID", "com.10xbeta.validose")
+    track = ENV.fetch("ANDROID_TRACK", "internal")
+    release_status = ENV.fetch("ANDROID_RELEASE_STATUS", "completed")
+    upload_enabled = truthy?(ENV.fetch("ANDROID_UPLOAD_TO_STORE", "true"))
+    release_label = ENV["RELEASE_LABEL"].to_s.strip
+    version_name = ENV["ANDROID_VERSION_NAME"].to_s.strip
+    notes_text = release_notes_text
+
+    ENV["ANDROID_VERSION_CODE"] = android_build_code_for(package_name: package_name, track: track).to_s
+
+    gradle(task: "clean", project_dir: "android")
+    gradle(
+      task: "bundle",
+      build_type: "Release",
+      project_dir: "android",
+      properties: {
+        "VALIDOSE_RELEASE_STORE_FILE" => require_file_path(key: "ANDROID_KEYSTORE_PATH"),
+        "VALIDOSE_RELEASE_KEY_ALIAS" => ENV.fetch("VALIDOSE_RELEASE_KEY_ALIAS"),
+        "VALIDOSE_RELEASE_STORE_PASSWORD" => ENV.fetch("VALIDOSE_RELEASE_STORE_PASSWORD"),
+        "VALIDOSE_RELEASE_KEY_PASSWORD" => ENV.fetch("VALIDOSE_RELEASE_KEY_PASSWORD")
+      }
+    )
+
+    aab_path = lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH]
+    aab_path = Dir["android/app/build/outputs/bundle/release/*.aab"].max if aab_path.to_s.empty?
+    UI.user_error!("Android AAB was not generated") if aab_path.to_s.empty?
+
+    sh("cp #{aab_path.shellescape} build/android/app-release.aab")
+    unless release_label.empty?
+      labeled_path = "build/android/app-#{safe_label(release_label, "android")}.aab"
+      sh("cp #{aab_path.shellescape} #{labeled_path.shellescape}")
+    end
+
+    if upload_enabled
+      ensure_env_vars(env_vars: %w[PLAY_STORE_JSON_KEY])
+      require_file_path(key: "PLAY_STORE_JSON_KEY")
+
+      upload_options = {
+        json_key: ENV.fetch("PLAY_STORE_JSON_KEY"),
+        package_name: package_name,
+        aab: aab_path,
+        track: track,
+        release_status: release_status,
+        skip_upload_metadata: true,
+        skip_upload_images: true,
+        skip_upload_screenshots: true,
+        skip_upload_changelogs: notes_text.empty?
+      }
+      upload_options[:version_name] = version_name unless version_name.empty?
+      unless notes_text.empty?
+        release_notes_locale = ENV.fetch("PLAY_STORE_RELEASE_NOTES_LOCALE", "en-US")
+        max_chars = ENV.fetch("ANDROID_RELEASE_NOTES_MAX_CHARS", "500").to_i
+        upload_options[:release_notes] = {
+          release_notes_locale => truncate_text(notes_text, max_chars)
+        }
+      end
+      upload_to_play_store(**upload_options)
+    else
+      UI.message("Skipping Google Play upload (ANDROID_UPLOAD_TO_STORE=false).")
+    end
+  end
+end
+
+platform :ios do
+  desc "Build and upload iOS develop build to TestFlight"
+  lane :develop do
+    setup_ci if is_ci
+
+    bundle_id = ENV.fetch("IOS_APP_IDENTIFIER", "com.10xbeta.validose")
+    workspace = ENV.fetch("IOS_WORKSPACE", "ios/validosemobileapp.xcworkspace")
+    scheme = ENV.fetch("IOS_SCHEME", "validosemobileapp")
+    upload_enabled = truthy?(ENV.fetch("IOS_UPLOAD_TO_STORE", "true"))
+    release_label = ENV["RELEASE_LABEL"].to_s.strip
+    output_name = release_label.empty? ? "validose.ipa" : "validose-#{safe_label(release_label, "ios")}.ipa"
+    changelog_parts = []
+    changelog_parts << "Environment: #{ENV["APP_ENV"]}" unless ENV["APP_ENV"].to_s.strip.empty?
+    changelog_parts << "Build Label: #{release_label}" unless release_label.empty?
+    notes_text = release_notes_text
+    changelog_parts << notes_text unless notes_text.empty?
+    changelog = changelog_parts.empty? ? nil : changelog_parts.join(" | ")
+    unless changelog.nil?
+      max_chars = ENV.fetch("IOS_CHANGELOG_MAX_CHARS", "3900").to_i
+      changelog = truncate_text(changelog, max_chars)
+    end
+    api_key_vars_present = %w[APP_STORE_CONNECT_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_API_KEY_PATH].all? do |key|
+      !ENV[key].to_s.strip.empty?
+    end
+    api_key = api_key_vars_present ? app_store_connect_key_from_env : nil
+
+    if ENV["MATCH_GIT_URL"].to_s.strip.empty?
+      UI.important("MATCH_GIT_URL not set. Assuming signing certs/profiles already exist on this macOS node.")
+    else
+      match_options = {
+        type: "appstore",
+        app_identifier: [bundle_id],
+        readonly: truthy?(ENV.fetch("MATCH_READONLY", "true"))
+      }
+      match_options[:api_key] = api_key unless api_key.nil?
+      match(**match_options)
+    end
+
+    cocoapods(
+      clean_install: true,
+      podfile: "ios/Podfile"
+    )
+
+    build_number = ENV["IOS_BUILD_NUMBER"].to_s
+    if build_number.empty?
+      if api_key.nil?
+        build_number = ENV["BUILD_NUMBER"].to_s
+        build_number = "1" if build_number.empty?
+      else
+        build_number = ios_build_number_for(app_identifier: bundle_id, api_key: api_key)
+      end
+    end
+
+    build_app(
+      workspace: workspace,
+      scheme: scheme,
+      clean: true,
+      export_method: "app-store",
+      output_directory: "build/ios",
+      output_name: output_name,
+      include_bitcode: false,
+      xcargs: "CURRENT_PROJECT_VERSION=#{build_number}"
+    )
+    sh("cp #{File.join("build/ios", output_name).shellescape} build/ios/validose.ipa") unless output_name == "validose.ipa"
+
+    if upload_enabled
+      UI.user_error!("App Store Connect API key env vars are required for TestFlight upload.") if api_key.nil?
+      testflight_options = {
+        api_key: api_key,
+        ipa: File.join("build/ios", output_name),
+        skip_waiting_for_build_processing: true,
+        distribute_external: false
+      }
+      testflight_options[:changelog] = changelog unless changelog.nil?
+      upload_to_testflight(**testflight_options)
+    else
+      UI.message("Skipping TestFlight upload (IOS_UPLOAD_TO_STORE=false).")
+    end
+  end
+end

@@ -9,6 +9,7 @@ import {
 } from "@/constants/ble";
 import { sendDoseEvent } from "@/services/schedule";
 import { sendTelemetry } from "@/services/telemetry";
+import useDevStore from "@/store/dev";
 import useDeviceStore from "@/store/device";
 import useScheduleStore from "@/store/schedule";
 import useTreatmentStore from "@/store/treatment";
@@ -64,6 +65,33 @@ async function waitForTxSendable(
 }
 
 export async function connectAndSetupDevice(deviceName: string) {
+  if (useDevStore.getState().isMockBleModeEnabled()) {
+    const mockDeviceId = deviceName || `MOCK-${Date.now()}`;
+    const mockDeviceName = deviceName || "MOCK-VALIDOSE";
+
+    const added = addDevice({
+      connected: true,
+      color: "",
+      batteryLevel: 100,
+      error: "",
+      deviceId: mockDeviceId,
+      deviceName: mockDeviceName,
+    });
+
+    if (!added) {
+      updateDevice(mockDeviceId, {
+        connected: true,
+        color: "",
+        batteryLevel: 100,
+        error: "",
+      });
+    }
+
+    console.log("\n");
+    console.log(`[MOCK BLE] Bypassing BLE setup for ${mockDeviceName}`);
+    return { deviceId: mockDeviceId, deviceName: mockDeviceName, status: "success" };
+  }
+
   const scanResponse = await scanLeDevice(1);
 
   console.log("\n");

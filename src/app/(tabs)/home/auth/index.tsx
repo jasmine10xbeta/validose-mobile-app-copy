@@ -20,6 +20,8 @@ import { showToast } from "@/components/common/VToast";
 import { VTopActions } from "@/components/common/VTopActions";
 import { useAuth } from "@/providers/auth";
 import { onboardWithCode, login } from "@/services/auth";
+import useDevStore from "@/store/dev";
+import { connectAndSetupDevice } from "@/utils/ble";
 
 // Reusable UI block for login messages and button
 function LoginMessageBlock({
@@ -90,6 +92,7 @@ export default function LoginScreen() {
 
   const hasScannedRef = useRef(false);                      // Prevents duplicate scans
   const { user, isSignedOut, signIn } = useAuth();
+  const { matchesBypassKey, enableMockBleMode } = useDevStore();
   const [showCamera, setShowCamera] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const hasAccessToken = Boolean(user?.access_token);
@@ -158,12 +161,30 @@ export default function LoginScreen() {
 
     hasScannedRef.current = true;
     try {
-      const onboardingCode = scanningResult?.data;
+      const onboardingCode = scanningResult?.data?.trim();
 
       console.log("\n");
       console.log("Scanned onboarding code:", onboardingCode);
 
       if (onboardingCode) {
+        if (matchesBypassKey(onboardingCode)) {
+          enableMockBleMode();
+          await signIn({
+            access_token: "mock-access-token",
+            refresh_token: "mock-refresh-token",
+          });
+
+          const connected = await connectAndSetupDevice("VAL-OP DEMO");
+          if (connected?.error) {
+            showToast("error", "Connection failed", String(connected.error));
+            return;
+          }
+
+          router.replace("/home/dashboard");
+          setShowCamera(false);
+          return;
+        }
+
         const response = await onboardWithCode(onboardingCode);
 
         if (response?.access_token) {
