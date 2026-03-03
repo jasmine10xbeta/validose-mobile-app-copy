@@ -1,0 +1,15 @@
+services:
+  nrf52-dev:
+    platform: linux/amd64               # Use x86_64 Linux for unified development
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    build: .
+    image: nrf52-dev
+    volumes:
+      - ../../workspace:/workspace      # Map workspace to container
+    stdin_open: true                    # Keep the container interactive
+    tty: true                           # Enable TTY for terminal
+    ports:
+      - "5000:5000"                     # Forward port 5000 for TCP communication
+
+    command: ["/bin/bash", "-c", "chmod +x /workspace/.devcontainer/startup.sh && /workspace/.devcontainer/startup.sh && exec bash"]

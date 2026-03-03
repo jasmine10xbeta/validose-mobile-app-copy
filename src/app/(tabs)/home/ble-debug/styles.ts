@@ -59,7 +59,7 @@ export const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingTop: 14,
     gap: 4,
   },
   connectionBannerConnected: {
@@ -400,6 +400,7 @@ export const styles = StyleSheet.create({
     minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
+    marginTop: 24
   },
   advancedWriteCard: {
     borderWidth: 1,

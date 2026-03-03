@@ -116,10 +116,9 @@ async function startLinked(
   linkA: MockLinkEndpoint,
   linkB: MockLinkEndpoint
 ) {
-  // Start slave first so it can receive SYNC_START from master.
+  // Start both endpoints and flush any queued link-layer bytes.
   await mpB.start();
   await mpA.start();
-  // Deliver SYNC_START -> SYNC_ACK handshake.
   linkB.flush();
   linkA.flush();
 }
@@ -198,9 +197,9 @@ describe("BleMessageProtocol", () => {
       txCharacteristicUUID: "tx",
       rxCharacteristicUUID: "rx",
       transport: b,
-      isMaster: false,
       processIntervalMs: 0,
       autoConsumeRx: false,
+      isMaster: false,
       nowProvider: () => now.value,
     });
 
@@ -208,9 +207,9 @@ describe("BleMessageProtocol", () => {
       txCharacteristicUUID: "tx",
       rxCharacteristicUUID: "rx",
       transport: a,
-      isMaster: true,
       processIntervalMs: 0,
       autoConsumeRx: false,
+      isMaster: true,
       nowProvider: () => now.value,
       sessionIdProvider: () => 0x1111,
     });
@@ -242,7 +241,7 @@ describe("BleMessageProtocol", () => {
     expect(second).toBe(MsgProtError.BUSY);
   });
 
-  test("send is blocked and tx status reports ERROR while syncing", async () => {
+  test("send is allowed before control-plane initialization", async () => {
     const now = { value: 0 };
     const transport = new SinkTransport();
 
@@ -250,16 +249,16 @@ describe("BleMessageProtocol", () => {
       txCharacteristicUUID: "tx",
       rxCharacteristicUUID: "rx",
       transport,
-      isMaster: true,
       processIntervalMs: 0,
       autoConsumeRx: false,
+      isMaster: true,
       nowProvider: () => now.value,
       sessionIdProvider: () => 0x1234,
     });
 
     await mp.start();
 
-    expect(mp.getTxPacketStatus()).toBe(MsgProtTxPacketStatus.ERROR);
+    expect(mp.getTxPacketStatus()).toBe(MsgProtTxPacketStatus.ABANDONED);
 
     const payload = new Uint8Array([0xa5]);
     expect(
@@ -269,7 +268,112 @@ describe("BleMessageProtocol", () => {
         pktPayloadLen: payload.length,
         payload,
       })
+    ).toBe(MsgProtError.NONE);
+  });
+
+  test("master generates session_id without initiating SYNC when sync control is disabled", async () => {
+    const now = { value: 0 };
+    const { a } = createLinkedEndpoints(96);
+
+    const mp = new BleMessageProtocol({
+      txCharacteristicUUID: "tx",
+      rxCharacteristicUUID: "rx",
+      transport: a,
+      processIntervalMs: 0,
+      autoConsumeRx: false,
+      isMaster: true,
+      enableSyncControl: false,
+      sendAckNak: false,
+      nowProvider: () => now.value,
+      sessionIdProvider: () => 0xa1b2c3d4,
+    });
+
+    await mp.start();
+    expect(mp.getCurrentSessionId()).toBe(0xa1b2c3d4);
+
+    const mismatchData = buildWirePacketFull({
+      header: {
+        pktCounter: 7,
+        sessionId: 0x2222,
+        pktType: DEFAULT_PACKET_TYPES.DATA,
+        status: MsgProtTxPacketStatus.NEW,
+      },
+      payload: {
+        type: PpiType.PUSH,
+        ppi: 0,
+        payload: new Uint8Array([0xde]),
+      },
+    });
+
+    a.injectRaw(mismatchData);
+    a.flush();
+
+    expect(a.sendCount).toBe(0);
+    expect(getPacketType(a.lastTx)).toBeNull();
+    expect(mp.getRxPacketStatus()).toBe(MsgProtRxPacketStatus.PROCESSED);
+  });
+
+  test("endpoint configured with sendAckNak=false does not transmit ACK/NAK", async () => {
+    const now = { value: 0 };
+    const { a, b } = createLinkedEndpoints(96);
+
+    const mpB = new BleMessageProtocol({
+      txCharacteristicUUID: "tx",
+      rxCharacteristicUUID: "rx",
+      transport: b,
+      processIntervalMs: 0,
+      autoConsumeRx: false,
+      isMaster: false,
+      sendAckNak: false,
+      nowProvider: () => now.value,
+    });
+
+    const mpA = new BleMessageProtocol({
+      txCharacteristicUUID: "tx",
+      rxCharacteristicUUID: "rx",
+      transport: a,
+      processIntervalMs: 0,
+      autoConsumeRx: false,
+      isMaster: true,
+      nowProvider: () => now.value,
+      sessionIdProvider: () => 0x9001,
+    });
+
+    await startLinked(mpA, mpB, a, b);
+
+    const firstPayload = new Uint8Array([0x01]);
+    expect(
+      mpA.send({
+        type: PpiType.PUSH,
+        ppi: 0,
+        pktPayloadLen: firstPayload.length,
+        payload: firstPayload,
+      })
+    ).toBe(MsgProtError.NONE);
+
+    await mpA.process();
+    b.flush();
+
+    // First DATA should not be ACKed when sendAckNak is disabled.
+    expect(b.sendCount).toBe(0);
+    expect(mpA.getTxPacketStatus()).toBe(MsgProtTxPacketStatus.WAITING_FOR_ACK);
+
+    const secondPayload = new Uint8Array([0x02]);
+    expect(
+      mpA.send({
+        type: PpiType.PUSH,
+        ppi: 0,
+        pktPayloadLen: secondPayload.length,
+        payload: secondPayload,
+      })
     ).toBe(MsgProtError.BUSY);
+
+    // Force resend from timeout path while RX slot is still busy to validate no NAK is emitted either.
+    now.value += 1001;
+    await mpA.process();
+    b.flush();
+
+    expect(b.sendCount).toBe(0);
   });
 
   test("send rejects payload too large", () => {
@@ -280,8 +384,8 @@ describe("BleMessageProtocol", () => {
       txCharacteristicUUID: "tx",
       rxCharacteristicUUID: "rx",
       transport: a,
-      isMaster: false,
       processIntervalMs: 0,
+      isMaster: true,
       maxPacketLength,
     });
 
@@ -304,9 +408,9 @@ describe("BleMessageProtocol", () => {
       txCharacteristicUUID: "tx",
       rxCharacteristicUUID: "rx",
       transport: b,
-      isMaster: false,
       processIntervalMs: 0,
       autoConsumeRx: false,
+      isMaster: false,
       nowProvider: () => now.value,
     });
 
@@ -314,9 +418,9 @@ describe("BleMessageProtocol", () => {
       txCharacteristicUUID: "tx",
       rxCharacteristicUUID: "rx",
       transport: a,
-      isMaster: true,
       processIntervalMs: 0,
       autoConsumeRx: false,
+      isMaster: true,
       nowProvider: () => now.value,
       sessionIdProvider: () => 0x2222,
     });
@@ -353,9 +457,9 @@ describe("BleMessageProtocol", () => {
       txCharacteristicUUID: "tx",
       rxCharacteristicUUID: "rx",
       transport: b,
-      isMaster: false,
       processIntervalMs: 0,
       autoConsumeRx: false,
+      isMaster: false,
       nowProvider: () => now.value,
     });
 
@@ -363,9 +467,9 @@ describe("BleMessageProtocol", () => {
       txCharacteristicUUID: "tx",
       rxCharacteristicUUID: "rx",
       transport: a,
-      isMaster: true,
       processIntervalMs: 0,
       autoConsumeRx: false,
+      isMaster: true,
       nowProvider: () => now.value,
       sessionIdProvider: () => 0x3333,
     });
@@ -397,9 +501,9 @@ describe("BleMessageProtocol", () => {
       txCharacteristicUUID: "tx",
       rxCharacteristicUUID: "rx",
       transport,
-      isMaster: false,
       processIntervalMs: 0,
       autoConsumeRx: false,
+      isMaster: true,
       ackTimeoutMs: 10,
       maxRetries: 2,
       nowProvider: () => now.value,
@@ -428,9 +532,9 @@ describe("BleMessageProtocol", () => {
       txCharacteristicUUID: "tx",
       rxCharacteristicUUID: "rx",
       transport: b,
-      isMaster: false,
       processIntervalMs: 0,
       autoConsumeRx: false,
+      isMaster: false,
       nowProvider: () => now.value,
     });
 
@@ -438,9 +542,9 @@ describe("BleMessageProtocol", () => {
       txCharacteristicUUID: "tx",
       rxCharacteristicUUID: "rx",
       transport: a,
-      isMaster: true,
       processIntervalMs: 0,
       autoConsumeRx: false,
+      isMaster: true,
       nowProvider: () => now.value,
       sessionIdProvider: () => 0x4444,
     });
@@ -476,9 +580,9 @@ describe("BleMessageProtocol", () => {
       txCharacteristicUUID: "tx",
       rxCharacteristicUUID: "rx",
       transport: b,
-      isMaster: false,
       processIntervalMs: 0,
       autoConsumeRx: false,
+      isMaster: false,
       nowProvider: () => now.value,
     });
 
@@ -486,9 +590,9 @@ describe("BleMessageProtocol", () => {
       txCharacteristicUUID: "tx",
       rxCharacteristicUUID: "rx",
       transport: a,
-      isMaster: true,
       processIntervalMs: 0,
       autoConsumeRx: false,
+      isMaster: true,
       nowProvider: () => now.value,
       sessionIdProvider: () => 0x5555,
     });
@@ -498,7 +602,7 @@ describe("BleMessageProtocol", () => {
     const raw = buildWirePacketFull({
       header: {
         pktCounter: 1,
-        sessionId: 0x5555,
+        sessionId: 0,
         pktType: DEFAULT_PACKET_TYPES.DATA,
         status: MsgProtTxPacketStatus.NEW,
       },
@@ -523,7 +627,7 @@ describe("BleMessageProtocol", () => {
     expect(getPacketType(b.lastTx)).toBe(DEFAULT_PACKET_TYPES.ACK);
   });
 
-  test("duplicate stale-session DATA on slave resends SYNC_MISMATCH", async () => {
+  test("duplicate stale-session DATA on slave re-sends SYNC_MISMATCH", async () => {
     const now = { value: 0 };
     const { a, b } = createLinkedEndpoints(96);
 
@@ -531,9 +635,9 @@ describe("BleMessageProtocol", () => {
       txCharacteristicUUID: "tx",
       rxCharacteristicUUID: "rx",
       transport: b,
-      isMaster: false,
       processIntervalMs: 0,
       autoConsumeRx: false,
+      isMaster: false,
       nowProvider: () => now.value,
     });
 
@@ -541,9 +645,9 @@ describe("BleMessageProtocol", () => {
       txCharacteristicUUID: "tx",
       rxCharacteristicUUID: "rx",
       transport: a,
-      isMaster: true,
       processIntervalMs: 0,
       autoConsumeRx: false,
+      isMaster: true,
       nowProvider: () => now.value,
       sessionIdProvider: () => 0x7777,
     });
@@ -568,7 +672,7 @@ describe("BleMessageProtocol", () => {
     b.flush();
     expect(getPacketType(b.lastTx)).toBe(DEFAULT_PACKET_TYPES.SYNC_MISMATCH);
     const firstSessionId = getSessionId(b.lastTx);
-    expect(firstSessionId).not.toBeNull();
+    expect(firstSessionId).toBe(0);
 
     // Clear peer queue to avoid mailbox backpressure in this single-slot transport.
     a.queue = null;
@@ -582,77 +686,4 @@ describe("BleMessageProtocol", () => {
     expect(getSessionId(b.lastTx)).toBe(firstSessionId);
   });
 
-  test("session-mismatch ACK while waiting forces sync and keeps TX abandoned", async () => {
-    const now = { value: 0 };
-    const { a, b } = createLinkedEndpoints(96);
-
-    const mpB = new BleMessageProtocol({
-      txCharacteristicUUID: "tx",
-      rxCharacteristicUUID: "rx",
-      transport: b,
-      isMaster: false,
-      processIntervalMs: 0,
-      autoConsumeRx: false,
-      nowProvider: () => now.value,
-    });
-
-    const mpA = new BleMessageProtocol({
-      txCharacteristicUUID: "tx",
-      rxCharacteristicUUID: "rx",
-      transport: a,
-      isMaster: true,
-      processIntervalMs: 0,
-      autoConsumeRx: false,
-      nowProvider: () => now.value,
-      sessionIdProvider: () => 0x8888,
-    });
-
-    await startLinked(mpA, mpB, a, b);
-
-    const payload = new Uint8Array([0x9c]);
-    expect(
-      mpA.send({
-        type: PpiType.PUSH,
-        ppi: 0,
-        pktPayloadLen: payload.length,
-        payload,
-      })
-    ).toBe(MsgProtError.NONE);
-
-    await mpA.process(); // Send DATA packet.
-    b.flush(); // Slave receives DATA and emits ACK (to a.queue).
-
-    // Drop normal ACK so we can inject mismatch ACK instead.
-    a.queue = null;
-    now.value += 1001;
-
-    const mismatchAck = buildWirePacketFull({
-      header: {
-        pktCounter: 1,
-        sessionId: 0x2222,
-        pktType: DEFAULT_PACKET_TYPES.ACK,
-        status: MsgProtTxPacketStatus.NEW,
-      },
-      payload: {
-        type: 0,
-        ppi: 0,
-        payload: new Uint8Array(),
-      },
-    });
-
-    a.injectRaw(mismatchAck);
-    a.flush(); // Triggers master sync start; TX state reset to ABANDONED.
-    await Promise.resolve();
-
-    expect((mpA as any).txPacket.header.status).toBe(MsgProtTxPacketStatus.ABANDONED);
-
-    // Complete sync handshake and verify externally visible TX status.
-    b.flush();
-    await Promise.resolve();
-    a.flush();
-    await Promise.resolve();
-
-    expect((mpA as any).isSyncing).toBe(false);
-    expect(mpA.getTxPacketStatus()).toBe(MsgProtTxPacketStatus.ABANDONED);
-  });
 });

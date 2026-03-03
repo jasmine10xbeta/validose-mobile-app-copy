@@ -14,6 +14,8 @@ import {
   getBleDebugLogs,
   subscribeBleDebugLogs,
 } from "@/utils/ble/debugLogStore";
+import { exportLogsToFile } from "@/utils/log";
+import { formatHexTokensInText } from "./ble-debug/helpers";
 
 export default function BleDebugLogsScreen() {
   const router = useRouter();
@@ -26,6 +28,22 @@ export default function BleDebugLogsScreen() {
   }, []);
 
   const orderedLogs = useMemo(() => [...logs].reverse(), [logs]);
+  const visibleLogs = useMemo(
+    () => orderedLogs.filter((entry) => !entry.message.toLowerCase().includes("firmware")),
+    [orderedLogs]
+  );
+  const formattedVisibleLogs = useMemo(
+    () =>
+      visibleLogs.map((entry) => ({
+        ...entry,
+        formattedMessage: formatHexTokensInText(entry.message),
+      })),
+    [visibleLogs]
+  );
+
+  async function onShare() {
+    await exportLogsToFile(formattedVisibleLogs.map((entry) => entry.formattedMessage));
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -34,25 +52,32 @@ export default function BleDebugLogsScreen() {
           <Text style={styles.headerButtonText}>Back</Text>
         </Pressable>
         <Text style={styles.title}>BLE Logs</Text>
-        <Pressable
-          style={styles.headerButton}
-          onPress={() => clearBleDebugLogs()}
-          disabled={!logs.length}
-        >
-          <Text style={styles.headerButtonText}>Clear</Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable style={styles.headerButton} onPress={onShare} disabled={!visibleLogs.length}>
+            <Text style={styles.headerButtonText}>Share</Text>
+          </Pressable>
+          <Pressable
+            style={styles.headerButton}
+            onPress={() => clearBleDebugLogs()}
+            disabled={!logs.length}
+          >
+            <Text style={styles.headerButtonText}>Clear</Text>
+          </Pressable>
+        </View>
       </View>
 
-      <Text style={styles.subTitle}>{logs.length} entries</Text>
+      <Text style={styles.subTitle}>
+        {formattedVisibleLogs.length} entries
+      </Text>
 
       <ScrollView contentContainerStyle={styles.logList}>
-        {!orderedLogs.length ? (
+        {!formattedVisibleLogs.length ? (
           <Text style={styles.emptyText}>No logs yet.</Text>
         ) : (
-          orderedLogs.map((entry) => (
+          formattedVisibleLogs.map((entry) => (
             <View key={entry.id} style={styles.logCard}>
               <Text style={styles.logText} selectable>
-                {entry.message}
+                {entry.formattedMessage}
               </Text>
             </View>
           ))
@@ -83,7 +108,12 @@ const styles = StyleSheet.create({
   subTitle: {
     fontSize: 12,
     color: validoseGrey,
-    marginBottom: 10,
+    marginBottom: 8,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   headerButton: {
     borderWidth: 1,
@@ -122,4 +152,3 @@ const styles = StyleSheet.create({
     color: validoseGrey,
   },
 });
-

@@ -230,7 +230,7 @@ export function buildPpiPayload(ppi: PpiId, type: PpiType, payload: Uint8Array):
 }
 
 export function isTxStatusSendable(status: number): boolean {
-  return status === MsgProtTxPacketStatus.COMPLETED || status === MsgProtTxPacketStatus.ABANDONED;
+  return status === MsgProtTxPacketStatus.ABANDONED || status === MsgProtTxPacketStatus.NEW;
 }
 
 export function isRxStatusReadable(status: number): boolean {

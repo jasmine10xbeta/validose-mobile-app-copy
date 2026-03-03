@@ -1,5 +1,38 @@
 import { Buffer } from "buffer";
 
+function normalizeHex(value: string): string {
+  return value.replace(/0x/gi, "").replace(/[^0-9a-fA-F]/g, "").toLowerCase();
+}
+
+export function formatHexBytes(value: string): string {
+  const normalized = normalizeHex(value);
+  if (!normalized) return value;
+  if (normalized.length % 2 !== 0) return value;
+
+  const bytes = normalized.match(/.{2}/g);
+  if (!bytes?.length) return value;
+  return bytes.join(" ");
+}
+
+export function formatHexTokensInText(value: string): string {
+  // First pass: JSON fields whose key includes "hex" (payloadHex/rawHex/frameHex/etc.).
+  const withNamedHexValues = value.replace(
+    /("(?:[^"\\]|\\.)*?hex(?:[^"\\]|\\.)*?"\s*:\s*")([0-9a-fA-F]+)"/gi,
+    (_match, prefix: string, hex: string) => `${prefix}${formatHexBytes(hex)}"`
+  );
+
+  // Second pass: long standalone contiguous hex blobs in free-form log text.
+  return withNamedHexValues.replace(
+    /(^|[^0-9a-fA-F])([0-9a-fA-F]{8,})(?=[^0-9a-fA-F]|$)/g,
+    (_match, prefix: string, hex: string) => {
+      if (hex.length % 2 !== 0) {
+        return `${prefix}${hex}`;
+      }
+      return `${prefix}${formatHexBytes(hex)}`;
+    }
+  );
+}
+
 export function prettifyForLog(value: unknown): string {
   if (value === null || value === undefined) return String(value);
 
@@ -29,7 +62,7 @@ export function prettifyForLog(value: unknown): string {
 export function formatDecodedValue(value: unknown): string {
   if (value instanceof Uint8Array) {
     const hex = Buffer.from(value).toString("hex");
-    return hex || "(empty)";
+    return hex ? formatHexBytes(hex) : "(empty)";
   }
 
   const pretty = prettifyForLog(value);

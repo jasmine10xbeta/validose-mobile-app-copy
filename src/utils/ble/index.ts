@@ -31,7 +31,6 @@ import {
   encodeDoseSchedulePpi,
   encodeUint32LE,
   isTxStatusSendable,
-  validatePayloadLength,
   PpiId,
   PpiType,
 } from "./messageProtocolPpi";
@@ -39,6 +38,9 @@ import {
 const MESSAGE_PROTOCOL_PROCESS_INTERVAL_MS = 250;
 const TX_READY_TIMEOUT_MS = 5000;
 const TX_READY_POLL_MS = 50;
+const MP_SERVICE_SHORT_UUID = "1500";
+const MP_TX_SHORT_UUID = "1508";
+const MP_RX_SHORT_UUID = "1509";
 // Toggle to route PPI traffic over the message protocol instead of legacy characteristics.
 const USE_MESSAGE_PROTOCOL_PPI = true;
 
@@ -46,21 +48,123 @@ let messageProtocol: BleMessageProtocol | null = null;
 
 const { addDevice, updateDevice } = useDeviceStore.getState();
 
-async function waitForTxSendable(
-  protocol: MessageProtocolInterface,
-  timeoutMs = TX_READY_TIMEOUT_MS,
-  pollMs = TX_READY_POLL_MS
-): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
+type DiscoveredCharacteristic = {
+  uuid?: string;
+  properties?: string[];
+};
 
-  while (Date.now() <= deadline) {
-    if (isTxStatusSendable(protocol.getTxPacketStatus())) {
-      return true;
-    }
+type DiscoveredService = {
+  uuid?: string;
+  characteristics?: DiscoveredCharacteristic[];
+};
 
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
+function normalizeUuidKey(uuid: string): string {
+  return uuid.replace(/[^0-9a-fA-F]/g, "").toLowerCase();
+}
+
+function isUuidMatchByShortKey(uuid: string, shortUuid: string): boolean {
+  const normalized = normalizeUuidKey(uuid);
+  const shortKey = shortUuid.toLowerCase();
+
+  if (!normalized) return false;
+  if (normalized === shortKey) return true;
+  return normalized.startsWith(`0000${shortKey}`);
+}
+
+function resolveMessageProtocolUuidsFromDiscovery(discovery: unknown): {
+  txUuid: string;
+  rxUuid: string;
+  source: string;
+} {
+  let txUuid = CHARACTERISTIC_UUIDS.MESSAGE_PROTOCOL_TX;
+  let rxUuid = CHARACTERISTIC_UUIDS.MESSAGE_PROTOCOL_RX;
+  let source = "defaults";
+
+  if (!Array.isArray(discovery)) {
+    return { txUuid, rxUuid, source };
   }
 
+  const services = discovery as DiscoveredService[];
+  const customService = services.find(
+    (service) =>
+      typeof service?.uuid === "string" &&
+      isUuidMatchByShortKey(service.uuid, MP_SERVICE_SHORT_UUID)
+  );
+
+  if (!customService?.characteristics?.length) {
+    return { txUuid, rxUuid, source };
+  }
+
+  const characteristics = customService.characteristics.filter(
+    (characteristic): characteristic is DiscoveredCharacteristic & { uuid: string } =>
+      typeof characteristic?.uuid === "string" && characteristic.uuid.length > 0
+  );
+
+  const hasProperty = (
+    characteristic: DiscoveredCharacteristic,
+    predicate: (prop: string) => boolean
+  ) =>
+    Array.isArray(characteristic.properties) &&
+    characteristic.properties.some((prop) => typeof prop === "string" && predicate(prop.toLowerCase()));
+
+  const writeCharacteristic = characteristics.find((characteristic) =>
+    hasProperty(
+      characteristic,
+      (prop) => prop === "write" || prop === "writewithoutresponse"
+    )
+  );
+  const notifyCharacteristic = characteristics.find((characteristic) =>
+    hasProperty(
+      characteristic,
+      (prop) => prop === "notify" || prop === "indicate"
+    )
+  );
+
+  const explicitTx = characteristics.find((characteristic) =>
+    isUuidMatchByShortKey(characteristic.uuid, MP_TX_SHORT_UUID)
+  );
+  const explicitRx = characteristics.find((characteristic) =>
+    isUuidMatchByShortKey(characteristic.uuid, MP_RX_SHORT_UUID)
+  );
+
+  if (explicitTx?.uuid) {
+    txUuid = explicitTx.uuid;
+    source = "discovery-explicit-uuid";
+  }
+  if (explicitRx?.uuid) {
+    rxUuid = explicitRx.uuid;
+    source = source === "discovery-explicit-uuid" ? source : "discovery-explicit-uuid";
+  }
+
+  if (!explicitTx?.uuid && writeCharacteristic?.uuid) {
+    txUuid = writeCharacteristic.uuid;
+    source = source === "defaults" ? "discovery-properties" : `${source}+properties`;
+  }
+  if (!explicitRx?.uuid && notifyCharacteristic?.uuid) {
+    rxUuid = notifyCharacteristic.uuid;
+    source = source === "defaults" ? "discovery-properties" : `${source}+properties`;
+  }
+
+  if (
+    !explicitTx?.uuid &&
+    !explicitRx?.uuid &&
+    !writeCharacteristic?.uuid &&
+    !notifyCharacteristic?.uuid &&
+    characteristics.length === 1
+  ) {
+    txUuid = characteristics[0].uuid;
+    rxUuid = characteristics[0].uuid;
+    source = "single-characteristic-fallback";
+  }
+
+  return { txUuid, rxUuid, source };
+}
+
+async function waitForTxSendable(
+  protocol: MessageProtocolInterface,
+  _timeoutMs = TX_READY_TIMEOUT_MS,
+  _pollMs = TX_READY_POLL_MS
+): Promise<boolean> {
   return isTxStatusSendable(protocol.getTxPacketStatus());
 }
 
@@ -140,7 +244,11 @@ export async function connectAndSetupDevice(deviceName: string) {
       });
     }
 
-    await discoverServicesAndCharacteristics();
+    const discoveryResponse = await discoverServicesAndCharacteristics();
+    const resolvedMpUuids = resolveMessageProtocolUuidsFromDiscovery(discoveryResponse);
+
+    console.log("\n");
+    console.log("[MP] Resolved UUIDs from discovery:", resolvedMpUuids);
 
     if (messageProtocol) {
       messageProtocol.stop();
@@ -148,13 +256,15 @@ export async function connectAndSetupDevice(deviceName: string) {
     }
 
     messageProtocol = new BleMessageProtocol({
-      txCharacteristicUUID: CHARACTERISTIC_UUIDS.MESSAGE_PROTOCOL,
-      rxCharacteristicUUID: CHARACTERISTIC_UUIDS.MESSAGE_PROTOCOL,
+      txCharacteristicUUID: resolvedMpUuids.txUuid,
+      rxCharacteristicUUID: resolvedMpUuids.rxUuid,
       processIntervalMs: MESSAGE_PROTOCOL_PROCESS_INTERVAL_MS,
       // Native BLE layer negotiates MTU up front (247 target on Android); ATT payload is MTU - 3.
       // Use 244-byte packet budget here until MTU is exposed to JS directly.
       maxPacketLength: 244,
       isMaster: true,
+      enableSyncControl: false,
+      sendAckNak: false,
       autoConsumeRx: true,
     });
 
@@ -443,16 +553,6 @@ async function writeSystemTime(): Promise<boolean> {
         return false;
       }
 
-      if (payload.length > messageProtocol.getMaxPayloadLength()) {
-        console.warn("[MP] Payload exceeds negotiated max length.");
-        return false;
-      }
-
-      if (!validatePayloadLength(PpiId.AD_TIME, PpiType.PUSH, payload)) {
-        console.warn("[MP] Payload length mismatch for PPI_AD_TIME push.");
-        return false;
-      }
-
       const result = messageProtocol.send(buildPpiPayload(PpiId.AD_TIME, PpiType.PUSH, payload));
       console.log(`Message protocol send result: ${result}`);
       return result === 0;
@@ -559,16 +659,6 @@ async function writeDoseSchedule(doseSchedule: any) {
       const txReady = await waitForTxSendable(messageProtocol);
       if (!txReady) {
         console.warn("[MP] TX busy; cannot send dose schedule yet.");
-        return;
-      }
-
-      if (schedule.length > messageProtocol.getMaxPayloadLength()) {
-        console.warn("[MP] Payload exceeds negotiated max length.");
-        return;
-      }
-
-      if (!validatePayloadLength(PpiId.AD_DOSE_SCHEDULE, PpiType.PUSH, schedule)) {
-        console.warn("[MP] Payload length mismatch for PPI_AD_DOSE_SCHEDULE.");
         return;
       }
 

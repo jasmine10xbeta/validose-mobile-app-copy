@@ -1,0 +1,9 @@
+[project]
+name = "mp-monitor-app"
+version = "0.1.0"
+description = "Flask monitor for MessageProtocolRuntime"
+requires-python = ">=3.10"
+dependencies = [
+    "flask>=3.0",
+]
+

@@ -1,0 +1,3 @@
+#ifndef NRF_LIBUARTE_ASYNC_H_
+#define NRF_LIBUARTE_ASYNC_H_
+#endif

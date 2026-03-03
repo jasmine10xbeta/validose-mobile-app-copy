@@ -7,8 +7,8 @@ export const MESSAGE_PROTOCOL_MIN_PAYLOAD_STRUCT_SIZE = 1 + 1 + 2;
 export const DEFAULT_ACK_TIMEOUT_MS = 1000;
 export const DEFAULT_PROCESS_INTERVAL_MS = 250;
 export const DEFAULT_MAX_RETRIES = 20;
-export const DEFAULT_SYNC_RETRY_INTERVAL_MS = 1000;
 export const DEFAULT_BLE_MTU = 23; // Safe default; effective ATT payload = MTU - 3
+export const MAX_TIME_BEFORE_SYNC_RETRY_MS = 1000;
 
 const HEADER_LEN = 2 + 2 + 4 + 1 + 1; // pkt_crc + pkt_counter + session_id + pkt_type + status
 const MIN_PACKET_LEN = HEADER_LEN + MESSAGE_PROTOCOL_MIN_PAYLOAD_STRUCT_SIZE;
@@ -56,8 +56,8 @@ export type PacketTypeMap = {
   NAK: number;
   DATA: number;
   SYNC_START: number;
-  SYNC_MISMATCH: number;
   SYNC_ACK: number;
+  SYNC_MISMATCH: number;
   MAX: number;
 };
 
@@ -95,8 +95,10 @@ export interface MessageProtocolInterface {
   process(): Promise<MsgProtError>;
   getRxPacketStatus(): MsgProtRxPacketStatus;
   getTxPacketStatus(): MsgProtTxPacketStatus;
+  getCurrentSessionId(): number;
   getRxPacket(): { result: MsgProtError; packet?: MpPacketPayload };
   getMaxPayloadLength(): number;
+  getLastRxPacketRaw(): Uint8Array;
   setMtu(mtu: number): void;
   setMaxPacketLength(maxPacketLength: number): void;
   registerRxHandler(ppi: number, type: number | "*", handler: RxHandler): void;
@@ -113,11 +115,9 @@ export interface BleMessageProtocolOptions {
   maxRetries?: number;
   maxPacketLength?: number;
   mtu?: number;
-  isMaster?: boolean;
   packetTypes?: Partial<PacketTypeMap>;
   onRxPacket?: RxHandler;
   logger?: Partial<Logger>;
-  syncRetryIntervalMs?: number;
   // If true, RX packets are auto-marked as PROCESSED after callbacks run.
   // Use this if you prefer push-style handlers over polling getRxPacket().
   autoConsumeRx?: boolean;
@@ -130,6 +130,15 @@ export interface BleMessageProtocolOptions {
   // Debug/testing aid: when true, ACK handling is tolerant to counter mismatch
   // and can recover a TX packet from ABANDONED -> COMPLETED if a valid-session ACK arrives.
   relaxedAckMatching?: boolean;
+  // Firmware parity: true means this instance behaves as the master endpoint.
+  // App runtime should use true when it owns session ID generation.
+  isMaster?: boolean;
+  // When false, SYNC control frames are ignored and no SYNC_START flow is initiated.
+  // App runtime should disable sync control when firmware owns synchronization.
+  enableSyncControl?: boolean;
+  // When false, this endpoint will not transmit ACK/NAK packets for incoming DATA.
+  // App runtime should disable ACK/NAK TX.
+  sendAckNak?: boolean;
 }
 
 type MpPacketHeader = {
@@ -184,9 +193,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
   private readonly ackTimeoutMs: number;
   private readonly maxRetries: number;
   private readonly processIntervalMs: number;
-  private readonly isMaster: boolean;
   private readonly packetTypes: PacketTypeMap;
-  private readonly syncRetryIntervalMs: number;
   private readonly logger: Logger;
   private readonly onRxPacket?: RxHandler;
   private readonly autoConsumeRx: boolean;
@@ -194,6 +201,9 @@ export class BleMessageProtocol implements MessageProtocolInterface {
   private readonly sessionIdProvider?: () => number;
   private readonly nowProvider?: () => number;
   private readonly relaxedAckMatching: boolean;
+  private readonly isMaster: boolean;
+  private readonly enableSyncControl: boolean;
+  private readonly sendAckNak: boolean;
 
   private processTimer: ReturnType<typeof setInterval> | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -222,7 +232,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
   private isSyncing = false;
   private hasAttemptedSync = false;
   private lastResyncTimeMs = 0;
-
+  private hasGeneratedSessionId = false;
   private rxHandlers = new Map<string, RxHandler>();
 
   constructor(options: BleMessageProtocolOptions) {
@@ -232,9 +242,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     this.ackTimeoutMs = options.ackTimeoutMs ?? DEFAULT_ACK_TIMEOUT_MS;
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.processIntervalMs = options.processIntervalMs ?? DEFAULT_PROCESS_INTERVAL_MS;
-    this.isMaster = options.isMaster ?? true;
     this.packetTypes = { ...DEFAULT_PACKET_TYPES, ...(options.packetTypes ?? {}) };
-    this.syncRetryIntervalMs = options.syncRetryIntervalMs ?? DEFAULT_SYNC_RETRY_INTERVAL_MS;
     this.logger = { ...defaultLogger, ...(options.logger ?? {}) };
     this.onRxPacket = options.onRxPacket;
     this.autoConsumeRx = options.autoConsumeRx ?? false;
@@ -242,6 +250,9 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     this.sessionIdProvider = options.sessionIdProvider;
     this.nowProvider = options.nowProvider;
     this.relaxedAckMatching = options.relaxedAckMatching ?? false;
+    this.isMaster = options.isMaster ?? false;
+    this.enableSyncControl = options.enableSyncControl ?? true;
+    this.sendAckNak = options.sendAckNak ?? true;
 
     if (options.maxPacketLength !== undefined) {
       this.setMaxPacketLength(options.maxPacketLength);
@@ -255,7 +266,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     this.txPacket = this.createEmptyPacket();
     this.lastPacketSent = this.createEmptyPacket();
 
-    this.resetState();
+    this.initializeState();
   }
 
   async start(): Promise<void> {
@@ -280,8 +291,8 @@ export class BleMessageProtocol implements MessageProtocolInterface {
       }, this.processIntervalMs);
     }
 
-    if (this.isMaster) {
-      await this.startSync();
+    if (this.isMaster && !this.enableSyncControl && !this.hasGeneratedSessionId) {
+      this.generateSessionIdForMaster();
     }
   }
 
@@ -295,9 +306,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
       this.unsubscribe();
       this.unsubscribe = null;
     }
-
-    this.hasAttemptedSync = false;
-    this.resetState();
+    this.initializeState();
   }
 
   /**
@@ -321,13 +330,14 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     }
 
     // Validate against negotiated max payload length (header/overhead excluded).
-    if (payloadLen > this.maxPacketPayloadLen) {
+    if (payloadLen + MESSAGE_PROTOCOL_MIN_PAYLOAD_STRUCT_SIZE > this.maxPacketPayloadLen) {
       return MsgProtError.PAYLOAD_TOO_BIG;
     }
 
     if (
       this.txPacket.header.status !== MsgProtTxPacketStatus.ABANDONED &&
-      this.txPacket.header.status !== MsgProtTxPacketStatus.COMPLETED
+      this.txPacket.header.status !== MsgProtTxPacketStatus.COMPLETED &&
+      this.txPacket.header.status !== MsgProtTxPacketStatus.NEW
     ) {
       this.logger.error("[MP] Cannot send new packet while another is being processed.");
       return MsgProtError.BUSY;
@@ -336,6 +346,12 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     if (this.isSyncing) {
       this.logger.error("[MP] Cannot send new packet while syncing.");
       return MsgProtError.BUSY;
+    }
+
+    if (this.isMaster && !this.enableSyncControl && !this.hasGeneratedSessionId) {
+      if (!this.generateSessionIdForMaster()) {
+        return MsgProtError.RNG_FAILURE;
+      }
     }
 
     this.txPacket.header.pktCounter = this.nextPacketId;
@@ -364,7 +380,6 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     this.processInFlight = true;
     try {
       this.refreshMaxPayloadLength();
-      this.maybeResync();
       return await this.processOutboundPackets();
     } finally {
       this.processInFlight = false;
@@ -387,6 +402,13 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     }
 
     return this.txPacket.header.status as MsgProtTxPacketStatus;
+  }
+
+  /**
+   * Get current app-side session_id used when sending DATA frames.
+   */
+  getCurrentSessionId(): number {
+    return this.currentSessionId >>> 0;
   }
 
   /**
@@ -423,6 +445,14 @@ export class BleMessageProtocol implements MessageProtocolInterface {
    */
   getLastTxPacketRaw(): Uint8Array {
     return new Uint8Array(this.lastTxPacketRaw);
+  }
+
+  /**
+   * Returns raw bytes of the last valid packet received from the link layer.
+   * Exposed for debug tooling and tests.
+   */
+  getLastRxPacketRaw(): Uint8Array {
+    return new Uint8Array(this.lastRxPacketRaw);
   }
 
   /**
@@ -519,13 +549,20 @@ export class BleMessageProtocol implements MessageProtocolInterface {
         this.lastPacketSent = this.clonePacket(this.txPacket);
         this.pendingId = this.nextPacketId;
         this.nextPacketId += 1;
-        this.txPacket.header.status = MsgProtTxPacketStatus.WAITING_FOR_ACK;
+        if (this.sendAckNak) {
+          this.txPacket.header.status = MsgProtTxPacketStatus.WAITING_FOR_ACK;
+        } else {
+          // App-side simple TX mode: send DATA and return immediately to sendable state.
+          this.txPacket.header.status = MsgProtTxPacketStatus.ABANDONED;
+        }
       } else {
         this.txPacket.header.status = MsgProtTxPacketStatus.ERROR;
         this.logger.error("[MP] Failed to send data over link layer.");
       }
 
-      this.startTimer(now);
+      if (this.sendAckNak) {
+        this.startTimer(now);
+      }
       return MsgProtError.NONE;
     }
 
@@ -579,6 +616,11 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     const crc = crc16Update(buffer.subarray(crcOffset, packetLength));
     buffer[0] = crc & 0xff;
     buffer[1] = (crc >> 8) & 0xff;
+
+    this.logger.debug(
+      "Writing packet.",
+      this.toDebugPacketShape(packet, buffer)
+    );
 
     if (this.transport) {
       const success = await this.transport.sendPacket(buffer);
@@ -644,8 +686,15 @@ export class BleMessageProtocol implements MessageProtocolInterface {
   }
 
   private handleIncomingRaw(raw: Uint8Array): void {
+    this.logger.debug("Received incoming value.", {
+      rawLen: raw.length,
+      rawHex: Buffer.from(raw).toString("hex"),
+      rawBase64: Buffer.from(raw).toString("base64"),
+    });
+
     // Mirror firmware behavior for blank mailbox reads.
     if (raw.length > 0 && raw.every((value) => value === 0)) {
+      this.logger.debug("Ignoring all-zero mailbox payload.");
       return;
     }
 
@@ -697,7 +746,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     }
 
     if (isDuplicate) {
-      this.logger.debug("[MP] Dropping duplicate packet.");
+      this.logger.debug("Duplicate packet.");
       void this.handleDuplicatePacket(parsed.packet);
       return;
     }
@@ -706,11 +755,17 @@ export class BleMessageProtocol implements MessageProtocolInterface {
       parsed.packet.header.pktType === this.packetTypes.DATA &&
       this.rxPacket.header.status !== MsgProtRxPacketStatus.PROCESSED;
 
-    void this.onLinkLayerPacket(parsed.packet);
+    this.logger.debug(
+      "Parsed incoming value.",
+      this.toDebugPacketShape(parsed.packet, parsed.raw)
+    );
 
     this.lastRxPacketRaw = new Uint8Array(parsed.raw);
     this.lastRxPacketLen = packetLength;
     this.lastRxPacketValid = true;
+
+    void this.onLinkLayerPacket(parsed.packet);
+
     this.lastRxPacketDeferred = rxBusy;
   }
 
@@ -751,27 +806,21 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     }
 
     if (packet.header.sessionId === this.currentSessionId) {
-      await this.sendAckOrNak(packet, true);
+      if (this.sendAckNak) {
+        await this.sendAckOrNak(packet, true);
+      }
       return;
     }
 
     if (!this.isMaster) {
-      const response = this.clonePacket(packet);
-      response.header.sessionId = this.currentSessionId;
-      response.header.pktType = this.packetTypes.SYNC_MISMATCH;
-      response.header.status = MsgProtTxPacketStatus.NEW;
-      response.payload.type = 0;
-      response.payload.ppi = 0;
-      response.payload.pktPayloadLen = 0;
-      response.payload.payload = new Uint8Array(0);
-
-      await this.sendPktToLinkLayer(response);
+      await this.sendSyncMismatchPacket(packet);
       return;
     }
 
-    this.logger.warn(
-      `[MP] Not ACKing duplicate stale-session DATA packet. Expected session ${this.currentSessionId}, received ${packet.header.sessionId}`
-    );
+    // this.logger.warn("[MP] Not ACKing duplicate stale-session DATA packet.", {
+    //   expectedSessionId: this.currentSessionId,
+    //   receivedSessionId: packet.header.sessionId,
+    // });
   }
 
   private parseIncomingPacket(raw: Uint8Array): ParsedPacketResult {
@@ -864,29 +913,78 @@ export class BleMessageProtocol implements MessageProtocolInterface {
         await this.handleDataPacket(packet);
         break;
       case this.packetTypes.SYNC_START:
-        await this.handleSyncStart(packet);
+        await this.handleSyncStartPacket(packet);
         break;
       case this.packetTypes.SYNC_MISMATCH:
-        await this.handleSyncMismatch(packet);
+        await this.handleSyncMismatchPacket();
         break;
       case this.packetTypes.SYNC_ACK:
-        await this.handleSyncAck(packet);
+        await this.handleSyncAckPacket(packet);
         break;
-      default:
-        this.logger.error("[MP] Unknown packet type");
+      default: {
+        const payloadHex = Buffer.from(packet.payload.payload).toString("hex");
+        this.logger.warn("[MP] Ignoring unsupported packet type.", {
+          pktType: packet.header.pktType,
+          receivedPacket: {
+            header: { ...packet.header },
+            payload: {
+              type: packet.payload.type,
+              ppi: packet.payload.ppi,
+              pktPayloadLen: packet.payload.pktPayloadLen,
+              payloadLen: packet.payload.payload.length,
+              payloadHex,
+            },
+          },
+        });
         break;
+      }
     }
   }
 
-  private async handleAckPacket(packet: MpPacket): Promise<void> {
-    if (packet.header.sessionId !== this.currentSessionId) {
-      this.logger.warn("[MP] ACK session mismatch.", {
+  private async onSessionMismatch(packet: MpPacket, context: string): Promise<void> {
+    if (!this.enableSyncControl) {
+      // this.logger.warn("[MP] Session mismatch ignored because sync control is disabled.", {
+      //   context,
+      //   expectedSessionId: this.currentSessionId,
+      //   receivedSessionId: packet.header.sessionId,
+      // });
+      return;
+    }
+
+    if (this.isMaster) {
+      this.logger.error("[MP] Session ID mismatch.", {
+        context,
         expectedSessionId: this.currentSessionId,
         receivedSessionId: packet.header.sessionId,
-        pendingCounter: this.pendingId,
-        receivedCounter: packet.header.pktCounter,
       });
-      await this.handleSessionMismatch(packet);
+      await this.mpSyncStart();
+      return;
+    }
+
+    await this.sendSyncMismatchPacket(packet);
+  }
+
+  private async sendSyncMismatchPacket(packet: MpPacket): Promise<void> {
+    const responsePacket = this.clonePacket(packet);
+    responsePacket.header.sessionId = this.currentSessionId >>> 0;
+    responsePacket.header.pktType = this.packetTypes.SYNC_MISMATCH;
+    responsePacket.header.status = MsgProtTxPacketStatus.NEW;
+    responsePacket.payload.type = 0;
+    responsePacket.payload.ppi = 0;
+    responsePacket.payload.pktPayloadLen = 0;
+    responsePacket.payload.payload = new Uint8Array(0);
+
+    await this.sendPktToLinkLayer(responsePacket);
+    this.logger.info("[MP] Sent SYNC_MISMATCH packet.");
+  }
+
+  private async handleAckPacket(packet: MpPacket): Promise<void> {
+    if (!this.sendAckNak) {
+      return;
+    }
+
+    if (packet.header.sessionId !== this.currentSessionId) {
+      await this.onSessionMismatch(packet, "ACK");
       return;
     }
 
@@ -894,14 +992,9 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     const waitingForAck = txStatus === MsgProtTxPacketStatus.WAITING_FOR_ACK;
     const abandoned = txStatus === MsgProtTxPacketStatus.ABANDONED;
     const counterMatches = packet.header.pktCounter === this.pendingId;
-    const canRelaxedComplete =
-      this.relaxedAckMatching &&
-      (waitingForAck || abandoned);
+    const canRelaxedComplete = this.relaxedAckMatching && (waitingForAck || abandoned);
 
-    if (
-      (waitingForAck && counterMatches) ||
-      canRelaxedComplete
-    ) {
+    if ((waitingForAck && counterMatches) || canRelaxedComplete) {
       if (canRelaxedComplete && !counterMatches) {
         this.logger.warn("[MP] Relaxed ACK accept: counter mismatch.", {
           pendingCounter: this.pendingId,
@@ -923,12 +1016,17 @@ export class BleMessageProtocol implements MessageProtocolInterface {
       txStatus: this.txPacket.header.status,
       pendingCounter: this.pendingId,
       receivedCounter: packet.header.pktCounter,
+      sessionId: packet.header.sessionId,
     });
   }
 
   private async handleNakPacket(packet: MpPacket): Promise<void> {
+    if (!this.sendAckNak) {
+      return;
+    }
+
     if (packet.header.sessionId !== this.currentSessionId) {
-      await this.handleSessionMismatch(packet);
+      await this.onSessionMismatch(packet, "NAK");
       return;
     }
 
@@ -940,60 +1038,88 @@ export class BleMessageProtocol implements MessageProtocolInterface {
 
   private async handleDataPacket(packet: MpPacket): Promise<void> {
     if (packet.header.sessionId !== this.currentSessionId) {
-      await this.handleSessionMismatch(packet);
+      await this.onSessionMismatch(packet, "DATA");
       return;
     }
 
+    const rxBusy = this.rxPacket.header.status !== MsgProtRxPacketStatus.PROCESSED;
     const delivered = this.deliverPayload(packet);
-    if (delivered === MsgProtError.NONE) {
+    if (delivered === MsgProtError.NONE && !rxBusy && this.sendAckNak) {
       await this.sendAckOrNak(packet, true);
     }
   }
 
-  private async handleSyncStart(packet: MpPacket): Promise<void> {
-    if (this.isMaster) {
-      this.logger.error("[MP] Received SYNC_START from another master.");
+  private async handleSyncStartPacket(packet: MpPacket): Promise<void> {
+    if (!this.enableSyncControl) {
+      // this.logger.warn("[MP] Ignoring SYNC_START because sync control is disabled.");
       return;
     }
 
-    this.resetState();
-    this.currentSessionId = packet.header.sessionId;
-
-    const response = this.clonePacket(packet);
-    response.header.pktType = this.packetTypes.SYNC_ACK;
-    response.header.status = MsgProtTxPacketStatus.NEW;
-    response.header.sessionId = this.currentSessionId;
-    response.payload.pktPayloadLen = 0;
-    response.payload.payload = new Uint8Array(0);
-
-    await this.sendPktToLinkLayer(response);
-  }
-
-  private async handleSyncMismatch(_packet: MpPacket): Promise<void> {
     if (this.isMaster) {
-      await this.startSync();
+      this.logger.error("[MP] Received SYNC_START from another master instance.");
       return;
     }
 
-    this.logger.error("[MP] Slave received SYNC_MISMATCH unexpectedly.");
+    this.resetMpState();
+    this.currentSessionId = packet.header.sessionId >>> 0;
+
+    const responsePacket = this.clonePacket(packet);
+    responsePacket.header.pktType = this.packetTypes.SYNC_ACK;
+    responsePacket.header.status = MsgProtTxPacketStatus.NEW;
+    responsePacket.header.sessionId = this.currentSessionId;
+    responsePacket.payload.type = 0;
+    responsePacket.payload.ppi = 0;
+    responsePacket.payload.pktPayloadLen = 0;
+    responsePacket.payload.payload = new Uint8Array(0);
+
+    await this.sendPktToLinkLayer(responsePacket);
+    this.logger.info("[MP] Sent SYNC_ACK packet.");
   }
 
-  private async handleSyncAck(packet: MpPacket): Promise<void> {
+  private async handleSyncMismatchPacket(): Promise<void> {
+    if (!this.enableSyncControl) {
+      // this.logger.warn("[MP] Ignoring SYNC_MISMATCH because sync control is disabled.");
+      return;
+    }
+
+    if (this.isMaster) {
+      await this.mpSyncStart();
+      return;
+    }
+
+    this.logger.error("[MP] Slave instance received SYNC_MISMATCH.");
+  }
+
+  private async handleSyncAckPacket(packet: MpPacket): Promise<void> {
+    if (!this.enableSyncControl) {
+      // this.logger.warn("[MP] Ignoring SYNC_ACK because sync control is disabled.");
+      return;
+    }
+
     if (!this.isMaster) {
-      this.logger.error("[MP] Slave received SYNC_ACK unexpectedly.");
+      this.logger.error("[MP] Slave instance received SYNC_ACK.");
       return;
     }
 
     if (packet.header.sessionId !== this.currentSessionId) {
-      await this.startSync();
+      this.logger.error("[MP] Session ID mismatch for SYNC_ACK.", {
+        expectedSessionId: this.currentSessionId,
+        receivedSessionId: packet.header.sessionId,
+      });
+      await this.mpSyncStart();
       return;
     }
 
     if (this.isSyncing) {
       this.isSyncing = false;
-    } else {
-      await this.startSync();
+      this.logger.info("[MP] Sync process completed.", {
+        sessionId: packet.header.sessionId >>> 0,
+      });
+      return;
     }
+
+    this.logger.error("[MP] Received unexpected SYNC_ACK while not syncing.");
+    await this.mpSyncStart();
   }
 
   private deliverPayload(packet: MpPacket): MsgProtError {
@@ -1019,7 +1145,9 @@ export class BleMessageProtocol implements MessageProtocolInterface {
       return MsgProtError.NONE;
     }
 
-    void this.sendAckOrNak(packet, false);
+    if (this.sendAckNak) {
+      void this.sendAckOrNak(packet, false);
+    }
     return MsgProtError.BUSY;
   }
 
@@ -1048,66 +1176,88 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     await this.sendPktToLinkLayer(ackPacket);
   }
 
-  private async handleSessionMismatch(packet: MpPacket): Promise<void> {
-    if (this.isMaster) {
-      await this.startSync();
-      return;
+  private getPacketTypeLabel(pktType: number): string {
+    if (pktType === this.packetTypes.DATA) return "DATA";
+    if (pktType === this.packetTypes.ACK) return "ACK";
+    if (pktType === this.packetTypes.NAK) return "NAK";
+    return "UNKNOWN";
+  }
+
+  private generateSessionIdForMaster(): boolean {
+    if (!this.isMaster) {
+      return false;
     }
 
-    const response = this.clonePacket(packet);
-    response.header.sessionId = this.currentSessionId;
-    response.header.pktType = this.packetTypes.SYNC_MISMATCH;
-    response.header.status = MsgProtTxPacketStatus.NEW;
-    response.payload.type = 0;
-    response.payload.ppi = 0;
-    response.payload.pktPayloadLen = 0;
-    response.payload.payload = new Uint8Array(0);
+    const providedSessionId = this.sessionIdProvider ? this.sessionIdProvider() : null;
+    const sessionId = providedSessionId ?? generateSessionId();
+    if (sessionId === null || !Number.isFinite(sessionId)) {
+      this.logger.error("[MP] RNG failure; cannot generate session_id.");
+      this.currentSessionId = 0;
+      return false;
+    }
 
-    await this.sendPktToLinkLayer(response);
+    this.currentSessionId = sessionId >>> 0;
+    this.hasGeneratedSessionId = true;
+    return true;
+  }
+
+  private toDebugPacketShape(packet: MpPacket, raw: Uint8Array): Record<string, unknown> {
+    return {
+      frameLength: raw.length,
+      rawHex: Buffer.from(raw).toString("hex"),
+      rawBase64: Buffer.from(raw).toString("base64"),
+      header: {
+        pktCrc: packet.header.pktCrc,
+        pktCounter: packet.header.pktCounter,
+        sessionId: packet.header.sessionId >>> 0,
+        pktType: packet.header.pktType,
+        pktTypeLabel: this.getPacketTypeLabel(packet.header.pktType),
+        status: packet.header.status,
+      },
+      payload: {
+        type: packet.payload.type,
+        ppi: packet.payload.ppi,
+        pktPayloadLen: packet.payload.pktPayloadLen,
+        payloadLen: packet.payload.payload.length,
+        payloadHex: Buffer.from(packet.payload.payload).toString("hex"),
+        payloadBase64: Buffer.from(packet.payload.payload).toString("base64"),
+      },
+    };
   }
 
   private startTimer(now: number): void {
     this.deadlineMs = now + this.ackTimeoutMs;
   }
 
-  private maybeResync(): void {
+  private async mpSyncStart(): Promise<void> {
     if (!this.isMaster) {
       return;
     }
 
-    if (!this.isSyncing) {
+    if (!this.enableSyncControl) {
       return;
     }
 
-    const now = this.getNow();
-    if (now - this.lastResyncTimeMs > this.syncRetryIntervalMs) {
-      void this.startSync();
-    }
-  }
-
-  private async startSync(): Promise<void> {
-    if (!this.isMaster) {
-      return;
-    }
-
-    const now = this.getNow();
+    const currentMs = this.getNow();
+    const timeSinceLastSync = currentMs - this.lastResyncTimeMs;
     const isFirstSyncAttempt = !this.hasAttemptedSync;
-    if (!isFirstSyncAttempt && now - this.lastResyncTimeMs <= this.syncRetryIntervalMs) {
+
+    if (!isFirstSyncAttempt && timeSinceLastSync <= MAX_TIME_BEFORE_SYNC_RETRY_MS) {
       return;
     }
 
-    this.resetState();
+    this.resetMpState();
 
-    const providedSessionId = this.sessionIdProvider ? this.sessionIdProvider() : null;
-    const sessionId = providedSessionId ?? generateSessionId();
-    if (sessionId === null || !Number.isFinite(sessionId)) {
-      this.logger.error("[MP] RNG failure; cannot generate session ID.");
+    const hasSessionId = this.generateSessionIdForMaster();
+    if (!hasSessionId) {
       return;
     }
 
-    this.currentSessionId = sessionId;
-    this.lastResyncTimeMs = now;
+    this.lastResyncTimeMs = currentMs;
     this.hasAttemptedSync = true;
+    this.logger.info("[MP] Generated new session ID.", {
+      sessionId: this.currentSessionId >>> 0,
+    });
 
     const packet = this.createEmptyPacket();
     packet.header.pktCounter = this.nextPacketId;
@@ -1120,11 +1270,43 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     packet.payload.pktPayloadLen = 0;
     packet.payload.payload = new Uint8Array(0);
 
-    await this.sendPktToLinkLayer(packet);
+    // Mirror firmware behavior: once SYNC_START is initiated, report syncing immediately.
     this.isSyncing = true;
+    const result = await this.sendPktToLinkLayer(packet);
+    if (result === MsgProtError.NONE) {
+      this.logger.info("[MP] Sent SYNC_START packet.");
+    }
   }
 
-  private resetState(): void {
+  private initializeState(): void {
+    this.rxPacket = this.createEmptyPacket();
+    this.rxPacket.header.status = MsgProtRxPacketStatus.PROCESSED;
+
+    this.txPacket = this.createEmptyPacket();
+    this.txPacket.header.status = MsgProtTxPacketStatus.ABANDONED;
+
+    this.lastPacketSent = this.createEmptyPacket();
+
+    this.lastRxPacketRaw = new Uint8Array(0);
+    this.lastRxPacketLen = 0;
+    this.lastRxPacketValid = false;
+    this.lastRxPacketDeferred = false;
+    this.lastTxPacketRaw = new Uint8Array(0);
+    this.lastTxPacketLen = 0;
+    this.lastTxPacketValid = false;
+
+    this.nextPacketId = 0;
+    this.pendingId = 0;
+    this.retriesLeft = 0;
+    this.deadlineMs = 0;
+    this.currentSessionId = 0;
+    this.isSyncing = false;
+    this.hasAttemptedSync = false;
+    this.lastResyncTimeMs = 0;
+    this.hasGeneratedSessionId = false;
+  }
+
+  private resetMpState(): void {
     this.rxPacket = this.createEmptyPacket();
     this.rxPacket.header.status = MsgProtRxPacketStatus.PROCESSED;
 
@@ -1146,6 +1328,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     this.retriesLeft = this.maxRetries;
     this.deadlineMs = 0;
     this.currentSessionId = 0;
+    this.hasGeneratedSessionId = false;
   }
 
   private createEmptyPacket(): MpPacket {

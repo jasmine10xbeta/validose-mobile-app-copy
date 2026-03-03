@@ -10,7 +10,12 @@ export const CHARACTERISTIC_UUIDS = {
   ERROR_CODE: "00001503-eb00-430a-a8ff-c7ad4211bf86",
   DOSE_SCHEDULE: "00001502-eb00-430a-a8ff-c7ad4211bf86",
   TIME: "00001501-eb00-430a-a8ff-c7ad4211bf86",
-  MESSAGE_PROTOCOL: "00001505-eb00-430a-a8ff-c7ad4211bf86",
+  // App -> device write pipe (firmware UUID_DATA_RX).
+  MESSAGE_PROTOCOL_TX: "00001508-eb00-430a-a8ff-c7ad4211bf86",
+  // Device -> app notify pipe (firmware UUID_DATA_TX).
+  MESSAGE_PROTOCOL_RX: "00001509-eb00-430a-a8ff-c7ad4211bf86",
+  // Legacy alias kept for compatibility in older code paths.
+  MESSAGE_PROTOCOL: "00001508-eb00-430a-a8ff-c7ad4211bf86",
   RESET: "00001506-eb00-430a-a8ff-c7ad4211bf86",
 };
 

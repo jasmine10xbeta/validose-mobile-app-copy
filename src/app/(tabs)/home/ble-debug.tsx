@@ -1,27 +1,19 @@
 import { Buffer } from "buffer";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Keyboard,
-  KeyboardAvoidingView,
   Modal,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
   PermissionsAndroid,
   Platform,
   Pressable,
   ScrollView,
   Text,
-  TextInput,
-  TouchableWithoutFeedback,
-  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { CHARACTERISTIC_UUIDS, SERVICE_UUIDS } from "@/constants/ble";
-import { validoseGrey } from "@/constants/colors";
 import {
   addBleDebugLog,
   getBleDebugLogs,
@@ -31,7 +23,6 @@ import {
   BleMessageProtocol,
   MessageProtocolInterface,
   MsgProtError,
-  MsgProtTxPacketStatus,
 } from "@/utils/ble/messageProtocol";
 import {
   MAX_DOSES_PER_DAY,
@@ -45,45 +36,215 @@ import {
   validatePayloadLength,
 } from "@/utils/ble/messageProtocolPpi";
 import {
-  connect,
   discoverServicesAndCharacteristics,
   disconnect,
   getConnectedDevice,
   isDeviceConnected,
-  scanLeDevice,
-  subscribeToCharacteristic,
 } from "../../../../modules/tenx-mdk-ble-rn-library/src/index";
 import { ActionButton } from "./ble-debug/components/ActionButton";
 import { QuickPpiButton } from "./ble-debug/components/QuickPpiButton";
 import {
-  DEBUG_INPUTS_STORAGE_KEY,
-  PPI_LATE_ACK_WATCH_POLL_MS,
+  PPI_ACK_TIMEOUT_MS,
   PPI_LATE_ACK_WATCH_TIMEOUT_MS,
-  PPI_MANUAL_ACK_TIMEOUT_MS,
-  PPI_MANUAL_MAX_RETRIES,
-  PPI_MANUAL_SYNC_RETRY_MS,
-  PPI_NRF_MANUAL_ACK_TIMEOUT_MS,
-  PPI_NRF_MANUAL_MAX_RETRIES,
-  PPI_NRF_TX_COMPLETION_WAIT_MS,
+  PPI_MAX_RETRIES,
   PPI_TX_COMPLETION_WAIT_MS,
   PPI_TX_READY_POLL_MS,
   PPI_TX_READY_TIMEOUT_MS,
+  QUICK_FLOW_ACTIONS,
   QUICK_FLOW_META,
 } from "./ble-debug/constants";
 import {
   extractConnectedDeviceLabel,
   formatDecodedValue,
+  formatHexBytes,
   prettifyForLog,
   resolveConnectionState,
 } from "./ble-debug/helpers";
 import { styles } from "./ble-debug/styles";
 import type {
   FlowStepState,
-  PersistedDebugInputs,
+  MpFramePreview,
   PpiRxPreview,
   PpiTxPreview,
   QuickFlowAction,
 } from "./ble-debug/types";
+
+const MP_SERVICE_UUID = SERVICE_UUIDS.CUSTOM_SERVICE;
+const MP_TX_UUID = CHARACTERISTIC_UUIDS.MESSAGE_PROTOCOL_TX;
+const MP_RX_UUID = CHARACTERISTIC_UUIDS.MESSAGE_PROTOCOL_RX;
+const MP_SERVICE_SHORT_UUID = "1500";
+const MP_TX_SHORT_UUID = "1508";
+const MP_RX_SHORT_UUID = "1509";
+// Firmware parity: MESSAGE_PROTOCOL_PROCESS_INTERVAL_MS = 0 (process on demand).
+const MP_PROCESS_INTERVAL_MS = 0;
+const MP_MAX_PACKET_LEN = 244;
+const MP_MIN_FRAME_LEN = 14; // CRC(2) + header(8) + PPI envelope(4)
+
+type DiscoveredCharacteristic = {
+  uuid?: string;
+  properties?: string[];
+};
+
+type DiscoveredService = {
+  uuid?: string;
+  characteristics?: DiscoveredCharacteristic[];
+};
+
+function normalizeUuidKey(uuid: string): string {
+  return uuid.replace(/[^0-9a-fA-F]/g, "").toLowerCase();
+}
+
+function isUuidMatchByShortKey(uuid: string, shortUuid: string): boolean {
+  const normalized = normalizeUuidKey(uuid);
+  const shortKey = shortUuid.toLowerCase();
+
+  if (!normalized) return false;
+  if (normalized === shortKey) return true;
+  return normalized.startsWith(`0000${shortKey}`);
+}
+
+function resolveMessageProtocolUuidsFromDiscovery(discovery: unknown): {
+  txUuid: string;
+  rxUuid: string;
+  source: string;
+} {
+  let txUuid = MP_TX_UUID;
+  let rxUuid = MP_RX_UUID;
+  let source = "defaults";
+
+  if (!Array.isArray(discovery)) {
+    return { txUuid, rxUuid, source };
+  }
+
+  const services = discovery as DiscoveredService[];
+  const customService = services.find(
+    (service) =>
+      typeof service?.uuid === "string" &&
+      isUuidMatchByShortKey(service.uuid, MP_SERVICE_SHORT_UUID)
+  );
+
+  if (!customService?.characteristics?.length) {
+    return { txUuid, rxUuid, source };
+  }
+
+  const characteristics = customService.characteristics.filter(
+    (characteristic): characteristic is DiscoveredCharacteristic & { uuid: string } =>
+      typeof characteristic?.uuid === "string" && characteristic.uuid.length > 0
+  );
+
+  const hasProperty = (
+    characteristic: DiscoveredCharacteristic,
+    predicate: (prop: string) => boolean
+  ) =>
+    Array.isArray(characteristic.properties) &&
+    characteristic.properties.some((prop) => typeof prop === "string" && predicate(prop.toLowerCase()));
+
+  const writeCharacteristic = characteristics.find((characteristic) =>
+    hasProperty(
+      characteristic,
+      (prop) => prop === "write" || prop === "writewithoutresponse"
+    )
+  );
+  const notifyCharacteristic = characteristics.find((characteristic) =>
+    hasProperty(
+      characteristic,
+      (prop) => prop === "notify" || prop === "indicate"
+    )
+  );
+
+  const explicitTx = characteristics.find((characteristic) =>
+    isUuidMatchByShortKey(characteristic.uuid, MP_TX_SHORT_UUID)
+  );
+  const explicitRx = characteristics.find((characteristic) =>
+    isUuidMatchByShortKey(characteristic.uuid, MP_RX_SHORT_UUID)
+  );
+
+  if (explicitTx?.uuid) {
+    txUuid = explicitTx.uuid;
+    source = "discovery-explicit-uuid";
+  }
+  if (explicitRx?.uuid) {
+    rxUuid = explicitRx.uuid;
+    source = source === "discovery-explicit-uuid" ? source : "discovery-explicit-uuid";
+  }
+
+  if (!explicitTx?.uuid && writeCharacteristic?.uuid) {
+    txUuid = writeCharacteristic.uuid;
+    source = source === "defaults" ? "discovery-properties" : `${source}+properties`;
+  }
+  if (!explicitRx?.uuid && notifyCharacteristic?.uuid) {
+    rxUuid = notifyCharacteristic.uuid;
+    source = source === "defaults" ? "discovery-properties" : `${source}+properties`;
+  }
+
+  if (
+    !explicitTx?.uuid &&
+    !explicitRx?.uuid &&
+    !writeCharacteristic?.uuid &&
+    !notifyCharacteristic?.uuid &&
+    characteristics.length === 1
+  ) {
+    txUuid = characteristics[0].uuid;
+    rxUuid = characteristics[0].uuid;
+    source = "single-characteristic-fallback";
+  }
+
+  return { txUuid, rxUuid, source };
+}
+
+function getMpPacketTypeLabel(pktType: number): string {
+  switch (pktType) {
+    case 0:
+      return "DATA";
+    case 1:
+      return "ACK";
+    case 2:
+      return "NAK";
+    default:
+      return `UNKNOWN_${pktType}`;
+  }
+}
+
+function parseMpFrameBytes(raw: Uint8Array): MpFramePreview | null {
+  if (!raw.length || raw.length < MP_MIN_FRAME_LEN) return null;
+
+  const frame = Buffer.from(raw);
+  const pktPayloadLen = frame.readUInt16LE(12);
+  const frameLength = MP_MIN_FRAME_LEN + pktPayloadLen;
+  if (frame.length < frameLength) return null;
+
+  const packet = frame.subarray(0, frameLength);
+  const payload = packet.subarray(MP_MIN_FRAME_LEN);
+  const frameBytesHex = Array.from(packet, (value) => value.toString(16).padStart(2, "0"));
+  const frameBytesIndexedHex = frameBytesHex.map((value, index) => `[${index}] 0x${value}`);
+
+  return {
+    frameLength,
+    crc: packet.readUInt16LE(0),
+    pktCounter: packet.readUInt16LE(2),
+    sessionId: packet.readUInt32LE(4),
+    pktType: packet.readUInt8(8),
+    status: packet.readUInt8(9),
+    payloadType: packet.readUInt8(10),
+    payloadPpi: packet.readUInt8(11),
+    pktPayloadLen,
+    payloadHex: Buffer.from(payload).toString("hex"),
+    payloadBase64: Buffer.from(payload).toString("base64"),
+    frameHex: Buffer.from(packet).toString("hex"),
+    frameBase64: Buffer.from(packet).toString("base64"),
+    frameBytesHex,
+    frameBytesIndexedHex,
+  };
+}
+
+function parseMpFrameHex(frameHex: string): MpFramePreview | null {
+  if (!frameHex) return null;
+  try {
+    return parseMpFrameBytes(new Uint8Array(Buffer.from(frameHex, "hex")));
+  } catch {
+    return null;
+  }
+}
 
 function formatPpiHumanReadable(
   ppi: number,
@@ -103,22 +264,13 @@ function formatPpiHumanReadable(
     }
   }
 
-  // Show only the decoded payload content that maps directly to transmitted bytes.
   return formatDecodedValue(decodedValue);
 }
 
 export default function BleDebugScreen() {
   const router = useRouter();
-  const { width: windowWidth } = useWindowDimensions();
-  const [deviceId, setDeviceId] = useState("");
-  const [serviceUuid, setServiceUuid] = useState(SERVICE_UUIDS.CUSTOM_SERVICE);
-  const [characteristicUuid, setCharacteristicUuid] = useState(
-    CHARACTERISTIC_UUIDS.MESSAGE_PROTOCOL
-  );
   const [logCount, setLogCount] = useState(() => getBleDebugLogs().length);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
-  const [inputsHydrated, setInputsHydrated] = useState(false);
-  const [manualNrfMode, setManualNrfMode] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [connectedDeviceLabel, setConnectedDeviceLabel] = useState("");
   const [lastPpiTxPreview, setLastPpiTxPreview] = useState<PpiTxPreview | null>(null);
@@ -126,152 +278,118 @@ export default function BleDebugScreen() {
   const [selectedFlowAction, setSelectedFlowAction] = useState<QuickFlowAction>("TIME_PUSH");
   const [flowStatusByAction, setFlowStatusByAction] = useState<Record<string, string>>({});
   const [flowHelpVisible, setFlowHelpVisible] = useState(false);
-  const [activeCarouselCard, setActiveCarouselCard] = useState(0);
   const [protocolRunning, setProtocolRunning] = useState(false);
 
-  const subscriptionsRef = useRef<(() => void)[]>([]);
   const ppiProtocolRef = useRef<BleMessageProtocol | null>(null);
+  const resolvedMpTxUuidRef = useRef(MP_TX_UUID);
+  const resolvedMpRxUuidRef = useRef(MP_RX_UUID);
   const lateAckWatchTokenRef = useRef(0);
   const gattDiscoveryInFlightRef = useRef<Promise<void> | null>(null);
   const isGattDiscoveredRef = useRef(false);
 
-  const canRun = useMemo(() => Boolean(characteristicUuid.trim()), [characteristicUuid]);
-  const carouselCardWidth = useMemo(
-    () => Math.max(260, Math.min(windowWidth - 64, 528)),
-    [windowWidth]
+  const selectedFlowMeta = useMemo(
+    () => QUICK_FLOW_META[selectedFlowAction] ?? QUICK_FLOW_META.TIME_PUSH,
+    [selectedFlowAction]
   );
-  const carouselGap = 12;
-  const carouselSnapOffsets = useMemo(() => {
-    const secondCardStart = carouselCardWidth + carouselGap;
-    return [0, secondCardStart];
-  }, [carouselCardWidth]);
+  const selectedFlowStatus = useMemo(
+    () => flowStatusByAction[selectedFlowMeta.actionName] ?? "",
+    [flowStatusByAction, selectedFlowMeta.actionName]
+  );
+  const isBlockedByOtherAction = useCallback(
+    (action: string) => Boolean(loadingAction && loadingAction !== action),
+    [loadingAction]
+  );
+
   const statusText = useMemo(() => {
     const actionText: Record<string, string> = {
-      connect: "Trying to connect to your selected device.",
       "ppi-time-rq": "Requesting current dock time (AD_TIME RQ).",
-      "ppi-time-re": "Sending AD_TIME RE test payload (unix uint32).",
       "ppi-time-push": "Sending current phone time to device (AD_TIME PUSH).",
       "ppi-dose-schedule-rq": "Requesting dose schedule from dock (AD_DOSE_SCHEDULE RQ).",
-      "ppi-dose-schedule-re": "Sending AD_DOSE_SCHEDULE RE test payload.",
       "ppi-dose-schedule-push": "Pushing demo dose schedule to dock (AD_DOSE_SCHEDULE PUSH).",
-      subscribe: "Starting notifications on the selected characteristic.",
+      "ppi-dock-status-rq": "Requesting dock status (AD_DOCK_STATUS RQ).",
+      "ppi-ring-status-rq": "Requesting ring status (AD_RING_STATUS RQ).",
+      "ppi-dock-battery-rq": "Requesting dock battery (AD_DOCK_BATT_LEVEL_LOG RQ).",
+      "ppi-ring-battery-rq": "Requesting ring battery (AD_RING_BATT_LEVEL_LOG RQ).",
       disconnect: "Disconnecting from the peripheral.",
     };
     if (loadingAction && actionText[loadingAction]) {
       return actionText[loadingAction];
     }
 
-    if (lastPpiTxPreview?.status === "SENT_ACKED") {
-      return `Done. ${lastPpiTxPreview.action.replaceAll("_", " ")} was acknowledged by peripheral.`;
-    }
-    if (lastPpiTxPreview?.status === "SENT_WAITING_ACK") {
-      return "Write sent. Waiting for ACK notification from peripheral.";
-    }
-    if (lastPpiTxPreview?.status === "WAITING_SYNC_ACK") {
-      return "Waiting for SYNC_ACK from peripheral before sending data.";
+    if (lastPpiTxPreview?.status === "SENT_DATA") {
+      return `Done. ${lastPpiTxPreview.action.replaceAll("_", " ")} DATA frame was sent.`;
     }
     if (lastPpiTxPreview?.status === "TX_BUSY") {
-      return "Protocol is busy. Please retry after a moment.";
+      return "TX not ready yet. Wait until current transmit state is ABANDONED or NEW.";
     }
 
     if (!isConnected) {
-      return "Not connected. Connect a device to start protocol actions.";
+      return "Not connected. Use the BLE Debug Console scanner to connect to a VAL device first.";
     }
 
-    return "Ready: idle state, no active protocol send in progress.";
+    // return "Ready. Message protocol is running and TX mailbox is idle for the next DATA frame.";
+    return "";
   }, [isConnected, lastPpiTxPreview, loadingAction]);
-  const protocolInfo = useMemo(() => {
-    const ackTimeoutMs = manualNrfMode ? PPI_NRF_MANUAL_ACK_TIMEOUT_MS : PPI_MANUAL_ACK_TIMEOUT_MS;
-    const maxRetries = manualNrfMode ? PPI_NRF_MANUAL_MAX_RETRIES : PPI_MANUAL_MAX_RETRIES;
-    const syncRetryIntervalMs = manualNrfMode
-      ? PPI_NRF_MANUAL_ACK_TIMEOUT_MS
-      : PPI_MANUAL_SYNC_RETRY_MS;
-    const txCompletionWaitMs = manualNrfMode
-      ? PPI_NRF_TX_COMPLETION_WAIT_MS
-      : PPI_TX_COMPLETION_WAIT_MS;
 
-    return {
-      mode: manualNrfMode ? "Manual nRF (no SYNC_START required)" : "Full Sync (SYNC_START + SYNC_ACK)",
-      isMaster: manualNrfMode ? "false" : "true",
-      relaxedAckMatching: manualNrfMode ? "true" : "false",
-      ackTimeoutMs,
-      maxRetries,
-      syncRetryIntervalMs,
+  const protocolInfo = useMemo(
+    () => ({
+      ackTimeoutMs: PPI_ACK_TIMEOUT_MS,
+      maxRetries: PPI_MAX_RETRIES,
       txReadyTimeoutMs: PPI_TX_READY_TIMEOUT_MS,
-      txCompletionWaitMs,
+      txCompletionWaitMs: PPI_TX_COMPLETION_WAIT_MS,
       lateAckWatchMs: PPI_LATE_ACK_WATCH_TIMEOUT_MS,
-      processIntervalMs: 250,
-      maxPacketLength: 244,
+      processIntervalMs: MP_PROCESS_INTERVAL_MS,
+      maxPacketLength: MP_MAX_PACKET_LEN,
       txState: lastPpiTxPreview?.status || "IDLE",
       protocolState: protocolRunning ? "Running" : "Stopped",
+      currentSessionId: ppiProtocolRef.current?.getCurrentSessionId() ?? null,
       logCount,
-    };
-  }, [lastPpiTxPreview?.status, manualNrfMode, protocolRunning, logCount]);
-  const selectedFlowMeta = useMemo(() => QUICK_FLOW_META[selectedFlowAction], [selectedFlowAction]);
-  const selectedFlowStatus = useMemo(
-    () => flowStatusByAction[selectedFlowMeta.actionName] ?? "",
-    [flowStatusByAction, selectedFlowMeta.actionName]
+    }),
+    [lastPpiTxPreview?.status, protocolRunning, logCount]
   );
-  const isActionInProgress = useMemo(() => Boolean(loadingAction), [loadingAction]);
-  const isBlockedByOtherAction = useCallback(
-    (action: string) => Boolean(loadingAction && loadingAction !== action),
-    [loadingAction]
+
+  const flowSteps = useMemo(
+    () => [
+      "Ensure Message Protocol is running.",
+      "App runs as master and generates session_id locally.",
+      "SYNC control flow is disabled in app runtime.",
+      "Check TX ready. TX ready means current TX state is ABANDONED or NEW.",
+      `Build payload (${selectedFlowMeta.payloadHint}) and validate ${selectedFlowMeta.ppiName} ${selectedFlowMeta.typeName} (${selectedFlowMeta.lenHint}).`,
+      `Send DATA frame with type=${selectedFlowMeta.typeId}, ppi=${selectedFlowMeta.ppiId}.`,
+      "Done.",
+    ],
+    [selectedFlowMeta]
   );
-  const selectedFlowModeText = manualNrfMode ? "Manual nRF Mode" : "Full Sync Mode";
-  const flowSteps = useMemo(() => {
-    const steps = [
-      "Tap the quick action button.",
-      `Build payload (${selectedFlowMeta.payloadHint}) and validate ${selectedFlowMeta.ppiName} ${selectedFlowMeta.typeName}.`,
-      "Ensure message protocol is running and TX is ready.",
-    ];
 
-    if (!manualNrfMode) {
-      steps.push("Send SYNC_START to firmware.");
-      steps.push("Wait for SYNC_ACK from firmware.");
-    }
-
-    steps.push(
-      `Send DATA frame with type=${selectedFlowMeta.typeId}, ppi=${selectedFlowMeta.ppiId}, ${selectedFlowMeta.lenHint}.`
-    );
-    steps.push("Wait for ACK with matching session_id and pkt_counter.");
-    steps.push("Complete with SENT_ACKED, or fail with TX_ABANDONED after timeout/retries.");
-
-    return steps;
-  }, [manualNrfMode, selectedFlowMeta]);
   const flowProgress = useMemo(() => {
-    const syncAckIndex = manualNrfMode ? -1 : 4;
-    const sendIndex = manualNrfMode ? 3 : 5;
-    const ackIndex = manualNrfMode ? 4 : 6;
-    const doneIndex = manualNrfMode ? 5 : 7;
+    const txReadyIndex = 3;
+    const validateIndex = 4;
+    const sendIndex = 5;
+    const doneIndex = 6;
 
     let activeIndex = 0;
     let errorIndex: number | null = null;
 
     if (loadingAction === selectedFlowMeta.busyKey) {
-      activeIndex = 2;
+      activeIndex = sendIndex;
     }
 
-    if (selectedFlowStatus === "WAITING_SYNC_ACK" && syncAckIndex >= 0) {
-      activeIndex = syncAckIndex;
-    } else if (selectedFlowStatus === "SENT_WAITING_ACK") {
-      activeIndex = ackIndex;
-    } else if (selectedFlowStatus === "SENT_ACKED") {
+    if (selectedFlowStatus === "SENT_DATA") {
       activeIndex = doneIndex;
     } else if (selectedFlowStatus === "TX_BUSY") {
-      activeIndex = 2;
+      errorIndex = txReadyIndex;
+      activeIndex = txReadyIndex;
     } else if (selectedFlowStatus === "PAYLOAD_LENGTH_MISMATCH") {
-      errorIndex = 1;
-      activeIndex = 1;
+      errorIndex = validateIndex;
+      activeIndex = validateIndex;
     } else if (selectedFlowStatus.startsWith("SEND_ERROR_")) {
       errorIndex = sendIndex;
       activeIndex = sendIndex;
-    } else if (selectedFlowStatus === "TX_ABANDONED") {
-      errorIndex = doneIndex;
-      activeIndex = doneIndex;
     }
 
     return { activeIndex, errorIndex };
-  }, [loadingAction, manualNrfMode, selectedFlowMeta.busyKey, selectedFlowStatus]);
+  }, [loadingAction, selectedFlowMeta.busyKey, selectedFlowStatus]);
+
   const flowStatusBadge = useMemo(() => {
     if (!selectedFlowStatus && !loadingAction) return "IDLE";
     if (loadingAction === selectedFlowMeta.busyKey && !selectedFlowStatus) return "STARTING";
@@ -337,7 +455,7 @@ export default function BleDebugScreen() {
       return true;
     }
 
-    const required: string[] = [];
+    const required: PermissionsAndroid.Permission[] = [];
     if (androidApi >= 31) {
       required.push(
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
@@ -398,6 +516,29 @@ export default function BleDebugScreen() {
     }
   }
 
+  function relayMessageProtocolLog(level: "DEBUG" | "INFO" | "WARN" | "ERR", args: unknown[]) {
+    if (!args.length) {
+      addLog(`[PPI][MP][${level}]`);
+      return;
+    }
+
+    const [first, ...rest] = args;
+    if (typeof first === "string") {
+      if (!rest.length) {
+        addLog(`[PPI][MP][${level}] ${first}`);
+        return;
+      }
+      if (rest.length === 1) {
+        addLog(`[PPI][MP][${level}] ${first}`, rest[0]);
+        return;
+      }
+      addLog(`[PPI][MP][${level}] ${first}`, rest);
+      return;
+    }
+
+    addLog(`[PPI][MP][${level}]`, args);
+  }
+
   async function withBusy(name: string, run: () => Promise<void>) {
     setLoadingAction(name);
     try {
@@ -409,7 +550,7 @@ export default function BleDebugScreen() {
     }
   }
 
-  const refreshConnectionBanner = useCallback(async (fallbackLabel = "") => {
+  const refreshConnectionBanner = useCallback(async () => {
     try {
       const [connectedResponse, connectedDevice] = await Promise.all([
         isDeviceConnected(),
@@ -419,7 +560,7 @@ export default function BleDebugScreen() {
       const label =
         extractConnectedDeviceLabel(connectedDevice) ||
         extractConnectedDeviceLabel(connectedResponse) ||
-        fallbackLabel;
+        "";
 
       setIsConnected(connected);
       setConnectedDeviceLabel(connected ? label : "");
@@ -455,8 +596,18 @@ export default function BleDebugScreen() {
             `[DISCOVER] Discovering services/characteristics (${reason}) [${attempt}/${maxAttempts}]...`
           );
           const response = await discoverServicesAndCharacteristics();
+          const resolved = resolveMessageProtocolUuidsFromDiscovery(response);
+          resolvedMpTxUuidRef.current = resolved.txUuid;
+          resolvedMpRxUuidRef.current = resolved.rxUuid;
           isGattDiscoveredRef.current = true;
           addLog("[DISCOVER] Services/characteristics ready.", response);
+          // addLog("[DISCOVER] Resolved message protocol UUIDs.", {
+          //   source: resolved.source,
+          //   txCharacteristicUuid: resolved.txUuid,
+          //   rxCharacteristicUuid: resolved.rxUuid,
+          //   expectedTxUuid: MP_TX_UUID,
+          //   expectedRxUuid: MP_RX_UUID,
+          // });
           return;
         } catch (error) {
           lastError = error;
@@ -479,91 +630,12 @@ export default function BleDebugScreen() {
     }
   }
 
-  function onToggleManualNrfMode() {
-    const next = !manualNrfMode;
-    setManualNrfMode(next);
-    stopPpiProtocol();
-    setLastPpiTxPreview(null);
-    setFlowStatusByAction({});
-    addLog(`[PPI] Manual nRF mode ${next ? "ON" : "OFF"}.`, {
-      behavior: next
-        ? "Skip SYNC_START/SYNC_ACK. Send DATA directly; only ACK required."
-        : "Use full Message Protocol sync flow.",
-    });
-  }
-
   async function waitForPpiTxSendable(
     protocol: MessageProtocolInterface,
-    timeoutMs = PPI_TX_READY_TIMEOUT_MS,
-    pollMs = PPI_TX_READY_POLL_MS
+    _timeoutMs = PPI_TX_READY_TIMEOUT_MS,
+    _pollMs = PPI_TX_READY_POLL_MS
   ) {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() <= deadline) {
-      if (isTxStatusSendable(protocol.getTxPacketStatus())) return true;
-      await protocol.process();
-      await new Promise((resolve) => setTimeout(resolve, pollMs));
-    }
     return isTxStatusSendable(protocol.getTxPacketStatus());
-  }
-
-  async function waitForPpiTxCompletion(
-    protocol: MessageProtocolInterface,
-    timeoutMs = PPI_TX_COMPLETION_WAIT_MS,
-    pollMs = 50
-  ) {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() <= deadline) {
-      const status = protocol.getTxPacketStatus();
-      if (status === MsgProtTxPacketStatus.COMPLETED) return "COMPLETED";
-      if (status === MsgProtTxPacketStatus.ABANDONED) return "ABANDONED";
-      await protocol.process();
-      await new Promise((resolve) => setTimeout(resolve, pollMs));
-    }
-    return "TIMEOUT";
-  }
-
-  async function watchForLateTxCompletion(
-    protocol: MessageProtocolInterface,
-    actionName: string,
-    ppi: number,
-    type: number,
-    payloadHex: string
-  ) {
-    const watchToken = ++lateAckWatchTokenRef.current;
-    const deadline = Date.now() + PPI_LATE_ACK_WATCH_TIMEOUT_MS;
-
-    while (Date.now() <= deadline) {
-      if (lateAckWatchTokenRef.current !== watchToken) {
-        return;
-      }
-
-      const status = protocol.getTxPacketStatus();
-      if (status === MsgProtTxPacketStatus.COMPLETED || status === MsgProtTxPacketStatus.ABANDONED) {
-        const resolvedStatus = status === MsgProtTxPacketStatus.COMPLETED ? "SENT_ACKED" : "TX_ABANDONED";
-
-        setLastPpiTxPreview((prev) => {
-          if (!prev || prev.action !== actionName || prev.status !== "SENT_WAITING_ACK") {
-            return prev;
-          }
-          return {
-            ...prev,
-            status: resolvedStatus,
-            sentAt: new Date().toLocaleTimeString(),
-          };
-        });
-        setFlowStatusByAction((prev) => ({ ...prev, [actionName]: resolvedStatus }));
-
-        addLog(`[PPI][${actionName}] ${resolvedStatus} (late update).`, {
-          ppi,
-          type,
-          payloadHex,
-        });
-        return;
-      }
-
-      await protocol.process();
-      await new Promise((resolve) => setTimeout(resolve, PPI_LATE_ACK_WATCH_POLL_MS));
-    }
   }
 
   async function waitForLatestTxFrameHex(
@@ -596,42 +668,30 @@ export default function BleDebugScreen() {
     }
 
     await ensureGattDiscovered("protocol-start");
-
-    const mpService = serviceUuid.trim() || SERVICE_UUIDS.CUSTOM_SERVICE;
-    const mpCharacteristic = characteristicUuid.trim() || CHARACTERISTIC_UUIDS.MESSAGE_PROTOCOL;
-    if (mpCharacteristic.toLowerCase() !== CHARACTERISTIC_UUIDS.MESSAGE_PROTOCOL.toLowerCase()) {
-      addLog(
-        "[PPI][WARN] Characteristic UUID is not the expected MESSAGE_PROTOCOL UUID. Attempting anyway.",
-        {
-          expected: CHARACTERISTIC_UUIDS.MESSAGE_PROTOCOL,
-          provided: mpCharacteristic,
-        }
-      );
-    }
-
-    const ackTimeoutMs = manualNrfMode ? PPI_NRF_MANUAL_ACK_TIMEOUT_MS : PPI_MANUAL_ACK_TIMEOUT_MS;
-    const maxRetries = manualNrfMode ? PPI_NRF_MANUAL_MAX_RETRIES : PPI_MANUAL_MAX_RETRIES;
-    const syncRetryIntervalMs = manualNrfMode
-      ? PPI_NRF_MANUAL_ACK_TIMEOUT_MS
-      : PPI_MANUAL_SYNC_RETRY_MS;
+    const txUuid = resolvedMpTxUuidRef.current || MP_TX_UUID;
+    const rxUuid = resolvedMpRxUuidRef.current || MP_RX_UUID;
 
     const protocol = new BleMessageProtocol({
-      txCharacteristicUUID: mpCharacteristic,
-      rxCharacteristicUUID: mpCharacteristic,
-      serviceUUID: mpService,
-      processIntervalMs: 250,
-      ackTimeoutMs,
-      maxRetries,
-      syncRetryIntervalMs,
-      maxPacketLength: 244,
-      isMaster: !manualNrfMode,
-      relaxedAckMatching: manualNrfMode,
+      txCharacteristicUUID: txUuid,
+      rxCharacteristicUUID: rxUuid,
+      serviceUUID: MP_SERVICE_UUID,
+      processIntervalMs: MP_PROCESS_INTERVAL_MS,
+      ackTimeoutMs: PPI_ACK_TIMEOUT_MS,
+      maxRetries: PPI_MAX_RETRIES,
+      maxPacketLength: MP_MAX_PACKET_LEN,
+      isMaster: true,
+      enableSyncControl: false,
+      sendAckNak: false,
       autoConsumeRx: true,
       logger: {
-        warn: (...args: unknown[]) => addLog("[PPI][MP][WARN]", args),
-        error: (...args: unknown[]) => addLog("[PPI][MP][ERR]", args),
+        debug: (...args: unknown[]) => relayMessageProtocolLog("DEBUG", args),
+        info: (...args: unknown[]) => relayMessageProtocolLog("INFO", args),
+        warn: (...args: unknown[]) => relayMessageProtocolLog("WARN", args),
+        error: (...args: unknown[]) => relayMessageProtocolLog("ERR", args),
       },
       onRxPacket: (packet) => {
+        const rxFrameRaw = ppiProtocolRef.current?.getLastRxPacketRaw() ?? new Uint8Array(0);
+        const rxFrame = parseMpFrameBytes(rxFrameRaw);
         const decoded = decodePpiPayload(packet.ppi, packet.type as PpiType, packet.payload);
         const payloadHex = Buffer.from(packet.payload).toString("hex");
         const payloadBase64 = Buffer.from(packet.payload).toString("base64");
@@ -647,6 +707,9 @@ export default function BleDebugScreen() {
           payloadHex,
           payloadBase64,
           payloadUtf8,
+          fullFrameHex: rxFrame?.frameHex ?? "",
+          fullFrameBase64: rxFrame?.frameBase64 ?? "",
+          mpFrame: rxFrame,
           decoded: decoded.value,
         });
         addLog("[PPI][NOTIFY]", {
@@ -654,22 +717,34 @@ export default function BleDebugScreen() {
           type: packet.type,
           payloadHex,
           payloadUtf8,
+          frameHex: rxFrame?.frameHex ?? null,
+          frameBytesHex: rxFrame?.frameBytesHex ?? null,
+          frameBytesIndexedHex: rxFrame?.frameBytesIndexedHex ?? null,
+          sessionId: rxFrame?.sessionId ?? null,
+          pktCounter: rxFrame?.pktCounter ?? null,
+          pktType: rxFrame?.pktType ?? null,
+          status: rxFrame?.status ?? null,
           decoded: decoded.value,
         });
       },
     });
 
-    await protocol.start();
     ppiProtocolRef.current = protocol;
+    try {
+      await protocol.start();
+    } catch (error) {
+      ppiProtocolRef.current = null;
+      throw error;
+    }
     setProtocolRunning(true);
     addLog("[PPI] Message protocol started", {
-      serviceUuid: mpService,
-      characteristicUuid: mpCharacteristic,
-      manualNrfMode,
-      isMaster: !manualNrfMode,
-      ackTimeoutMs,
-      syncRetryIntervalMs,
-      maxRetries,
+      serviceUuid: MP_SERVICE_UUID,
+      txCharacteristicUuid: txUuid,
+      rxCharacteristicUuid: rxUuid,
+      mode: "MASTER",
+      sessionId: protocol.getCurrentSessionId(),
+      ackTimeoutMs: PPI_ACK_TIMEOUT_MS,
+      maxRetries: PPI_MAX_RETRIES,
     });
 
     return protocol;
@@ -694,37 +769,32 @@ export default function BleDebugScreen() {
       payloadBase64,
       fullFrameHex: "",
       fullFrameBase64: "",
+      mpFrame: null,
     };
-
-    // Cancel any previous late-ACK watcher when a new TX starts.
-    lateAckWatchTokenRef.current += 1;
 
     const protocol = await ensurePpiProtocol();
     const txReady = await waitForPpiTxSendable(protocol);
     if (!txReady) {
-      const lastTxFrameRaw = protocol.getLastTxPacketRaw();
-      const lastTxFrameHex = Buffer.from(lastTxFrameRaw).toString("hex");
-      const lastTxPktType = lastTxFrameRaw.length > 8 ? lastTxFrameRaw[8] : null;
-      const waitingForSyncAck = !manualNrfMode && lastTxPktType === 3;
+      const lastTxFrameHex = Buffer.from(protocol.getLastTxPacketRaw()).toString("hex");
+      const txFrame = parseMpFrameHex(lastTxFrameHex);
       setLastPpiTxPreview({
         ...basePreview,
         fullFrameHex: lastTxFrameHex,
         fullFrameBase64: lastTxFrameHex ? Buffer.from(lastTxFrameHex, "hex").toString("base64") : "",
-        status: waitingForSyncAck ? "WAITING_SYNC_ACK" : "TX_BUSY",
+        mpFrame: txFrame,
+        status: "TX_BUSY",
         sentAt: new Date().toLocaleTimeString(),
       });
-      const blockedStatus = waitingForSyncAck ? "WAITING_SYNC_ACK" : "TX_BUSY";
-      setFlowStatusByAction((prev) => ({ ...prev, [actionName]: blockedStatus }));
-      addLog(`[PPI][${actionName}] Message protocol is not ready yet.`, {
-        reason: waitingForSyncAck
-          ? "Waiting for SYNC_ACK from peripheral for SYNC_START."
-          : "TX busy / not sendable.",
-        hint: manualNrfMode
-          ? "Manual nRF mode: notify ACK for each DATA packet."
-          : "Notify SYNC_ACK for SYNC_START, then ACK for each DATA packet.",
+      setFlowStatusByAction((prev) => ({ ...prev, [actionName]: "TX_BUSY" }));
+      addLog(`[PPI][${actionName}] Message protocol TX not ready.`, {
+        reason:
+          "TX ready requires current TX state to be ABANDONED or NEW before queuing the next DATA frame.",
         lastTxFrameHex: lastTxFrameHex || null,
+        lastTxFrameBytesHex: txFrame?.frameBytesHex ?? null,
+        lastTxFrameBytesIndexedHex: txFrame?.frameBytesIndexedHex ?? null,
+        lastTxFrame: txFrame,
       });
-      return blockedStatus;
+      return "TX_BUSY";
     }
 
     if (!validatePayloadLength(ppi, type, payload)) {
@@ -759,115 +829,133 @@ export default function BleDebugScreen() {
     await protocol.process();
     const fullFrameHex = await waitForLatestTxFrameHex(protocol, previousFrameHex);
     const fullFrameBase64 = fullFrameHex ? Buffer.from(fullFrameHex, "hex").toString("base64") : "";
-    const txCompletionWaitMs = manualNrfMode
-      ? PPI_NRF_TX_COMPLETION_WAIT_MS
-      : PPI_TX_COMPLETION_WAIT_MS;
-    const txOutcome = await waitForPpiTxCompletion(protocol, txCompletionWaitMs);
-    const status =
-      txOutcome === "COMPLETED"
-        ? "SENT_ACKED"
-        : txOutcome === "ABANDONED"
-          ? "TX_ABANDONED"
-          : "SENT_WAITING_ACK";
+    const txFrame = parseMpFrameHex(fullFrameHex);
+    const status = "SENT_DATA";
 
     setLastPpiTxPreview({
       ...basePreview,
       fullFrameHex,
       fullFrameBase64,
+      mpFrame: txFrame,
       status,
       sentAt: new Date().toLocaleTimeString(),
     });
     setFlowStatusByAction((prev) => ({ ...prev, [actionName]: status }));
 
-    addLog(`[PPI][${actionName}] ${status}`, {
-      ppi,
-      type,
-      payloadHex,
-      fullFrameHex: fullFrameHex || null,
-      note:
-        txOutcome === "COMPLETED"
-          ? "ACK received."
-          : "If testing with nRF virtual peripheral, send ACK for this DATA packet (same session_id + pkt_counter).",
-    });
-
-    if (status === "SENT_WAITING_ACK") {
-      void watchForLateTxCompletion(protocol, actionName, ppi, type, payloadHex);
-    }
+    // addLog(`[PPI][${actionName}] ${status}`, {
+    //   ppi,
+    //   type,
+    //   payloadHex,
+    //   fullFrameHex: fullFrameHex || null,
+    //   fullFrameBytesHex: txFrame?.frameBytesHex ?? null,
+    //   fullFrameBytesIndexedHex: txFrame?.frameBytesIndexedHex ?? null,
+    //   frame: txFrame,
+    //   note: "DATA frame sent.",
+    // });
 
     return status;
   }
 
-  async function onConnect() {
-    await withBusy("connect", async () => {
-      const targetDevice = deviceId.trim();
-      if (!targetDevice) {
-        addLog("[CONNECT][ERR] Enter a device id/name first.");
-        return;
-      }
+  function runZeroPayloadAction(
+    selectedAction: QuickFlowAction,
+    busyKey: string,
+    actionName: string,
+    ppi: PpiId,
+    type: PpiType
+  ) {
+    return async () => {
+      setSelectedFlowAction(selectedAction);
+      await withBusy(busyKey, async () => {
+        await sendPpi(actionName, ppi, type, new Uint8Array(0));
+      });
+    };
+  }
 
-      const hasPermissions = await ensureAndroidBlePermissions("connect");
-      if (!hasPermissions) {
-        addLog(
-          "[CONNECT][ERR] Bluetooth permission is required. Enable Nearby devices and Location for this app."
-        );
-        return;
-      }
+  const onPpiTimeRequest = runZeroPayloadAction(
+    "TIME_RQ",
+    "ppi-time-rq",
+    "TIME_RQ",
+    PpiId.AD_TIME,
+    PpiType.RQ
+  );
 
-      try {
-        try {
-          const connectedResponse = await isDeviceConnected();
-          if (resolveConnectionState(connectedResponse)) {
-            const current = await getConnectedDevice().catch(() => null);
-            const currentLabel =
-              extractConnectedDeviceLabel(current) ||
-              extractConnectedDeviceLabel(connectedResponse) ||
-              targetDevice;
-            setIsConnected(true);
-            setConnectedDeviceLabel(currentLabel);
-            addLog("[CONNECT][INFO] Already connected.", {
-              connectedDevice: currentLabel,
-            });
-            await ensureGattDiscovered("connect-existing");
-            return;
-          }
-        } catch {
-          // Continue with connect attempt.
-        }
-
-        try {
-          // Some native stacks require a fresh scan before connect by name/id.
-          await scanLeDevice(2);
-        } catch (scanError) {
-          addLog("[PRE-SCAN][WARN] Scan failed, attempting direct connect.", String(scanError));
-        }
-
-        const res = await connect(targetDevice);
-        addLog("[CONNECT]", res);
-        if (resolveConnectionState(res)) {
-          setIsConnected(true);
-          setConnectedDeviceLabel(extractConnectedDeviceLabel(res) || targetDevice);
-        }
-        await ensureGattDiscovered("connect");
-        await refreshConnectionBanner(targetDevice);
-      } catch (error) {
-        const message = String(error);
-        if (message.toLowerCase().includes("already connected")) {
-          addLog("[CONNECT][INFO] Device already connected.");
-          setIsConnected(true);
-          setConnectedDeviceLabel(targetDevice);
-          await ensureGattDiscovered("connect-already");
-          return;
-        }
-        addLog(`[CONNECT][ERR] ${message}`);
-        await refreshConnectionBanner(targetDevice);
-      }
+  async function onPpiTimePush() {
+    setSelectedFlowAction("TIME_PUSH");
+    await withBusy("ppi-time-push", async () => {
+      const unixTime = Math.floor(Date.now() / 1000);
+      const payload = encodeUint32LE(unixTime);
+      await sendPpi("TIME_PUSH", PpiId.AD_TIME, PpiType.PUSH, payload);
     });
   }
+
+  function buildDemoDoseSchedulePayload() {
+    return encodeDoseSchedulePpi({
+      medication_type: 0,
+      dosage_mg: 2,
+      temp_upper_limit_deg_c: 60,
+      temp_lower_limit_deg_c: 0,
+      temp_avg_window_duration_sec: 1800,
+      dose_days_bitfield: 0x7f,
+      dose_window_duration_minutes: 30,
+      dose_window_count: 4,
+      dose_window_start_times_minutes: [630, 840, 1050, 1260].slice(0, MAX_DOSES_PER_DAY),
+    });
+  }
+
+  const onPpiDoseScheduleRequest = runZeroPayloadAction(
+    "DOSE_SCHEDULE_RQ",
+    "ppi-dose-schedule-rq",
+    "DOSE_SCHEDULE_RQ",
+    PpiId.AD_DOSE_SCHEDULE,
+    PpiType.RQ
+  );
+
+  async function onPpiDoseSchedulePush() {
+    setSelectedFlowAction("DOSE_SCHEDULE_PUSH");
+    await withBusy("ppi-dose-schedule-push", async () => {
+      const payload = buildDemoDoseSchedulePayload();
+      await sendPpi("DOSE_SCHEDULE_PUSH", PpiId.AD_DOSE_SCHEDULE, PpiType.PUSH, payload);
+    });
+  }
+
+  const onDockStatusRequest = runZeroPayloadAction(
+    "DOCK_STATUS_RQ",
+    "ppi-dock-status-rq",
+    "DOCK_STATUS_RQ",
+    PpiId.AD_DOCK_STATUS,
+    PpiType.RQ
+  );
+
+  const onRingStatusRequest = runZeroPayloadAction(
+    "RING_STATUS_RQ",
+    "ppi-ring-status-rq",
+    "RING_STATUS_RQ",
+    PpiId.AD_RING_STATUS,
+    PpiType.RQ
+  );
+
+  const onDockBatteryRequest = runZeroPayloadAction(
+    "DOCK_BATTERY_RQ",
+    "ppi-dock-battery-rq",
+    "DOCK_BATTERY_RQ",
+    PpiId.AD_DOCK_BATT_LEVEL_LOG,
+    PpiType.RQ
+  );
+
+  const onRingBatteryRequest = runZeroPayloadAction(
+    "RING_BATTERY_RQ",
+    "ppi-ring-battery-rq",
+    "RING_BATTERY_RQ",
+    PpiId.AD_RING_BATT_LEVEL_LOG,
+    PpiType.RQ
+  );
 
   async function onDisconnect() {
     await withBusy("disconnect", async () => {
       try {
         stopPpiProtocol();
+        resolvedMpTxUuidRef.current = MP_TX_UUID;
+        resolvedMpRxUuidRef.current = MP_RX_UUID;
         isGattDiscoveredRef.current = false;
         gattDiscoveryInFlightRef.current = null;
         const res = await disconnect();
@@ -880,192 +968,9 @@ export default function BleDebugScreen() {
     });
   }
 
-  async function onPpiTimeRequest() {
-    setSelectedFlowAction("TIME_RQ");
-    let status = "";
-    await withBusy("ppi-time-rq", async () => {
-      const payload = new Uint8Array(0);
-      status = await sendPpi("TIME_RQ", PpiId.AD_TIME, PpiType.RQ, payload);
-    });
-    return status;
-  }
-
-  async function onPpiTimeResponse() {
-    setSelectedFlowAction("TIME_RE");
-    let status = "";
-    await withBusy("ppi-time-re", async () => {
-      const unixTime = Math.floor(Date.now() / 1000);
-      const payload = encodeUint32LE(unixTime);
-      status = await sendPpi("TIME_RE", PpiId.AD_TIME, PpiType.RE, payload);
-    });
-    return status;
-  }
-
-  async function onPpiTimePush() {
-    setSelectedFlowAction("TIME_PUSH");
-    let status = "";
-    await withBusy("ppi-time-push", async () => {
-      const unixTime = Math.floor(Date.now() / 1000);
-      const payload = encodeUint32LE(unixTime);
-      status = await sendPpi("TIME_PUSH", PpiId.AD_TIME, PpiType.PUSH, payload);
-    });
-    return status;
-  }
-
-  function buildDemoDoseSchedulePayload() {
-    return encodeDoseSchedulePpi({
-      medication_type: 0,
-      dosage_mg: 2,
-      temp_upper_limit_deg_c: 60,
-      temp_lower_limit_deg_c: 0,
-      temp_avg_window_duration_sec: 1800,
-      dose_days_bitfield: 0x7f, // Monday-Sunday
-      dose_window_duration_minutes: 30,
-      dose_window_count: 4,
-      dose_window_start_times_minutes: [630, 840, 1050, 1260].slice(
-        0,
-        MAX_DOSES_PER_DAY
-      ),
-    });
-  }
-
-  async function onPpiDoseScheduleRequest() {
-    setSelectedFlowAction("DOSE_SCHEDULE_RQ");
-    let status = "";
-    await withBusy("ppi-dose-schedule-rq", async () => {
-      status = await sendPpi(
-        "DOSE_SCHEDULE_RQ",
-        PpiId.AD_DOSE_SCHEDULE,
-        PpiType.RQ,
-        new Uint8Array(0)
-      );
-    });
-    return status;
-  }
-
-  async function onPpiDoseScheduleResponse() {
-    setSelectedFlowAction("DOSE_SCHEDULE_RE");
-    let status = "";
-    await withBusy("ppi-dose-schedule-re", async () => {
-      const payload = buildDemoDoseSchedulePayload();
-      status = await sendPpi("DOSE_SCHEDULE_RE", PpiId.AD_DOSE_SCHEDULE, PpiType.RE, payload);
-    });
-    return status;
-  }
-
-  async function onPpiDoseSchedulePush() {
-    setSelectedFlowAction("DOSE_SCHEDULE_PUSH");
-    let status = "";
-    await withBusy("ppi-dose-schedule-push", async () => {
-      const payload = buildDemoDoseSchedulePayload();
-      status = await sendPpi("DOSE_SCHEDULE_PUSH", PpiId.AD_DOSE_SCHEDULE, PpiType.PUSH, payload);
-    });
-    return status;
-  }
-
-  async function onSubscribe() {
-    await withBusy("subscribe", async () => {
-      try {
-        await ensurePpiProtocol();
-        const unsub = await subscribeToCharacteristic(
-          characteristicUuid.trim(),
-          serviceUuid.trim(),
-          ({ uuid, fullUuid, hex, deviceId: eventDeviceId }) => {
-            addLog("[NOTIFY]", {
-              uuid,
-              fullUuid,
-              deviceId: eventDeviceId,
-              hex,
-            });
-          }
-        );
-
-        subscriptionsRef.current.push(unsub);
-        addLog("[SUBSCRIBE]", { serviceUuid, characteristicUuid });
-      } catch (error) {
-        addLog(`[SUBSCRIBE][ERR] ${String(error)}`);
-      }
-    });
-  }
-
-  async function onClearSubscriptions() {
-    await withBusy("clear-subs", async () => {
-      subscriptionsRef.current.forEach((fn) => fn());
-      subscriptionsRef.current = [];
-      stopPpiProtocol();
-      addLog("[SUBSCRIBE] Cleared all listeners");
-    });
-  }
-
-  function onCarouselScrollEnd(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    const x = event.nativeEvent.contentOffset.x;
-    let nextIndex = 0;
-    let minDistance = Number.POSITIVE_INFINITY;
-
-    carouselSnapOffsets.forEach((offset, index) => {
-      const distance = Math.abs(x - offset);
-      if (distance < minDistance) {
-        minDistance = distance;
-        nextIndex = index;
-      }
-    });
-
-    setActiveCarouselCard(nextIndex);
-  }
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function hydrateInputs() {
-      try {
-        const raw = await AsyncStorage.getItem(DEBUG_INPUTS_STORAGE_KEY);
-        if (!raw) return;
-        const parsed = JSON.parse(raw) as Partial<PersistedDebugInputs>;
-        if (!mounted) return;
-
-        if (typeof parsed.deviceId === "string") setDeviceId(parsed.deviceId);
-        if (typeof parsed.serviceUuid === "string") setServiceUuid(parsed.serviceUuid);
-        if (typeof parsed.characteristicUuid === "string") {
-          setCharacteristicUuid(parsed.characteristicUuid);
-        }
-      } catch (error) {
-        addLog("[PERSIST][ERR] Failed to load debug inputs", String(error));
-      } finally {
-        if (mounted) setInputsHydrated(true);
-      }
-    }
-
-    hydrateInputs();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!inputsHydrated) return;
-
-    const payload: PersistedDebugInputs = {
-      deviceId,
-      serviceUuid,
-      characteristicUuid,
-    };
-
-    AsyncStorage.setItem(DEBUG_INPUTS_STORAGE_KEY, JSON.stringify(payload)).catch((error) => {
-      addLog("[PERSIST][ERR] Failed to save debug inputs", String(error));
-    });
-  }, [
-    inputsHydrated,
-    deviceId,
-    serviceUuid,
-    characteristicUuid,
-  ]);
-
   useEffect(() => {
     return () => {
       lateAckWatchTokenRef.current += 1;
-      subscriptionsRef.current.forEach((fn) => fn());
-      subscriptionsRef.current = [];
       if (ppiProtocolRef.current) {
         ppiProtocolRef.current.stop();
         ppiProtocolRef.current = null;
@@ -1075,416 +980,364 @@ export default function BleDebugScreen() {
   }, []);
 
   useEffect(() => {
-    void refreshConnectionBanner();
-  }, [refreshConnectionBanner]);
-
-  useEffect(() => {
     setLogCount(getBleDebugLogs().length);
     return subscribeBleDebugLogs(() => {
       setLogCount(getBleDebugLogs().length);
     });
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      void refreshConnectionBanner();
+    }, [refreshConnectionBanner])
+  );
+
+  useEffect(() => {
+    void refreshConnectionBanner();
+  }, [refreshConnectionBanner]);
+
+  const quickActionMap: Record<QuickFlowAction, () => Promise<void>> = {
+    TIME_RQ: onPpiTimeRequest,
+    TIME_PUSH: onPpiTimePush,
+    DOSE_SCHEDULE_RQ: onPpiDoseScheduleRequest,
+    DOSE_SCHEDULE_PUSH: onPpiDoseSchedulePush,
+    DOCK_STATUS_RQ: onDockStatusRequest,
+    RING_STATUS_RQ: onRingStatusRequest,
+    DOCK_BATTERY_RQ: onDockBatteryRequest,
+    RING_BATTERY_RQ: onRingBatteryRequest,
+  };
+
+  function quickActionSubtitle(action: QuickFlowAction) {
+    switch (action) {
+      case "TIME_RQ":
+        return "AD_TIME (RQ, no payload)";
+      case "TIME_PUSH":
+        return "AD_TIME (PUSH, uint32 unix)";
+      case "DOSE_SCHEDULE_RQ":
+        return "AD_DOSE_SCHEDULE (RQ, no payload)";
+      case "DOSE_SCHEDULE_PUSH":
+        return "AD_DOSE_SCHEDULE (PUSH, dose_schedule_t)";
+      case "DOCK_STATUS_RQ":
+        return "AD_DOCK_STATUS (RQ, no payload)";
+      case "RING_STATUS_RQ":
+        return "AD_RING_STATUS (RQ, no payload)";
+      case "DOCK_BATTERY_RQ":
+        return "AD_DOCK_BATT_LEVEL_LOG (RQ, no payload)";
+      case "RING_BATTERY_RQ":
+        return "AD_RING_BATT_LEVEL_LOG (RQ, no payload)";
+      default:
+        return "";
+    }
+  }
+
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        style={styles.keyboardContainer}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-          <ScrollView
-            contentContainerStyle={styles.content}
-            keyboardShouldPersistTaps="handled"
-          >
-            <View style={styles.topInfoWrap}>
-              <View style={styles.header}>
-                <Pressable style={styles.backButton} onPress={() => router.back()}>
-                  <Text style={styles.backButtonText}>{"<"}</Text>
-                </Pressable>
-                <Text style={styles.title}>BLE Debug</Text>
-                <Pressable
-                  style={styles.logsButton}
-                  onPress={() => router.push("/home/ble-debug-logs")}
-                >
-                  <Text style={styles.logsButtonText}>Logs</Text>
-                </Pressable>
-              </View>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <View style={styles.topInfoWrap}>
+          <View style={styles.header}>
+            <Pressable style={styles.backButton} onPress={() => router.back()}>
+              <Text style={styles.backButtonText}>{"<"}</Text>
+            </Pressable>
+            <Text style={styles.title}>BLE Debug</Text>
+            <Pressable style={styles.logsButton} onPress={() => router.push("/home/ble-debug-logs")}>
+              <Text style={styles.logsButtonText}>Logs</Text>
+            </Pressable>
+          </View>
 
+          <View
+            style={[
+              styles.connectionBanner,
+              isConnected ? styles.connectionBannerConnected : styles.connectionBannerDisconnected,
+            ]}
+          >
+            <View style={styles.connectionBannerTop}>
               <View
                 style={[
-                  styles.connectionBanner,
-                  isConnected ? styles.connectionBannerConnected : styles.connectionBannerDisconnected,
+                  styles.connectionDot,
+                  isConnected ? styles.connectionDotConnected : styles.connectionDotDisconnected,
+                ]}
+              />
+              <Text
+                style={[
+                  styles.connectionStatusText,
+                  isConnected
+                    ? styles.connectionStatusTextConnected
+                    : styles.connectionStatusTextDisconnected,
                 ]}
               >
-                <View style={styles.connectionBannerTop}>
-                  <View
-                    style={[
-                      styles.connectionDot,
-                      isConnected ? styles.connectionDotConnected : styles.connectionDotDisconnected,
-                    ]}
+                {isConnected ? "Connected" : "Disconnected"}
+              </Text>
+            </View>
+            <Text style={styles.connectionDeviceText} numberOfLines={1}>
+              {isConnected ? connectedDeviceLabel || "Unknown Device" : "No active device"}
+            </Text>
+            <View style={styles.deviceActionRow}>
+              <ActionButton
+                label="Disconnect"
+                onPress={onDisconnect}
+                disabled={!isConnected || isBlockedByOtherAction("disconnect")}
+                loading={loadingAction === "disconnect"}
+                tone="danger"
+                style={styles.deviceActionButton}
+              />
+            </View>
+            <Text style={styles.sectionHint}>{statusText}</Text>
+          </View>
+        </View>
+
+        <View style={styles.panel}>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Quick Actions</Text>
+            {/* <Text style={styles.sectionHint}>
+              Message protocol running means RX notifications (UUID 0x1509) are active and `process()` is executed on-demand to drive ACK/retry state.
+            </Text>
+            <Text style={styles.sectionHint}>
+              App master mode generates `session_id` while SYNC control flow is disabled.
+            </Text>
+            <Text style={styles.sectionHint}>
+              TX ready means the TX state is ABANDONED or NEW, so the next DATA frame can be queued.
+            </Text> */}
+            <View style={styles.quickPpiGrid}>
+              {QUICK_FLOW_ACTIONS.map((item) => {
+                const meta = QUICK_FLOW_META[item.key];
+                const busyKey = meta.busyKey;
+                return (
+                  <QuickPpiButton
+                    key={item.key}
+                    title={meta.title}
+                    subtitle={quickActionSubtitle(item.key)}
+                    onPress={() => {
+                      void quickActionMap[item.key]();
+                    }}
+                    onInfoPress={() => openFlowHelp(item.key)}
+                    disabled={!isConnected || isBlockedByOtherAction(busyKey)}
+                    loading={loadingAction === busyKey}
                   />
-                  <Text
-                    style={[
-                      styles.connectionStatusText,
-                      isConnected
-                        ? styles.connectionStatusTextConnected
-                        : styles.connectionStatusTextDisconnected,
-                    ]}
-                  >
-                    {isConnected ? "Connected" : "Disconnected"}
+                );
+              })}
+            </View>
+          </View>
+
+          <View style={styles.ppiPreviewCard}>
+            <Text style={styles.ppiPreviewTitle}>Payload Details</Text>
+            <Text style={styles.ppiPreviewPrimaryLabel}>Last Sent</Text>
+            {!lastPpiTxPreview ? (
+              <Text style={styles.ppiPreviewEmpty}>No payload sent yet.</Text>
+            ) : (
+              <>
+                <Text style={styles.ppiPreviewMeta}>
+                  {lastPpiTxPreview.sentAt} · {lastPpiTxPreview.action} · {lastPpiTxPreview.status}
+                </Text>
+                <Text style={styles.ppiPreviewLine}>
+                  PPI: {lastPpiTxPreview.ppiName} ({lastPpiTxPreview.ppi}) · Type: {lastPpiTxPreview.typeName} ({lastPpiTxPreview.type}) · Len: {lastPpiTxPreview.pktPayloadLen}
+                </Text>
+                <Text style={styles.ppiPreviewSectionLabel}>Structure (PPI payload envelope)</Text>
+                <Text style={styles.ppiPreviewCode} selectable>
+                  {JSON.stringify(
+                    {
+                      type: lastPpiTxPreview.type,
+                      ppi: lastPpiTxPreview.ppi,
+                      pktPayloadLen: lastPpiTxPreview.pktPayloadLen,
+                    },
+                    null,
+                    2
+                  )}
+                </Text>
+                <Text style={styles.ppiPreviewSectionLabel}>Structure (Message Protocol header)</Text>
+                <Text style={styles.ppiPreviewCode} selectable>
+                  {lastPpiTxPreview.mpFrame
+                    ? JSON.stringify(
+                        {
+                          pkt_crc: lastPpiTxPreview.mpFrame.crc,
+                          pkt_counter: lastPpiTxPreview.mpFrame.pktCounter,
+                          session_id: lastPpiTxPreview.mpFrame.sessionId,
+                          pkt_type: lastPpiTxPreview.mpFrame.pktType,
+                          pkt_type_label: getMpPacketTypeLabel(lastPpiTxPreview.mpFrame.pktType),
+                          status: lastPpiTxPreview.mpFrame.status,
+                          payload_type: lastPpiTxPreview.mpFrame.payloadType,
+                          payload_ppi: lastPpiTxPreview.mpFrame.payloadPpi,
+                          pkt_payload_len: lastPpiTxPreview.mpFrame.pktPayloadLen,
+                          frame_len: lastPpiTxPreview.mpFrame.frameLength,
+                        },
+                        null,
+                        2
+                      )
+                    : "(not captured yet)"}
+                </Text>
+                <Text style={styles.ppiPreviewSectionLabel}>Payload Hex</Text>
+                <Text style={styles.ppiPreviewCode} selectable>
+                  {lastPpiTxPreview.payloadHex ? formatHexBytes(lastPpiTxPreview.payloadHex) : "(empty)"}
+                </Text>
+                <Text style={styles.ppiPreviewSectionLabel}>Payload Base64</Text>
+                <Text style={styles.ppiPreviewCode} selectable>
+                  {lastPpiTxPreview.payloadBase64 || "(empty)"}
+                </Text>
+                <Text style={styles.ppiPreviewSectionLabel}>Parsed Payload</Text>
+                <Text style={styles.ppiPreviewCode} selectable>
+                  {lastPpiTxHumanReadable || "(not available)"}
+                </Text>
+                <Text style={styles.ppiPreviewSectionLabel}>Full Frame Hex (CRC + header + PPI + payload)</Text>
+                <Text style={styles.ppiPreviewCode} selectable>
+                  {lastPpiTxPreview.fullFrameHex
+                    ? formatHexBytes(lastPpiTxPreview.fullFrameHex)
+                    : "(not captured yet)"}
+                </Text>
+                <Text style={styles.ppiPreviewSectionLabel}>Full Frame Bytes (index:hex)</Text>
+                <Text style={styles.ppiPreviewCode} selectable>
+                  {lastPpiTxPreview.mpFrame?.frameBytesIndexedHex?.length
+                    ? lastPpiTxPreview.mpFrame.frameBytesIndexedHex.join("\n")
+                    : "(not captured yet)"}
+                </Text>
+                <Text style={styles.ppiPreviewSectionLabel}>Full Frame Base64</Text>
+                <Text style={styles.ppiPreviewCode} selectable>
+                  {lastPpiTxPreview.fullFrameBase64 || "(not captured yet)"}
+                </Text>
+              </>
+            )}
+
+            <Text style={styles.ppiPreviewPrimaryLabel}>Last Incoming Update</Text>
+            {!lastPpiRxPreview ? (
+              <Text style={styles.ppiPreviewEmpty}>No incoming value yet.</Text>
+            ) : (
+              <>
+                <Text style={styles.ppiPreviewMeta}>
+                  {lastPpiRxPreview.receivedAt} · {lastPpiRxPreview.source}
+                </Text>
+                {typeof lastPpiRxPreview.ppi === "number" ? (
+                  <Text style={styles.ppiPreviewLine}>
+                    PPI: {lastPpiRxPreview.ppiName} ({lastPpiRxPreview.ppi}) · Type: {lastPpiRxPreview.typeName} ({lastPpiRxPreview.type}) · Len: {lastPpiRxPreview.pktPayloadLen ?? 0}
                   </Text>
-                </View>
-                <Text style={styles.connectionDeviceText} numberOfLines={1}>
-                  {isConnected
-                    ? connectedDeviceLabel || deviceId.trim() || "Unknown Device"
-                    : "No active device"}
+                ) : null}
+                <Text style={styles.ppiPreviewSectionLabel}>Payload Hex</Text>
+                <Text style={styles.ppiPreviewCode} selectable>
+                  {lastPpiRxPreview.payloadHex ? formatHexBytes(lastPpiRxPreview.payloadHex) : "(empty)"}
+                </Text>
+                <Text style={styles.ppiPreviewSectionLabel}>Payload Base64</Text>
+                <Text style={styles.ppiPreviewCode} selectable>
+                  {lastPpiRxPreview.payloadBase64 || "(empty)"}
+                </Text>
+                <Text style={styles.ppiPreviewSectionLabel}>Payload UTF-8</Text>
+                <Text style={styles.ppiPreviewCode} selectable>
+                  {lastPpiRxPreview.payloadUtf8 || "(empty/non-utf8)"}
+                </Text>
+                <Text style={styles.ppiPreviewSectionLabel}>Incoming MP Header</Text>
+                <Text style={styles.ppiPreviewCode} selectable>
+                  {lastPpiRxPreview.mpFrame
+                    ? JSON.stringify(
+                        {
+                          pkt_crc: lastPpiRxPreview.mpFrame.crc,
+                          pkt_counter: lastPpiRxPreview.mpFrame.pktCounter,
+                          session_id: lastPpiRxPreview.mpFrame.sessionId,
+                          pkt_type: lastPpiRxPreview.mpFrame.pktType,
+                          pkt_type_label: getMpPacketTypeLabel(lastPpiRxPreview.mpFrame.pktType),
+                          status: lastPpiRxPreview.mpFrame.status,
+                          payload_type: lastPpiRxPreview.mpFrame.payloadType,
+                          payload_ppi: lastPpiRxPreview.mpFrame.payloadPpi,
+                          pkt_payload_len: lastPpiRxPreview.mpFrame.pktPayloadLen,
+                          frame_len: lastPpiRxPreview.mpFrame.frameLength,
+                        },
+                        null,
+                        2
+                      )
+                    : "(not captured yet)"}
+                </Text>
+                <Text style={styles.ppiPreviewSectionLabel}>Incoming Full Frame Hex</Text>
+                <Text style={styles.ppiPreviewCode} selectable>
+                  {lastPpiRxPreview.fullFrameHex
+                    ? formatHexBytes(lastPpiRxPreview.fullFrameHex)
+                    : "(not captured yet)"}
+                </Text>
+                <Text style={styles.ppiPreviewSectionLabel}>Incoming Full Frame Bytes (index:hex)</Text>
+                <Text style={styles.ppiPreviewCode} selectable>
+                  {lastPpiRxPreview.mpFrame?.frameBytesIndexedHex?.length
+                    ? lastPpiRxPreview.mpFrame.frameBytesIndexedHex.join("\n")
+                    : "(not captured yet)"}
+                </Text>
+                <Text style={styles.ppiPreviewSectionLabel}>Incoming Full Frame Base64</Text>
+                <Text style={styles.ppiPreviewCode} selectable>
+                  {lastPpiRxPreview.fullFrameBase64 || "(not captured yet)"}
+                </Text>
+                <Text style={styles.ppiPreviewSectionLabel}>Decoded Value</Text>
+                <Text style={styles.ppiPreviewCode} selectable>
+                  {formatDecodedValue(lastPpiRxPreview.decoded)}
+                </Text>
+                <Text style={styles.ppiPreviewSectionLabel}>Parsed Payload</Text>
+                <Text style={styles.ppiPreviewCode} selectable>
+                  {lastPpiRxHumanReadable || "(not available)"}
+                </Text>
+              </>
+            )}
+          </View>
+
+          <View style={styles.protocolInfoCard}>
+            <Text style={styles.protocolInfoTitle}>Protocol Info</Text>
+            {/* <Text style={styles.sectionHint}>
+              `session_id` is carried in frame headers (bytes 4-7, little-endian) and generated in app master mode.
+            </Text> */}
+            <View style={styles.protocolInfoGrid}>
+              <View style={styles.protocolInfoRow}>
+                <Text style={styles.protocolInfoLabel}>State</Text>
+                <Text style={styles.protocolInfoValue}>{protocolInfo.protocolState}</Text>
+              </View>
+              <View style={styles.protocolInfoRow}>
+                <Text style={styles.protocolInfoLabel}>Current TX</Text>
+                <Text style={styles.protocolInfoValue}>{protocolInfo.txState}</Text>
+              </View>
+              <View style={styles.protocolInfoRow}>
+                <Text style={styles.protocolInfoLabel}>Current session_id (app)</Text>
+                <Text style={styles.protocolInfoValue}>
+                  {protocolInfo.currentSessionId === null ? "(not started)" : protocolInfo.currentSessionId}
                 </Text>
               </View>
-            </View>
-
-            <View style={styles.panel}>
-            <View style={styles.carouselContainer}>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                decelerationRate="fast"
-                disableIntervalMomentum
-                snapToOffsets={carouselSnapOffsets}
-                snapToAlignment="start"
-                contentContainerStyle={styles.carouselContent}
-                onMomentumScrollEnd={onCarouselScrollEnd}
-              >
-                <View
-                  style={[
-                    styles.carouselCard,
-                    styles.carouselStackCard,
-                    { width: carouselCardWidth },
-                  ]}
-                >
-                  <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Device</Text>
-                    <Text style={styles.inputLabel}>Device ID / Name</Text>
-                    <TextInput
-                      value={deviceId}
-                      onChangeText={setDeviceId}
-                      style={styles.input}
-                      placeholder="VAL-OP ..."
-                      placeholderTextColor={validoseGrey}
-                    />
-                    <View style={styles.deviceActionRow}>
-                      <ActionButton
-                        label="Connect"
-                        onPress={onConnect}
-                        disabled={isConnected || !deviceId.trim() || isBlockedByOtherAction("connect")}
-                        loading={loadingAction === "connect"}
-                        style={styles.deviceActionButton}
-                      />
-                      <ActionButton
-                        label="Disconnect"
-                        onPress={onDisconnect}
-                        disabled={!isConnected || isBlockedByOtherAction("disconnect")}
-                        loading={loadingAction === "disconnect"}
-                        tone="danger"
-                        style={styles.deviceActionButton}
-                      />
-                    </View>
-                  </View>
-
-                  <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Message Protocol</Text>
-                    <Text style={styles.inputLabel}>Service UUID</Text>
-                    <TextInput
-                      value={serviceUuid}
-                      onChangeText={setServiceUuid}
-                      style={styles.input}
-                      placeholderTextColor={validoseGrey}
-                    />
-                    <Text style={styles.inputLabel}>Characteristic UUID</Text>
-                    <TextInput
-                      value={characteristicUuid}
-                      onChangeText={setCharacteristicUuid}
-                      style={styles.input}
-                      placeholderTextColor={validoseGrey}
-                    />
-                    <View style={styles.deviceActionRow}>
-                      <ActionButton
-                        label="Subscribe"
-                        onPress={onSubscribe}
-                        disabled={!canRun || !isConnected || isBlockedByOtherAction("subscribe")}
-                        loading={loadingAction === "subscribe"}
-                        style={styles.deviceActionButton}
-                      />
-                      <ActionButton
-                        label="Clear Subs"
-                        onPress={onClearSubscriptions}
-                        disabled={!isConnected || isBlockedByOtherAction("clear-subs")}
-                        loading={loadingAction === "clear-subs"}
-                        style={styles.deviceActionButton}
-                      />
-                    </View>
-                    <View style={styles.ppiModeRow}>
-                      <Text style={styles.ppiModeLabel}>Manual nRF Mode</Text>
-                      <Pressable
-                        style={[
-                          styles.ppiModeToggle,
-                          manualNrfMode ? styles.ppiModeToggleActive : styles.ppiModeToggleInactive,
-                          !isConnected && styles.ppiModeToggleDisabled,
-                        ]}
-                        disabled={!isConnected || isActionInProgress}
-                        onPress={onToggleManualNrfMode}
-                      >
-                        <Text
-                          style={[
-                            styles.ppiModeToggleText,
-                            manualNrfMode && styles.ppiModeToggleTextActive,
-                            !isConnected && styles.ppiModeToggleTextDisabled,
-                          ]}
-                        >
-                          {manualNrfMode ? "ON (Skip Sync)" : "OFF (Full Sync)"}
-                        </Text>
-                      </Pressable>
-                    </View>
-                    <Text style={styles.sectionHint}>
-                      {manualNrfMode
-                        ? "Manual nRF mode sends DATA directly; ACK is still required."
-                        : "Full sync mode sends SYNC_START then DATA and waits for ACKs."}
-                    </Text>
-                    <Text style={styles.sectionHint}>{statusText}</Text>
-                  </View>
-                </View>
-
-                <View style={[styles.section, styles.carouselCard, { width: carouselCardWidth }]}>
-                  <Text style={styles.sectionTitle}>Quick Actions</Text>
-                  <View style={styles.quickPpiGrid}>
-                    <QuickPpiButton
-                      title="Time Request"
-                      subtitle="AD_TIME (RQ, no payload)"
-                      onPress={onPpiTimeRequest}
-                      onInfoPress={() => openFlowHelp("TIME_RQ")}
-                      disabled={!canRun || !isConnected || isBlockedByOtherAction("ppi-time-rq")}
-                      loading={loadingAction === "ppi-time-rq"}
-                    />
-                    <QuickPpiButton
-                      title="Time Response"
-                      subtitle="AD_TIME (RE, uint32 unix)"
-                      onPress={onPpiTimeResponse}
-                      onInfoPress={() => openFlowHelp("TIME_RE")}
-                      disabled={!canRun || !isConnected || isBlockedByOtherAction("ppi-time-re")}
-                      loading={loadingAction === "ppi-time-re"}
-                    />
-                    <QuickPpiButton
-                      title="Time Push"
-                      subtitle="AD_TIME (PUSH, uint32 unix)"
-                      onPress={onPpiTimePush}
-                      onInfoPress={() => openFlowHelp("TIME_PUSH")}
-                      disabled={!canRun || !isConnected || isBlockedByOtherAction("ppi-time-push")}
-                      loading={loadingAction === "ppi-time-push"}
-                    />
-                    <QuickPpiButton
-                      title="Dose Schedule Request"
-                      subtitle="AD_DOSE_SCHEDULE (RQ, no payload)"
-                      onPress={onPpiDoseScheduleRequest}
-                      onInfoPress={() => openFlowHelp("DOSE_SCHEDULE_RQ")}
-                      disabled={!canRun || !isConnected || isBlockedByOtherAction("ppi-dose-schedule-rq")}
-                      loading={loadingAction === "ppi-dose-schedule-rq"}
-                    />
-                    <QuickPpiButton
-                      title="Dose Schedule Response"
-                      subtitle="AD_DOSE_SCHEDULE (RE, dose_schedule_t)"
-                      onPress={onPpiDoseScheduleResponse}
-                      onInfoPress={() => openFlowHelp("DOSE_SCHEDULE_RE")}
-                      disabled={!canRun || !isConnected || isBlockedByOtherAction("ppi-dose-schedule-re")}
-                      loading={loadingAction === "ppi-dose-schedule-re"}
-                    />
-                    <QuickPpiButton
-                      title="Dose Schedule Push"
-                      subtitle="AD_DOSE_SCHEDULE (PUSH, dose_schedule_t)"
-                      onPress={onPpiDoseSchedulePush}
-                      onInfoPress={() => openFlowHelp("DOSE_SCHEDULE_PUSH")}
-                      disabled={!canRun || !isConnected || isBlockedByOtherAction("ppi-dose-schedule-push")}
-                      loading={loadingAction === "ppi-dose-schedule-push"}
-                    />
-                  </View>
-
-                  <View style={styles.ppiPreviewCard}>
-                    <Text style={styles.ppiPreviewTitle}>Payload Details</Text>
-                    <Text style={styles.ppiPreviewPrimaryLabel}>Last Sent</Text>
-                    {!lastPpiTxPreview ? (
-                      <Text style={styles.ppiPreviewEmpty}>No payload sent yet.</Text>
-                    ) : (
-                      <>
-                        <Text style={styles.ppiPreviewMeta}>
-                          {lastPpiTxPreview.sentAt} · {lastPpiTxPreview.action} · {lastPpiTxPreview.status}
-                        </Text>
-                        <Text style={styles.ppiPreviewLine}>
-                          PPI: {lastPpiTxPreview.ppiName} ({lastPpiTxPreview.ppi}) · Type:{" "}
-                          {lastPpiTxPreview.typeName} ({lastPpiTxPreview.type}) · Len:{" "}
-                          {lastPpiTxPreview.pktPayloadLen}
-                        </Text>
-                        <Text style={styles.ppiPreviewSectionLabel}>Structure</Text>
-                        <Text style={styles.ppiPreviewCode} selectable>
-                          {JSON.stringify(
-                            {
-                              type: lastPpiTxPreview.type,
-                              ppi: lastPpiTxPreview.ppi,
-                              pktPayloadLen: lastPpiTxPreview.pktPayloadLen,
-                            },
-                            null,
-                            2
-                          )}
-                        </Text>
-                        <Text style={styles.ppiPreviewSectionLabel}>Payload Hex</Text>
-                        <Text style={styles.ppiPreviewCode} selectable>
-                          {lastPpiTxPreview.payloadHex || "(empty)"}
-                        </Text>
-                        <Text style={styles.ppiPreviewSectionLabel}>Payload Base64</Text>
-                        <Text style={styles.ppiPreviewCode} selectable>
-                          {lastPpiTxPreview.payloadBase64 || "(empty)"}
-                        </Text>
-                        <Text style={styles.ppiPreviewSectionLabel}>Parsed Payload</Text>
-                        <Text style={styles.ppiPreviewCode} selectable>
-                          {lastPpiTxHumanReadable || "(not available)"}
-                        </Text>
-                        <Text style={styles.ppiPreviewSectionLabel}>
-                          Full Frame Hex (CRC + header + PPI + payload)
-                        </Text>
-                        <Text style={styles.ppiPreviewCode} selectable>
-                          {lastPpiTxPreview.fullFrameHex || "(not captured yet)"}
-                        </Text>
-                        <Text style={styles.ppiPreviewSectionLabel}>Full Frame Base64</Text>
-                        <Text style={styles.ppiPreviewCode} selectable>
-                          {lastPpiTxPreview.fullFrameBase64 || "(not captured yet)"}
-                        </Text>
-                      </>
-                    )}
-
-                    <Text style={styles.ppiPreviewPrimaryLabel}>Last Incoming Update</Text>
-                    {!lastPpiRxPreview ? (
-                      <Text style={styles.ppiPreviewEmpty}>No incoming value yet.</Text>
-                    ) : (
-                      <>
-                        <Text style={styles.ppiPreviewMeta}>
-                          {lastPpiRxPreview.receivedAt} · {lastPpiRxPreview.source}
-                        </Text>
-                        {typeof lastPpiRxPreview.ppi === "number" ? (
-                          <Text style={styles.ppiPreviewLine}>
-                            PPI: {lastPpiRxPreview.ppiName} ({lastPpiRxPreview.ppi}) · Type:{" "}
-                            {lastPpiRxPreview.typeName} ({lastPpiRxPreview.type}) · Len:{" "}
-                            {lastPpiRxPreview.pktPayloadLen ?? 0}
-                          </Text>
-                        ) : null}
-                        <Text style={styles.ppiPreviewSectionLabel}>Payload Hex</Text>
-                        <Text style={styles.ppiPreviewCode} selectable>
-                          {lastPpiRxPreview.payloadHex || "(empty)"}
-                        </Text>
-                        <Text style={styles.ppiPreviewSectionLabel}>Payload Base64</Text>
-                        <Text style={styles.ppiPreviewCode} selectable>
-                          {lastPpiRxPreview.payloadBase64 || "(empty)"}
-                        </Text>
-                        <Text style={styles.ppiPreviewSectionLabel}>Payload UTF-8</Text>
-                        <Text style={styles.ppiPreviewCode} selectable>
-                          {lastPpiRxPreview.payloadUtf8 || "(empty/non-utf8)"}
-                        </Text>
-                        <Text style={styles.ppiPreviewSectionLabel}>Decoded Value</Text>
-                        <Text style={styles.ppiPreviewCode} selectable>
-                          {formatDecodedValue(lastPpiRxPreview.decoded)}
-                        </Text>
-                        <Text style={styles.ppiPreviewSectionLabel}>Parsed Payload</Text>
-                        <Text style={styles.ppiPreviewCode} selectable>
-                          {lastPpiRxHumanReadable || "(not available)"}
-                        </Text>
-                      </>
-                    )}
-                  </View>
-                </View>
-
-              </ScrollView>
-
-              <View style={styles.carouselDots}>
-                {[0, 1].map((index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.carouselDot,
-                      activeCarouselCard === index && styles.carouselDotActive,
-                    ]}
-                  />
-                ))}
+              <View style={styles.protocolInfoRow}>
+                <Text style={styles.protocolInfoLabel}>Debug events</Text>
+                <Text style={styles.protocolInfoValue}>{protocolInfo.logCount}</Text>
+              </View>
+              <View style={styles.protocolInfoRow}>
+                <Text style={styles.protocolInfoLabel}>ACK timeout</Text>
+                <Text style={styles.protocolInfoValue}>{protocolInfo.ackTimeoutMs} ms</Text>
+              </View>
+              <View style={styles.protocolInfoRow}>
+                <Text style={styles.protocolInfoLabel}>Max retries</Text>
+                <Text style={styles.protocolInfoValue}>{protocolInfo.maxRetries}</Text>
+              </View>
+              <View style={styles.protocolInfoRow}>
+                <Text style={styles.protocolInfoLabel}>TX ready timeout</Text>
+                <Text style={styles.protocolInfoValue}>{protocolInfo.txReadyTimeoutMs} ms</Text>
+              </View>
+              <View style={styles.protocolInfoRow}>
+                <Text style={styles.protocolInfoLabel}>TX completion wait</Text>
+                <Text style={styles.protocolInfoValue}>{protocolInfo.txCompletionWaitMs} ms</Text>
+              </View>
+              <View style={styles.protocolInfoRow}>
+                <Text style={styles.protocolInfoLabel}>Late ACK watch</Text>
+                <Text style={styles.protocolInfoValue}>{protocolInfo.lateAckWatchMs} ms</Text>
+              </View>
+              <View style={styles.protocolInfoRow}>
+                <Text style={styles.protocolInfoLabel}>Process interval</Text>
+                <Text style={styles.protocolInfoValue}>{protocolInfo.processIntervalMs} ms</Text>
+              </View>
+              <View style={styles.protocolInfoRow}>
+                <Text style={styles.protocolInfoLabel}>Max packet length</Text>
+                <Text style={styles.protocolInfoValue}>{protocolInfo.maxPacketLength} bytes</Text>
+              </View>
+              <View style={styles.protocolInfoRow}>
+                <Text style={styles.protocolInfoLabel}>Service UUID</Text>
+                <Text style={styles.protocolInfoValue}>{MP_SERVICE_UUID}</Text>
+              </View>
+              <View style={styles.protocolInfoRow}>
+                <Text style={styles.protocolInfoLabel}>TX UUID (App → Device)</Text>
+                <Text style={styles.protocolInfoValue}>{MP_TX_UUID}</Text>
+              </View>
+              <View style={styles.protocolInfoRow}>
+                <Text style={styles.protocolInfoLabel}>RX UUID (Device → App)</Text>
+                <Text style={styles.protocolInfoValue}>{MP_RX_UUID}</Text>
               </View>
             </View>
+          </View>
+        </View>
+      </ScrollView>
 
-            <View style={styles.protocolInfoCard}>
-              <Text style={styles.protocolInfoTitle}>Protocol Info</Text>
-              <View style={styles.protocolInfoGrid}>
-                <View style={styles.protocolInfoRow}>
-                  <Text style={styles.protocolInfoLabel}>State</Text>
-                  <Text style={styles.protocolInfoValue}>{protocolInfo.protocolState}</Text>
-                </View>
-                <View style={styles.protocolInfoRow}>
-                  <Text style={styles.protocolInfoLabel}>Current TX</Text>
-                  <Text style={styles.protocolInfoValue}>{protocolInfo.txState}</Text>
-                </View>
-                <View style={styles.protocolInfoRow}>
-                  <Text style={styles.protocolInfoLabel}>Debug events</Text>
-                  <Text style={styles.protocolInfoValue}>{protocolInfo.logCount}</Text>
-                </View>
-                <View style={styles.protocolInfoRow}>
-                  <Text style={styles.protocolInfoLabel}>Mode</Text>
-                  <Text style={styles.protocolInfoValue}>{protocolInfo.mode}</Text>
-                </View>
-                <View style={styles.protocolInfoRow}>
-                  <Text style={styles.protocolInfoLabel}>isMaster / relaxedAck</Text>
-                  <Text style={styles.protocolInfoValue}>
-                    {protocolInfo.isMaster} / {protocolInfo.relaxedAckMatching}
-                  </Text>
-                </View>
-                <View style={styles.protocolInfoRow}>
-                  <Text style={styles.protocolInfoLabel}>ACK timeout</Text>
-                  <Text style={styles.protocolInfoValue}>{protocolInfo.ackTimeoutMs} ms</Text>
-                </View>
-                <View style={styles.protocolInfoRow}>
-                  <Text style={styles.protocolInfoLabel}>Max retries</Text>
-                  <Text style={styles.protocolInfoValue}>{protocolInfo.maxRetries}</Text>
-                </View>
-                <View style={styles.protocolInfoRow}>
-                  <Text style={styles.protocolInfoLabel}>Sync retry interval</Text>
-                  <Text style={styles.protocolInfoValue}>{protocolInfo.syncRetryIntervalMs} ms</Text>
-                </View>
-                <View style={styles.protocolInfoRow}>
-                  <Text style={styles.protocolInfoLabel}>TX ready timeout</Text>
-                  <Text style={styles.protocolInfoValue}>{protocolInfo.txReadyTimeoutMs} ms</Text>
-                </View>
-                <View style={styles.protocolInfoRow}>
-                  <Text style={styles.protocolInfoLabel}>TX completion wait</Text>
-                  <Text style={styles.protocolInfoValue}>{protocolInfo.txCompletionWaitMs} ms</Text>
-                </View>
-                <View style={styles.protocolInfoRow}>
-                  <Text style={styles.protocolInfoLabel}>Late ACK watch</Text>
-                  <Text style={styles.protocolInfoValue}>{protocolInfo.lateAckWatchMs} ms</Text>
-                </View>
-                <View style={styles.protocolInfoRow}>
-                  <Text style={styles.protocolInfoLabel}>Process interval</Text>
-                  <Text style={styles.protocolInfoValue}>{protocolInfo.processIntervalMs} ms</Text>
-                </View>
-                <View style={styles.protocolInfoRow}>
-                  <Text style={styles.protocolInfoLabel}>Max packet length</Text>
-                  <Text style={styles.protocolInfoValue}>{protocolInfo.maxPacketLength} bytes</Text>
-                </View>
-                <View style={styles.protocolInfoRow}>
-                  <Text style={styles.protocolInfoLabel}>Service UUID</Text>
-                  <Text style={styles.protocolInfoValue}>{serviceUuid || "(empty)"}</Text>
-                </View>
-                <View style={styles.protocolInfoRow}>
-                  <Text style={styles.protocolInfoLabel}>Characteristic UUID</Text>
-                  <Text style={styles.protocolInfoValue}>{characteristicUuid || "(empty)"}</Text>
-                </View>
-              </View>
-            </View>
-
-            </View>
-          </ScrollView>
-        </TouchableWithoutFeedback>
-      </KeyboardAvoidingView>
       <Modal
         visible={flowHelpVisible}
         animationType="slide"
@@ -1492,23 +1345,15 @@ export default function BleDebugScreen() {
         onRequestClose={() => setFlowHelpVisible(false)}
       >
         <View style={styles.flowModalBackdrop}>
-          <Pressable
-            style={styles.flowModalDismissArea}
-            onPress={() => setFlowHelpVisible(false)}
-          />
+          <Pressable style={styles.flowModalDismissArea} onPress={() => setFlowHelpVisible(false)} />
           <View style={styles.flowModalCard}>
             <View style={styles.flowModalHandle} />
             <View style={styles.flowModalHeader}>
               <View style={styles.flowModalHeaderTextWrap}>
                 <Text style={styles.flowModalTitle}>Protocol Steps</Text>
-                <Text style={styles.flowModalSubtitle}>
-                  {selectedFlowMeta.title} · {selectedFlowModeText}
-                </Text>
+                <Text style={styles.flowModalSubtitle}>{selectedFlowMeta.title} · Master Data Mode</Text>
               </View>
-              <Pressable
-                style={styles.flowModalClose}
-                onPress={() => setFlowHelpVisible(false)}
-              >
+              <Pressable style={styles.flowModalClose} onPress={() => setFlowHelpVisible(false)}>
                 <Text style={styles.flowModalCloseText}>Done</Text>
               </Pressable>
             </View>
@@ -1533,7 +1378,7 @@ export default function BleDebugScreen() {
                 if (flowProgress.errorIndex !== null) {
                   if (index < flowProgress.errorIndex) stepState = "done";
                   else if (index === flowProgress.errorIndex) stepState = "error";
-                } else if (selectedFlowStatus === "SENT_ACKED") {
+                } else if (selectedFlowStatus === "SENT_DATA") {
                   stepState = "done";
                 } else if (index < flowProgress.activeIndex) {
                   stepState = "done";

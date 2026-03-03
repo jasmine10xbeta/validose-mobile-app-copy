@@ -5,8 +5,6 @@ const PACKET_TYPES = {
   DATA: 0,
   ACK: 1,
   NAK: 2,
-  SYNC_START: 3,
-  SYNC_ACK: 4,
 };
 
 const PPI_TYPE_PUSH = 2;
@@ -286,15 +284,10 @@ function main() {
       return;
     }
     const parsed = parseFrame(incomingHex);
-    const responseType =
-      parsed.pktType === PACKET_TYPES.SYNC_START
-        ? PACKET_TYPES.SYNC_ACK
-        : parsed.pktType === PACKET_TYPES.DATA
-          ? PACKET_TYPES.ACK
-          : null;
+    const responseType = parsed.pktType === PACKET_TYPES.DATA ? PACKET_TYPES.ACK : null;
 
     if (responseType === null) {
-      throw new Error(`Incoming pkt_type ${parsed.pktType} is not SYNC_START(3) or DATA(0).`);
+      throw new Error(`Incoming pkt_type ${parsed.pktType} is not DATA(0).`);
     }
 
     const response = buildFrame({
