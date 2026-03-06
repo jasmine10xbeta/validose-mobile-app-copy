@@ -11,7 +11,8 @@ Message Protocol uses one custom service with two one-way characteristics:
 - App writes DATA/ACK/NAK to `UUID_DATA_RX` (`0x1508`)
 - App receives notifications from `UUID_DATA_TX` (`0x1509`)
 
-Normal payload exchange is DATA/ACK/NAK only.
+Control-plane sync uses `SYNC_START` / `SYNC_ACK` / `SYNC_MISMATCH`.
+Payload exchange uses DATA/ACK/NAK.
 
 For each outgoing DATA packet:
 - app queues frame
@@ -20,7 +21,53 @@ For each outgoing DATA packet:
 
 ---
 
-## 2) BLE UUIDs
+## 2) End-to-end block diagram
+
+```mermaid
+flowchart LR
+  subgraph App["Mobile App (this repo)"]
+    UI["App screens / actions"]
+    ORCH["BLE orchestration<br/>src/utils/ble/index.ts"]
+    MP["BleMessageProtocol<br/>src/utils/ble/messageProtocol.ts"]
+    PPI["PPI payload decoder<br/>src/utils/ble/messageProtocolPpi.ts"]
+    BLETX["BLE write<br/>0x1508 (App -> Device)"]
+    BLERX["BLE notify<br/>0x1509 (Device -> App)"]
+
+    UI --> ORCH
+    ORCH --> MP
+    MP <--> PPI
+    MP --> BLETX
+    BLERX --> MP
+  end
+
+  subgraph Firmware["Dock/Ring firmware stack (reference model)"]
+    APPMGR["App Manager / Ring-Dock Manager"]
+    FWMP["Message Protocol"]
+    SECP["Security Protocol"]
+    SLP["Serial Link Protocol"]
+    SERIAL["Serial layer (NFC driver)"]
+
+    APPMGR <--> FWMP
+    FWMP <--> SECP
+    FWMP <--> SLP
+    SLP <--> SERIAL
+  end
+
+  BLETX --> APPMGR
+  APPMGR --> BLERX
+  MP -. "SYNC_START / SYNC_ACK / SYNC_MISMATCH" .-> FWMP
+  MP -. "DATA + ACK/NAK + retry on timeout" .-> FWMP
+```
+
+Flow notes:
+- App initializes protocol (`start()`), runs SYNC control, and waits for TX-ready.
+- Outgoing app PPI payloads are encoded, wrapped into Message Protocol DATA frames, and written to `0x1508`.
+- Firmware replies with ACK/NAK and emits RE/PUSH frames over `0x1509`.
+- App decodes incoming PPI payloads and dispatches them to registered handlers.
+
+---
+
+## 3) BLE UUIDs
 
 Service:
 - `00001500-EB00-430A-A8FF-C7AD4211BF86`
@@ -31,7 +78,7 @@ Characteristics:
 
 ---
 
-## 3) Packet format
+## 4) Packet format
 
 All values are little-endian.
 
@@ -51,10 +98,13 @@ Packet types:
 - `DATA = 0`
 - `ACK = 1`
 - `NAK = 2`
+- `SYNC_START = 3`
+- `SYNC_ACK = 4`
+- `SYNC_MISMATCH = 5`
 
 ---
 
-## 4) App files involved
+## 5) App files involved
 
 Core protocol:
 - `src/utils/ble/messageProtocol.ts`
@@ -72,18 +122,24 @@ Debug screens:
 
 ---
 
-## 5) Debug quick actions currently exposed
+## 6) Debug quick actions currently exposed
 
 - Time: `AD_TIME` (`RQ`, `RE`, `PUSH`)
 - Dose schedule: `AD_DOSE_SCHEDULE` (`RQ`, `RE`, `PUSH`)
 - Dock status: `AD_DOCK_STATUS` (`RQ`)
 - Ring status: `AD_RING_STATUS` (`RQ`)
-- Dock battery: `AD_DOCK_BATT_LEVEL_LOG` (`RQ`)
-- Ring battery: `AD_RING_BATT_LEVEL_LOG` (`RQ`)
+
+There are three dose schedule push presets (`A`, `B`, `C`) for test payload variation.
+
+App parser is aligned with `firmware/workspace` for:
+- full `PPI_AD` ID set (`0..27`)
+- `ring_status_t` 47-byte layout
+- calibration and baselining payload structs
+- `raw_debug_log_t` (32-byte) for dock/ring debug log pushes
 
 ---
 
-## 6) TX ready and protocol running (UI definitions)
+## 7) TX ready and protocol running (UI definitions)
 
 In BLE Debug:
 
@@ -100,7 +156,7 @@ If TX is not ready, action returns `TX_BUSY`.
 
 ---
 
-## 7) Timeout / retry behavior
+## 8) Timeout / retry behavior
 
 Configured in debug flow:
 
@@ -118,7 +174,7 @@ Common statuses:
 
 ---
 
-## 8) Debug workflow
+## 9) Debug workflow
 
 1. Open **BLE Debug Console**
 2. Scan devices and filter by names starting with `VAL`
@@ -128,7 +184,7 @@ Common statuses:
 
 ---
 
-## 9) nRF virtual peripheral notes
+## 10) nRF virtual peripheral notes (not supported by debug screen completely in currently)
 
 If testing with a virtual peripheral:
 
@@ -139,7 +195,7 @@ If testing with a virtual peripheral:
 
 ---
 
-## 10) Troubleshooting
+## 11) Troubleshooting
 
 ### `call discoverServicesAndCharacteristics() first`
 - Usually auto-recovered.
@@ -159,12 +215,9 @@ If testing with a virtual peripheral:
 
 ---
 
-## 11) FAQ
-
-### Do request/response use different UUIDs now?
-- Yes.
-- App writes to `0x1508` and listens on `0x1509`.
+## 12) FAQ
 
 ### Who owns session control?
 - App runs as master for session_id generation.
-- App runtime keeps SYNC control flow disabled.
+- App runtime keeps SYNC control flow enabled (`SYNC_START`/`SYNC_ACK`/`SYNC_MISMATCH`).
+- App and firmware exchange ACK/NAK for DATA reliability.
