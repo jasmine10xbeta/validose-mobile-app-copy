@@ -1,8 +1,10 @@
 import {
   BATTERY_LEVEL_T_SIZE_BYTES,
   DOSE_SCHEDULE_T_SIZE_BYTES,
+  MAX_DOSES_PER_DAY,
   PpiId,
   PpiType,
+  type DoseSchedulePpi,
 } from "@/utils/ble/messageProtocolPpi";
 
 import type { QuickFlowAction, QuickFlowMeta } from "./types";
@@ -11,12 +13,51 @@ export const QUICK_FLOW_ACTIONS: { key: QuickFlowAction; label: string }[] = [
   { key: "TIME_RQ", label: "Time RQ" },
   { key: "TIME_PUSH", label: "Time PUSH" },
   { key: "DOSE_SCHEDULE_RQ", label: "Dose RQ" },
-  { key: "DOSE_SCHEDULE_PUSH", label: "Dose PUSH" },
+  { key: "DOSE_SCHEDULE_PUSH", label: "Dose PUSH A" },
+  { key: "DOSE_SCHEDULE_PUSH_ALT_1", label: "Dose PUSH B" },
+  { key: "DOSE_SCHEDULE_PUSH_ALT_2", label: "Dose PUSH C" },
   { key: "DOCK_STATUS_RQ", label: "Dock Status" },
   { key: "RING_STATUS_RQ", label: "Ring Status" },
-  { key: "DOCK_BATTERY_RQ", label: "Dock Battery" },
-  { key: "RING_BATTERY_RQ", label: "Ring Battery" },
 ];
+
+export const DOSE_SCHEDULE_PUSH_PAYLOADS: Record<
+  "DOSE_SCHEDULE_PUSH" | "DOSE_SCHEDULE_PUSH_ALT_1" | "DOSE_SCHEDULE_PUSH_ALT_2",
+  DoseSchedulePpi
+> = {
+  DOSE_SCHEDULE_PUSH: {
+    medication_type: 0,
+    dosage_mg: 2,
+    temp_upper_limit_deg_c: 60,
+    temp_lower_limit_deg_c: 0,
+    temp_avg_window_duration_sec: 1800,
+    dose_days_bitfield: 0x7f,
+    dose_window_duration_minutes: 30,
+    dose_window_count: 4,
+    dose_window_start_times_minutes: [630, 840, 1050, 1260].slice(0, MAX_DOSES_PER_DAY),
+  },
+  DOSE_SCHEDULE_PUSH_ALT_1: {
+    medication_type: 1,
+    dosage_mg: 5,
+    temp_upper_limit_deg_c: 60,
+    temp_lower_limit_deg_c: 2,
+    temp_avg_window_duration_sec: 900,
+    dose_days_bitfield: 0x1f,
+    dose_window_duration_minutes: 45,
+    dose_window_count: 3,
+    dose_window_start_times_minutes: [480, 780, 1200].slice(0, MAX_DOSES_PER_DAY),
+  },
+  DOSE_SCHEDULE_PUSH_ALT_2: {
+    medication_type: 2,
+    dosage_mg: 1,
+    temp_upper_limit_deg_c: 60,
+    temp_lower_limit_deg_c: 4,
+    temp_avg_window_duration_sec: 1200,
+    dose_days_bitfield: 0x7e,
+    dose_window_duration_minutes: 20,
+    dose_window_count: 2,
+    dose_window_start_times_minutes: [540, 1260].slice(0, MAX_DOSES_PER_DAY),
+  },
+};
 
 export const QUICK_FLOW_META: Record<QuickFlowAction, QuickFlowMeta> = {
   TIME_RQ: {
@@ -53,15 +94,40 @@ export const QUICK_FLOW_META: Record<QuickFlowAction, QuickFlowMeta> = {
     lenHint: "len=0",
   },
   DOSE_SCHEDULE_PUSH: {
-    title: "Dose Schedule Push",
+    title: "Dose Schedule Push A",
     actionName: "DOSE_SCHEDULE_PUSH",
     busyKey: "ppi-dose-schedule-push",
     ppiName: "AD_DOSE_SCHEDULE",
     ppiId: PpiId.AD_DOSE_SCHEDULE,
     typeName: "PUSH",
     typeId: PpiType.PUSH,
-    payloadHint: "dose_schedule_t (demo)",
+    payloadHint: "dose_schedule_t (preset A)",
     lenHint: `len=${DOSE_SCHEDULE_T_SIZE_BYTES}`,
+    payloadPreview: DOSE_SCHEDULE_PUSH_PAYLOADS.DOSE_SCHEDULE_PUSH,
+  },
+  DOSE_SCHEDULE_PUSH_ALT_1: {
+    title: "Dose Schedule Push B",
+    actionName: "DOSE_SCHEDULE_PUSH_ALT_1",
+    busyKey: "ppi-dose-schedule-push-alt-1",
+    ppiName: "AD_DOSE_SCHEDULE",
+    ppiId: PpiId.AD_DOSE_SCHEDULE,
+    typeName: "PUSH",
+    typeId: PpiType.PUSH,
+    payloadHint: "dose_schedule_t (preset B)",
+    lenHint: `len=${DOSE_SCHEDULE_T_SIZE_BYTES}`,
+    payloadPreview: DOSE_SCHEDULE_PUSH_PAYLOADS.DOSE_SCHEDULE_PUSH_ALT_1,
+  },
+  DOSE_SCHEDULE_PUSH_ALT_2: {
+    title: "Dose Schedule Push C",
+    actionName: "DOSE_SCHEDULE_PUSH_ALT_2",
+    busyKey: "ppi-dose-schedule-push-alt-2",
+    ppiName: "AD_DOSE_SCHEDULE",
+    ppiId: PpiId.AD_DOSE_SCHEDULE,
+    typeName: "PUSH",
+    typeId: PpiType.PUSH,
+    payloadHint: "dose_schedule_t (preset C)",
+    lenHint: `len=${DOSE_SCHEDULE_T_SIZE_BYTES}`,
+    payloadPreview: DOSE_SCHEDULE_PUSH_PAYLOADS.DOSE_SCHEDULE_PUSH_ALT_2,
   },
   DOCK_STATUS_RQ: {
     title: "Dock Status Request",

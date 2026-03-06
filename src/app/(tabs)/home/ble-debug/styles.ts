@@ -400,7 +400,7 @@ export const styles = StyleSheet.create({
     minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 24
+    marginVertical: 14
   },
   advancedWriteCard: {
     borderWidth: 1,
@@ -833,7 +833,6 @@ export const styles = StyleSheet.create({
     maxHeight: 430,
   },
   ppiPreviewCard: {
-    marginTop: 6,
     borderWidth: 1,
     borderColor: "#D2D8DF",
     borderRadius: 10,

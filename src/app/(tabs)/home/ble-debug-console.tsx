@@ -1,8 +1,10 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  type Permission,
   PermissionsAndroid,
   Platform,
   Pressable,
@@ -30,6 +32,14 @@ type ScanDevice = {
   rssi?: number;
   isConnectable?: boolean;
 };
+
+type StoredLastDebugDevice = {
+  deviceName: string;
+  deviceAddress: string;
+  connectedAtMs: number;
+};
+
+const LAST_DEBUG_DEVICE_STORAGE_KEY = "ble-debug:last-connected-device:v1";
 
 function getSignalTone(rssi?: number) {
   if (typeof rssi !== "number") {
@@ -84,6 +94,16 @@ function logDebug(message: string, payload?: unknown) {
   addBleDebugLog(`${new Date().toLocaleTimeString()}  ${message}${body}`);
 }
 
+async function saveLastDebugDevice(device: ScanDevice) {
+  const record: StoredLastDebugDevice = {
+    deviceName: device.deviceName ?? "",
+    deviceAddress: device.deviceAddress ?? "",
+    connectedAtMs: Date.now(),
+  };
+
+  await AsyncStorage.setItem(LAST_DEBUG_DEVICE_STORAGE_KEY, JSON.stringify(record));
+}
+
 function normalizeDevices(raw: unknown): ScanDevice[] {
   if (!Array.isArray(raw)) return [];
 
@@ -129,7 +149,7 @@ export default function BleDebugConsoleScreen() {
 
   const isBusy = useMemo(() => isScanning || Boolean(connectingKey), [isScanning, connectingKey]);
 
-  async function ensureAndroidBlePermissions(context: string): Promise<boolean> {
+  const ensureAndroidBlePermissions = useCallback(async (context: string): Promise<boolean> => {
     if (Platform.OS !== "android") return true;
 
     const androidApi =
@@ -139,7 +159,7 @@ export default function BleDebugConsoleScreen() {
 
     if (!Number.isFinite(androidApi)) return true;
 
-    const required: PermissionsAndroid.Permission[] = [];
+    const required: Permission[] = [];
     if (androidApi >= 31) {
       required.push(
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
@@ -150,7 +170,7 @@ export default function BleDebugConsoleScreen() {
       required.push(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
     }
 
-    const missing: PermissionsAndroid.Permission[] = [];
+    const missing: Permission[] = [];
     for (const permission of Array.from(new Set(required))) {
       const granted = await PermissionsAndroid.check(permission);
       if (!granted) missing.push(permission);
@@ -177,7 +197,7 @@ export default function BleDebugConsoleScreen() {
       logDebug(`[DEBUG-CONSOLE][PERMISSION][ERR] Request failed (${context}).`, String(permissionError));
       return false;
     }
-  }
+  }, []);
 
   const refreshConnectedBanner = useCallback(async () => {
     try {
@@ -238,7 +258,10 @@ export default function BleDebugConsoleScreen() {
     }
   }
 
-  async function onConnect(device: ScanDevice) {
+  const connectToDevice = useCallback(async (
+    device: ScanDevice,
+    options: { navigateOnSuccess: boolean }
+  ) => {
     const key = device.deviceAddress || device.deviceName || "";
     if (!key || isBusy) return;
 
@@ -264,6 +287,7 @@ export default function BleDebugConsoleScreen() {
       }
 
       logDebug("[DEBUG-CONSOLE][CONNECT] Attempting bond", {
+        source: "manual",
         bondIdentifier,
         connectIdentifier,
         device,
@@ -287,6 +311,17 @@ export default function BleDebugConsoleScreen() {
         logDebug("[DEBUG-CONSOLE][CONNECT][INFO] Device already connected.", String(connectError));
       }
 
+      // Ensure pairing state is established for newly connected peripherals.
+      try {
+        const postConnectBondResult = await bondDevice(bondIdentifier);
+        logDebug("[DEBUG-CONSOLE][CONNECT] post-connect bondDevice result", postConnectBondResult);
+      } catch (postConnectBondError) {
+        logDebug(
+          "[DEBUG-CONSOLE][CONNECT][WARN] post-connect bondDevice failed",
+          String(postConnectBondError)
+        );
+      }
+
       try {
         const discoverResult = await discoverServicesAndCharacteristics();
         logDebug("[DEBUG-CONSOLE][CONNECT] discoverServicesAndCharacteristics result", discoverResult);
@@ -294,8 +329,11 @@ export default function BleDebugConsoleScreen() {
         logDebug("[DEBUG-CONSOLE][CONNECT][WARN] discovery failed", String(discoverError));
       }
 
+      await saveLastDebugDevice(device);
       await refreshConnectedBanner();
-      router.push("/home/ble-debug");
+      if (options.navigateOnSuccess) {
+        router.push("/home/ble-debug");
+      }
     } catch (connectError) {
       const message = String(connectError);
       setError(message);
@@ -303,6 +341,10 @@ export default function BleDebugConsoleScreen() {
     } finally {
       setConnectingKey("");
     }
+  }, [ensureAndroidBlePermissions, isBusy, refreshConnectedBanner, router]);
+
+  async function onConnect(device: ScanDevice) {
+    await connectToDevice(device, { navigateOnSuccess: true });
   }
 
   return (

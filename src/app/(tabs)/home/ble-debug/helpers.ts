@@ -60,13 +60,38 @@ export function prettifyForLog(value: unknown): string {
 }
 
 export function formatDecodedValue(value: unknown): string {
-  if (value instanceof Uint8Array) {
-    const hex = Buffer.from(value).toString("hex");
-    return hex ? formatHexBytes(hex) : "(empty)";
+  const normalized = normalizeDecodedValue(value);
+  if (typeof normalized === "string") {
+    return normalized || "(empty)";
   }
 
-  const pretty = prettifyForLog(value);
+  const pretty = prettifyForLog(normalized);
   return pretty || "(empty)";
+}
+
+function bytesToHexString(value: Uint8Array): string {
+  const hex = Buffer.from(value).toString("hex");
+  return hex ? formatHexBytes(hex) : "(empty)";
+}
+
+export function normalizeDecodedValue(value: unknown): unknown {
+  if (value instanceof Uint8Array) {
+    return bytesToHexString(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeDecodedValue(entry));
+  }
+
+  if (value && typeof value === "object") {
+    const normalized: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      normalized[key] = normalizeDecodedValue(entry);
+    }
+    return normalized;
+  }
+
+  return value;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

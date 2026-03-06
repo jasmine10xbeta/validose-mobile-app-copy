@@ -12,8 +12,6 @@ export type MpFramePreview = {
   payloadBase64: string;
   frameHex: string;
   frameBase64: string;
-  frameBytesHex: string[];
-  frameBytesIndexedHex: string[];
 };
 
 export type PersistedDebugInputs = {
@@ -41,6 +39,7 @@ export type PpiTxPreview = {
 export type PpiRxPreview = {
   source: string;
   receivedAt: string;
+  receivedAtMs: number;
   ppi?: number;
   ppiName?: string;
   type?: number;
@@ -48,7 +47,6 @@ export type PpiRxPreview = {
   pktPayloadLen?: number;
   payloadHex: string;
   payloadBase64: string;
-  payloadUtf8: string;
   fullFrameHex: string;
   fullFrameBase64: string;
   mpFrame: MpFramePreview | null;
@@ -62,6 +60,8 @@ export type QuickFlowAction =
   | "TIME_PUSH"
   | "DOSE_SCHEDULE_RQ"
   | "DOSE_SCHEDULE_PUSH"
+  | "DOSE_SCHEDULE_PUSH_ALT_1"
+  | "DOSE_SCHEDULE_PUSH_ALT_2"
   | "DOCK_STATUS_RQ"
   | "RING_STATUS_RQ"
   | "DOCK_BATTERY_RQ"
@@ -77,4 +77,5 @@ export type QuickFlowMeta = {
   typeId: number;
   payloadHint: string;
   lenHint: string;
+  payloadPreview?: unknown;
 };

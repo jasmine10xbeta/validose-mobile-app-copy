@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Modal,
+  type Permission,
   PermissionsAndroid,
   Platform,
   Pressable,
@@ -23,9 +24,9 @@ import {
   BleMessageProtocol,
   MessageProtocolInterface,
   MsgProtError,
+  MsgProtTxPacketStatus,
 } from "@/utils/ble/messageProtocol";
 import {
-  MAX_DOSES_PER_DAY,
   PpiId,
   PpiType,
   buildPpiPayload,
@@ -45,6 +46,8 @@ import { ActionButton } from "./ble-debug/components/ActionButton";
 import { QuickPpiButton } from "./ble-debug/components/QuickPpiButton";
 import {
   PPI_ACK_TIMEOUT_MS,
+  DOSE_SCHEDULE_PUSH_PAYLOADS,
+  PPI_LATE_ACK_WATCH_POLL_MS,
   PPI_LATE_ACK_WATCH_TIMEOUT_MS,
   PPI_MAX_RETRIES,
   PPI_TX_COMPLETION_WAIT_MS,
@@ -57,6 +60,7 @@ import {
   extractConnectedDeviceLabel,
   formatDecodedValue,
   formatHexBytes,
+  normalizeDecodedValue,
   prettifyForLog,
   resolveConnectionState,
 } from "./ble-debug/helpers";
@@ -88,6 +92,26 @@ type DiscoveredCharacteristic = {
 type DiscoveredService = {
   uuid?: string;
   characteristics?: DiscoveredCharacteristic[];
+};
+
+type IncomingDetailsTab = "LATEST" | "RESOLVED";
+
+type PendingResponseMatcher = {
+  actionName: string;
+  ppi: number;
+  requestType: number;
+  sentAtMs: number;
+  sentAt: string;
+};
+
+type PushAckPreview = {
+  actionName: string;
+  ppi: number;
+  type: number;
+  ackedAt: string;
+  ackedAtMs: number;
+  sessionId: number | null;
+  pktCounter: number | null;
 };
 
 function normalizeUuidKey(uuid: string): string {
@@ -200,6 +224,12 @@ function getMpPacketTypeLabel(pktType: number): string {
       return "ACK";
     case 2:
       return "NAK";
+    case 3:
+      return "SYNC_START";
+    case 4:
+      return "SYNC_ACK";
+    case 5:
+      return "SYNC_MISMATCH";
     default:
       return `UNKNOWN_${pktType}`;
   }
@@ -208,32 +238,29 @@ function getMpPacketTypeLabel(pktType: number): string {
 function parseMpFrameBytes(raw: Uint8Array): MpFramePreview | null {
   if (!raw.length || raw.length < MP_MIN_FRAME_LEN) return null;
 
-  const frame = Buffer.from(raw);
-  const pktPayloadLen = frame.readUInt16LE(12);
+  const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+  const pktPayloadLen = view.getUint16(12, true);
   const frameLength = MP_MIN_FRAME_LEN + pktPayloadLen;
-  if (frame.length < frameLength) return null;
+  if (raw.length < frameLength) return null;
 
-  const packet = frame.subarray(0, frameLength);
+  const packet = raw.subarray(0, frameLength);
+  const packetView = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
   const payload = packet.subarray(MP_MIN_FRAME_LEN);
-  const frameBytesHex = Array.from(packet, (value) => value.toString(16).padStart(2, "0"));
-  const frameBytesIndexedHex = frameBytesHex.map((value, index) => `[${index}] 0x${value}`);
 
   return {
     frameLength,
-    crc: packet.readUInt16LE(0),
-    pktCounter: packet.readUInt16LE(2),
-    sessionId: packet.readUInt32LE(4),
-    pktType: packet.readUInt8(8),
-    status: packet.readUInt8(9),
-    payloadType: packet.readUInt8(10),
-    payloadPpi: packet.readUInt8(11),
+    crc: packetView.getUint16(0, true),
+    pktCounter: packetView.getUint16(2, true),
+    sessionId: packetView.getUint32(4, true),
+    pktType: packetView.getUint8(8),
+    status: packetView.getUint8(9),
+    payloadType: packetView.getUint8(10),
+    payloadPpi: packetView.getUint8(11),
     pktPayloadLen,
     payloadHex: Buffer.from(payload).toString("hex"),
     payloadBase64: Buffer.from(payload).toString("base64"),
     frameHex: Buffer.from(packet).toString("hex"),
     frameBase64: Buffer.from(packet).toString("base64"),
-    frameBytesHex,
-    frameBytesIndexedHex,
   };
 }
 
@@ -267,6 +294,18 @@ function formatPpiHumanReadable(
   return formatDecodedValue(decodedValue);
 }
 
+function isResponseTypeForRequest(requestType: number, incomingType: number): boolean {
+  if (requestType === PpiType.RQ) {
+    return incomingType === PpiType.RE;
+  }
+
+  if (requestType === PpiType.PUSH) {
+    return incomingType === PpiType.RE || incomingType === PpiType.PUSH;
+  }
+
+  return incomingType !== PpiType.RQ;
+}
+
 export default function BleDebugScreen() {
   const router = useRouter();
   const [logCount, setLogCount] = useState(() => getBleDebugLogs().length);
@@ -275,12 +314,23 @@ export default function BleDebugScreen() {
   const [connectedDeviceLabel, setConnectedDeviceLabel] = useState("");
   const [lastPpiTxPreview, setLastPpiTxPreview] = useState<PpiTxPreview | null>(null);
   const [lastPpiRxPreview, setLastPpiRxPreview] = useState<PpiRxPreview | null>(null);
+  const [incomingDetailsTab, setIncomingDetailsTab] = useState<IncomingDetailsTab>("RESOLVED");
+  const [pendingResponseMatcher, setPendingResponseMatcher] = useState<PendingResponseMatcher | null>(
+    null
+  );
+  const [resolvedResponsePreview, setResolvedResponsePreview] = useState<PpiRxPreview | null>(null);
+  const [resolvedPushAckPreview, setResolvedPushAckPreview] = useState<PushAckPreview | null>(null);
   const [selectedFlowAction, setSelectedFlowAction] = useState<QuickFlowAction>("TIME_PUSH");
   const [flowStatusByAction, setFlowStatusByAction] = useState<Record<string, string>>({});
   const [flowHelpVisible, setFlowHelpVisible] = useState(false);
   const [protocolRunning, setProtocolRunning] = useState(false);
 
   const ppiProtocolRef = useRef<BleMessageProtocol | null>(null);
+  const ensurePpiProtocolRef = useRef<() => Promise<BleMessageProtocol>>(async () => {
+    throw new Error("Message protocol not initialized.");
+  });
+  const connectedDeviceIdRef = useRef("");
+  const pendingResponseMatcherRef = useRef<PendingResponseMatcher | null>(null);
   const resolvedMpTxUuidRef = useRef(MP_TX_UUID);
   const resolvedMpRxUuidRef = useRef(MP_RX_UUID);
   const lateAckWatchTokenRef = useRef(0);
@@ -299,37 +349,6 @@ export default function BleDebugScreen() {
     (action: string) => Boolean(loadingAction && loadingAction !== action),
     [loadingAction]
   );
-
-  const statusText = useMemo(() => {
-    const actionText: Record<string, string> = {
-      "ppi-time-rq": "Requesting current dock time (AD_TIME RQ).",
-      "ppi-time-push": "Sending current phone time to device (AD_TIME PUSH).",
-      "ppi-dose-schedule-rq": "Requesting dose schedule from dock (AD_DOSE_SCHEDULE RQ).",
-      "ppi-dose-schedule-push": "Pushing demo dose schedule to dock (AD_DOSE_SCHEDULE PUSH).",
-      "ppi-dock-status-rq": "Requesting dock status (AD_DOCK_STATUS RQ).",
-      "ppi-ring-status-rq": "Requesting ring status (AD_RING_STATUS RQ).",
-      "ppi-dock-battery-rq": "Requesting dock battery (AD_DOCK_BATT_LEVEL_LOG RQ).",
-      "ppi-ring-battery-rq": "Requesting ring battery (AD_RING_BATT_LEVEL_LOG RQ).",
-      disconnect: "Disconnecting from the peripheral.",
-    };
-    if (loadingAction && actionText[loadingAction]) {
-      return actionText[loadingAction];
-    }
-
-    if (lastPpiTxPreview?.status === "SENT_DATA") {
-      return `Done. ${lastPpiTxPreview.action.replaceAll("_", " ")} DATA frame was sent.`;
-    }
-    if (lastPpiTxPreview?.status === "TX_BUSY") {
-      return "TX not ready yet. Wait until current transmit state is ABANDONED or NEW.";
-    }
-
-    if (!isConnected) {
-      return "Not connected. Use the BLE Debug Console scanner to connect to a VAL device first.";
-    }
-
-    // return "Ready. Message protocol is running and TX mailbox is idle for the next DATA frame.";
-    return "";
-  }, [isConnected, lastPpiTxPreview, loadingAction]);
 
   const protocolInfo = useMemo(
     () => ({
@@ -351,9 +370,9 @@ export default function BleDebugScreen() {
   const flowSteps = useMemo(
     () => [
       "Ensure Message Protocol is running.",
-      "App runs as master and generates session_id locally.",
-      "SYNC control flow is disabled in app runtime.",
-      "Check TX ready. TX ready means current TX state is ABANDONED or NEW.",
+      "App runs as master and owns SYNC control (SYNC_START/SYNC_ACK/SYNC_MISMATCH).",
+      "App and firmware exchange ACK/NAK for DATA delivery and retries.",
+      "Check TX ready. TX ready means current TX state is COMPLETED or ABANDONED.",
       `Build payload (${selectedFlowMeta.payloadHint}) and validate ${selectedFlowMeta.ppiName} ${selectedFlowMeta.typeName} (${selectedFlowMeta.lenHint}).`,
       `Send DATA frame with type=${selectedFlowMeta.typeId}, ppi=${selectedFlowMeta.ppiId}.`,
       "Done.",
@@ -396,25 +415,27 @@ export default function BleDebugScreen() {
     return selectedFlowStatus || "IN_PROGRESS";
   }, [loadingAction, selectedFlowMeta.busyKey, selectedFlowStatus]);
 
-  const lastPpiTxHumanReadable = useMemo(() => {
-    if (!lastPpiTxPreview) return "";
+  const selectedFlowPayloadValue = useMemo(() => {
+    if (selectedFlowMeta.payloadPreview !== undefined) {
+      return selectedFlowMeta.payloadPreview;
+    }
 
-    const payloadBytes = lastPpiTxPreview.payloadHex
-      ? new Uint8Array(Buffer.from(lastPpiTxPreview.payloadHex, "hex"))
-      : new Uint8Array(0);
-    const decoded = decodePpiPayload(
-      lastPpiTxPreview.ppi,
-      lastPpiTxPreview.type as PpiType,
-      payloadBytes
-    );
+    if (selectedFlowMeta.typeId === PpiType.PUSH) {
+      if (selectedFlowAction === "TIME_PUSH") {
+        return {
+          unix_time_s: "Current phone unix timestamp at send time",
+        };
+      }
+      return "(runtime payload)";
+    }
 
-    return formatPpiHumanReadable(
-      lastPpiTxPreview.ppi,
-      lastPpiTxPreview.type,
-      lastPpiTxPreview.payloadHex,
-      decoded.value
-    );
-  }, [lastPpiTxPreview]);
+    return "(none)";
+  }, [selectedFlowAction, selectedFlowMeta]);
+
+  const selectedFlowPayloadValueText = useMemo(
+    () => prettifyForLog(selectedFlowPayloadValue),
+    [selectedFlowPayloadValue]
+  );
 
   const lastPpiRxHumanReadable = useMemo(() => {
     if (!lastPpiRxPreview) return "";
@@ -430,9 +451,100 @@ export default function BleDebugScreen() {
     );
   }, [lastPpiRxPreview]);
 
+  const resolvedResponseHumanReadable = useMemo(() => {
+    if (!resolvedResponsePreview) return "";
+    if (
+      typeof resolvedResponsePreview.ppi !== "number" ||
+      typeof resolvedResponsePreview.type !== "number"
+    ) {
+      return "";
+    }
+
+    return formatPpiHumanReadable(
+      resolvedResponsePreview.ppi,
+      resolvedResponsePreview.type,
+      resolvedResponsePreview.payloadHex,
+      resolvedResponsePreview.decoded
+    );
+  }, [resolvedResponsePreview]);
+
+  function renderIncomingPreviewDetails(preview: PpiRxPreview, humanReadable: string) {
+    return (
+      <>
+        <Text style={styles.ppiPreviewMeta}>
+          {preview.receivedAt} · {preview.source}
+        </Text>
+        {typeof preview.ppi === "number" ? (
+          <Text style={styles.ppiPreviewLine}>
+            PPI: {preview.ppiName} ({preview.ppi}) · Type: {preview.typeName} ({preview.type}) · Len:{" "}
+            {preview.pktPayloadLen ?? 0}
+          </Text>
+        ) : null}
+        <Text style={styles.ppiPreviewSectionLabel}>Payload Hex</Text>
+        <Text style={styles.ppiPreviewCode} selectable>
+          {preview.payloadHex ? formatHexBytes(preview.payloadHex) : "(empty)"}
+        </Text>
+        <Text style={styles.ppiPreviewSectionLabel}>Payload Base64</Text>
+        <Text style={styles.ppiPreviewCode} selectable>
+          {preview.payloadBase64 || "(empty)"}
+        </Text>
+        <Text style={styles.ppiPreviewSectionLabel}>Incoming MP Header</Text>
+        <Text style={styles.ppiPreviewCode} selectable>
+          {preview.mpFrame
+            ? JSON.stringify(
+                {
+                  pkt_crc: preview.mpFrame.crc,
+                  pkt_counter: preview.mpFrame.pktCounter,
+                  session_id: preview.mpFrame.sessionId,
+                  pkt_type: preview.mpFrame.pktType,
+                  pkt_type_label: getMpPacketTypeLabel(preview.mpFrame.pktType),
+                  status: preview.mpFrame.status,
+                  payload_type: preview.mpFrame.payloadType,
+                  payload_ppi: preview.mpFrame.payloadPpi,
+                  pkt_payload_len: preview.mpFrame.pktPayloadLen,
+                  frame_len: preview.mpFrame.frameLength,
+                },
+                null,
+                2
+              )
+            : "(not captured yet)"}
+        </Text>
+        <Text style={styles.ppiPreviewSectionLabel}>Incoming Full Frame Hex</Text>
+        <Text style={styles.ppiPreviewCode} selectable>
+          {preview.fullFrameHex ? formatHexBytes(preview.fullFrameHex) : "(not captured yet)"}
+        </Text>
+        <Text style={styles.ppiPreviewSectionLabel}>Incoming Full Frame Base64</Text>
+        <Text style={styles.ppiPreviewCode} selectable>
+          {preview.fullFrameBase64 || "(not captured yet)"}
+        </Text>
+        <Text style={styles.ppiPreviewSectionLabel}>Decoded Value</Text>
+        <Text style={styles.ppiPreviewCode} selectable>
+          {formatDecodedValue(preview.decoded)}
+        </Text>
+        {/*<Text style={styles.ppiPreviewSectionLabel}>Parsed Payload</Text>
+        <Text style={styles.ppiPreviewCode} selectable>
+          {humanReadable || "(not available)"}
+        </Text>*/}
+      </>
+    );
+  }
+
   function openFlowHelp(action: QuickFlowAction) {
     setSelectedFlowAction(action);
     setFlowHelpVisible(true);
+  }
+
+  function isSameMatcher(
+    left: PendingResponseMatcher | null,
+    right: PendingResponseMatcher
+  ): boolean {
+    if (!left) return false;
+    return (
+      left.actionName === right.actionName &&
+      left.ppi === right.ppi &&
+      left.requestType === right.requestType &&
+      left.sentAtMs === right.sentAtMs
+    );
   }
 
   function addLog(message: string, payload?: unknown) {
@@ -455,7 +567,7 @@ export default function BleDebugScreen() {
       return true;
     }
 
-    const required: PermissionsAndroid.Permission[] = [];
+    const required: Permission[] = [];
     if (androidApi >= 31) {
       required.push(
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
@@ -507,12 +619,55 @@ export default function BleDebugScreen() {
     }
   }
 
-  function decodeUtf8Safe(bytes: Uint8Array): string {
-    if (!bytes.length) return "";
+  function toErrorDetails(error: unknown) {
+    if (error instanceof Error) {
+      return {
+        name: error.name,
+        message: error.message,
+        stack: error.stack ?? "",
+      };
+    }
+
+    return {
+      message: String(error),
+    };
+  }
+
+  function enrichParsedIncomingPayload(details: unknown): unknown {
+    if (!details || typeof details !== "object") {
+      return details;
+    }
+
+    const record = details as Record<string, unknown>;
+    const payloadRecord = record.payload;
+    if (!payloadRecord || typeof payloadRecord !== "object") {
+      return details;
+    }
+
+    const payload = payloadRecord as Record<string, unknown>;
+    const ppi = payload.ppi;
+    const type = payload.type;
+    const payloadHex = payload.payloadHex;
+    if (typeof ppi !== "number" || typeof type !== "number" || typeof payloadHex !== "string") {
+      return details;
+    }
+
+    const normalizedHex = payloadHex.replace(/[^0-9a-fA-F]/g, "");
     try {
-      return Buffer.from(bytes).toString("utf8");
+      const decoded = decodePpiPayload(
+        ppi,
+        type as PpiType,
+        new Uint8Array(Buffer.from(normalizedHex, "hex"))
+      );
+      return {
+        ...record,
+        payload: {
+          ...payload,
+          decoded: normalizeDecodedValue(decoded.value),
+        },
+      };
     } catch {
-      return "";
+      return details;
     }
   }
 
@@ -529,7 +684,11 @@ export default function BleDebugScreen() {
         return;
       }
       if (rest.length === 1) {
-        addLog(`[PPI][MP][${level}] ${first}`, rest[0]);
+        const payload =
+          first === "Parsed incoming value."
+            ? enrichParsedIncomingPayload(rest[0])
+            : rest[0];
+        addLog(`[PPI][MP][${level}] ${first}`, payload);
         return;
       }
       addLog(`[PPI][MP][${level}] ${first}`, rest);
@@ -564,6 +723,7 @@ export default function BleDebugScreen() {
 
       setIsConnected(connected);
       setConnectedDeviceLabel(connected ? label : "");
+      connectedDeviceIdRef.current = connected ? label : "";
     } catch {
       // Ignore banner refresh failures in debug UI.
     }
@@ -577,6 +737,10 @@ export default function BleDebugScreen() {
       setProtocolRunning(false);
       addLog("[PPI] Message protocol stopped.");
     }
+    pendingResponseMatcherRef.current = null;
+    setPendingResponseMatcher(null);
+    setResolvedResponsePreview(null);
+    setResolvedPushAckPreview(null);
   }
 
   async function ensureGattDiscovered(reason: string) {
@@ -632,10 +796,33 @@ export default function BleDebugScreen() {
 
   async function waitForPpiTxSendable(
     protocol: MessageProtocolInterface,
-    _timeoutMs = PPI_TX_READY_TIMEOUT_MS,
-    _pollMs = PPI_TX_READY_POLL_MS
+    timeoutMs = PPI_TX_READY_TIMEOUT_MS,
+    pollMs = PPI_TX_READY_POLL_MS
   ) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() <= deadline) {
+      if (isTxStatusSendable(protocol.getTxPacketStatus())) {
+        return true;
+      }
+
+      await protocol.process();
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
+    }
+
     return isTxStatusSendable(protocol.getTxPacketStatus());
+  }
+
+  async function ensurePpiProtocolReadyForDataSend(protocol: MessageProtocolInterface) {
+    if (protocol.getCurrentSessionId() === 0) {
+      addLog("[PPI][SYNC] Session is 0, starting explicit sync before DATA send.");
+      const syncResult = await protocol.startSync();
+      if (syncResult !== MsgProtError.NONE) {
+        addLog("[PPI][SYNC][ERR] Failed to start sync.", { syncResult });
+        return false;
+      }
+    }
+
+    return waitForPpiTxSendable(protocol);
   }
 
   async function waitForLatestTxFrameHex(
@@ -654,6 +841,54 @@ export default function BleDebugScreen() {
     const fallbackHex = Buffer.from(protocol.getLastTxPacketRaw()).toString("hex");
     if (fallbackHex && fallbackHex !== previousHex) return fallbackHex;
     return "";
+  }
+
+  async function watchPushAckResolution(
+    protocol: BleMessageProtocol,
+    matcher: PendingResponseMatcher,
+    txFrame: MpFramePreview | null
+  ) {
+    lateAckWatchTokenRef.current += 1;
+    const watchToken = lateAckWatchTokenRef.current;
+    const deadline = Date.now() + PPI_LATE_ACK_WATCH_TIMEOUT_MS;
+
+    while (Date.now() <= deadline) {
+      if (lateAckWatchTokenRef.current !== watchToken) {
+        return;
+      }
+
+      try {
+        await protocol.process();
+      } catch {
+        // Keep polling until timeout; process errors can be transient in debug mode.
+      }
+
+      const txStatus = protocol.getTxPacketStatus();
+      if (txStatus === MsgProtTxPacketStatus.COMPLETED) {
+        const ackedAtMs = Date.now();
+        setResolvedPushAckPreview({
+          actionName: matcher.actionName,
+          ppi: matcher.ppi,
+          type: matcher.requestType,
+          ackedAt: new Date(ackedAtMs).toLocaleTimeString(),
+          ackedAtMs,
+          sessionId: txFrame?.sessionId ?? null,
+          pktCounter: txFrame?.pktCounter ?? null,
+        });
+
+        if (isSameMatcher(pendingResponseMatcherRef.current, matcher)) {
+          pendingResponseMatcherRef.current = null;
+          setPendingResponseMatcher(null);
+        }
+        return;
+      }
+
+      if (txStatus === MsgProtTxPacketStatus.ABANDONED) {
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, PPI_LATE_ACK_WATCH_POLL_MS));
+    }
   }
 
   async function ensurePpiProtocol() {
@@ -680,9 +915,31 @@ export default function BleDebugScreen() {
       maxRetries: PPI_MAX_RETRIES,
       maxPacketLength: MP_MAX_PACKET_LEN,
       isMaster: true,
-      enableSyncControl: false,
-      sendAckNak: false,
+      enableSyncControl: true,
+      sendAckNak: true,
       autoConsumeRx: true,
+      onRxDataAcked: (ackedPacket) => {
+        const payloadHex = Buffer.from(ackedPacket.payload.payload).toString("hex");
+        const deviceId = connectedDeviceIdRef.current || "unknown";
+        if (!payloadHex || deviceId === "unknown") {
+          return;
+        }
+
+        // void ingestRawHardwareData({
+        //   payloadHex,
+        //   timestamp: new Date(),
+        //   deviceId,
+        // }).catch((error) => {
+        //   addLog("[PPI][INGEST][WARN] Failed to ingest ACKed payload.", {
+        //     error: toErrorDetails(error),
+        //     deviceId,
+        //     sessionId: ackedPacket.sessionId,
+        //     pktCounter: ackedPacket.pktCounter,
+        //     ppi: ackedPacket.payload.ppi,
+        //     type: ackedPacket.payload.type,
+        //   });
+        // });
+      },
       logger: {
         debug: (...args: unknown[]) => relayMessageProtocolLog("DEBUG", args),
         info: (...args: unknown[]) => relayMessageProtocolLog("INFO", args),
@@ -690,15 +947,36 @@ export default function BleDebugScreen() {
         error: (...args: unknown[]) => relayMessageProtocolLog("ERR", args),
       },
       onRxPacket: (packet) => {
-        const rxFrameRaw = ppiProtocolRef.current?.getLastRxPacketRaw() ?? new Uint8Array(0);
-        const rxFrame = parseMpFrameBytes(rxFrameRaw);
-        const decoded = decodePpiPayload(packet.ppi, packet.type as PpiType, packet.payload);
         const payloadHex = Buffer.from(packet.payload).toString("hex");
         const payloadBase64 = Buffer.from(packet.payload).toString("base64");
-        const payloadUtf8 = decodeUtf8Safe(packet.payload);
-        setLastPpiRxPreview({
+
+        let rxFrame: MpFramePreview | null = null;
+        try {
+          const rxFrameRaw = ppiProtocolRef.current?.getLastRxPacketRaw() ?? new Uint8Array(0);
+          rxFrame = parseMpFrameBytes(rxFrameRaw);
+        } catch (error) {
+          addLog("[PPI][NOTIFY][WARN] Failed to parse RX frame.", toErrorDetails(error));
+        }
+
+        let decodedValue: unknown = packet.payload;
+        try {
+          const decoded = decodePpiPayload(packet.ppi, packet.type as PpiType, packet.payload);
+          decodedValue = decoded.value;
+        } catch (error) {
+          addLog("[PPI][NOTIFY][WARN] Failed to decode PPI payload.", {
+            ppi: packet.ppi,
+            type: packet.type,
+            payloadHex,
+            error: toErrorDetails(error),
+          });
+        }
+        const normalizedDecodedValue = normalizeDecodedValue(decodedValue);
+        const receivedAtMs = Date.now();
+        const receivedAt = new Date(receivedAtMs).toLocaleTimeString();
+        const rxPreview: PpiRxPreview = {
           source: "Message Protocol",
-          receivedAt: new Date().toLocaleTimeString(),
+          receivedAt,
+          receivedAtMs,
           ppi: packet.ppi,
           ppiName: PpiId[packet.ppi as PpiId] ?? `PPI_${packet.ppi}`,
           type: packet.type,
@@ -706,34 +984,52 @@ export default function BleDebugScreen() {
           pktPayloadLen: packet.pktPayloadLen,
           payloadHex,
           payloadBase64,
-          payloadUtf8,
           fullFrameHex: rxFrame?.frameHex ?? "",
           fullFrameBase64: rxFrame?.frameBase64 ?? "",
           mpFrame: rxFrame,
-          decoded: decoded.value,
-        });
-        addLog("[PPI][NOTIFY]", {
-          ppi: packet.ppi,
-          type: packet.type,
-          payloadHex,
-          payloadUtf8,
-          frameHex: rxFrame?.frameHex ?? null,
-          frameBytesHex: rxFrame?.frameBytesHex ?? null,
-          frameBytesIndexedHex: rxFrame?.frameBytesIndexedHex ?? null,
-          sessionId: rxFrame?.sessionId ?? null,
-          pktCounter: rxFrame?.pktCounter ?? null,
-          pktType: rxFrame?.pktType ?? null,
-          status: rxFrame?.status ?? null,
-          decoded: decoded.value,
-        });
+          decoded: normalizedDecodedValue,
+        };
+
+        try {
+          setLastPpiRxPreview(rxPreview);
+        } catch (error) {
+          addLog("[PPI][NOTIFY][ERR] Failed to update RX preview state.", toErrorDetails(error));
+        }
+
+        const pending = pendingResponseMatcherRef.current;
+        if (
+          pending &&
+          packet.ppi === pending.ppi &&
+          isResponseTypeForRequest(pending.requestType, packet.type) &&
+          receivedAtMs >= pending.sentAtMs
+        ) {
+          setResolvedResponsePreview(rxPreview);
+          pendingResponseMatcherRef.current = null;
+          setPendingResponseMatcher(null);
+        }
       },
     });
 
     ppiProtocolRef.current = protocol;
+    let syncStartResult: MsgProtError | null = null;
+    let syncReady = false;
     try {
       await protocol.start();
+      syncStartResult = await protocol.startSync();
+      syncReady =
+        syncStartResult === MsgProtError.NONE
+          ? await waitForPpiTxSendable(protocol)
+          : false;
     } catch (error) {
+      try {
+        protocol.stop();
+      } catch {
+        // Ignore stop failures during startup cleanup.
+      }
       ppiProtocolRef.current = null;
+      setProtocolRunning(false);
+      isGattDiscoveredRef.current = false;
+      gattDiscoveryInFlightRef.current = null;
       throw error;
     }
     setProtocolRunning(true);
@@ -745,10 +1041,17 @@ export default function BleDebugScreen() {
       sessionId: protocol.getCurrentSessionId(),
       ackTimeoutMs: PPI_ACK_TIMEOUT_MS,
       maxRetries: PPI_MAX_RETRIES,
+      syncStartResult,
+      syncReady,
     });
+    if (!syncReady) {
+      addLog("[PPI][WARN] Sync did not complete in readiness window; waiting for SYNC_ACK.");
+    }
 
     return protocol;
   }
+
+  ensurePpiProtocolRef.current = ensurePpiProtocol;
 
   async function sendPpi(
     actionName: string,
@@ -773,7 +1076,7 @@ export default function BleDebugScreen() {
     };
 
     const protocol = await ensurePpiProtocol();
-    const txReady = await waitForPpiTxSendable(protocol);
+    const txReady = await ensurePpiProtocolReadyForDataSend(protocol);
     if (!txReady) {
       const lastTxFrameHex = Buffer.from(protocol.getLastTxPacketRaw()).toString("hex");
       const txFrame = parseMpFrameHex(lastTxFrameHex);
@@ -788,10 +1091,8 @@ export default function BleDebugScreen() {
       setFlowStatusByAction((prev) => ({ ...prev, [actionName]: "TX_BUSY" }));
       addLog(`[PPI][${actionName}] Message protocol TX not ready.`, {
         reason:
-          "TX ready requires current TX state to be ABANDONED or NEW before queuing the next DATA frame.",
+          "TX ready requires current TX state to be COMPLETED or ABANDONED before queuing the next DATA frame.",
         lastTxFrameHex: lastTxFrameHex || null,
-        lastTxFrameBytesHex: txFrame?.frameBytesHex ?? null,
-        lastTxFrameBytesIndexedHex: txFrame?.frameBytesIndexedHex ?? null,
         lastTxFrame: txFrame,
       });
       return "TX_BUSY";
@@ -826,6 +1127,21 @@ export default function BleDebugScreen() {
       return errorStatus;
     }
 
+    const sentAtMs = Date.now();
+    const sentAt = new Date(sentAtMs).toLocaleTimeString();
+    const matcher: PendingResponseMatcher = {
+      actionName,
+      ppi,
+      requestType: type,
+      sentAtMs,
+      sentAt,
+    };
+    lateAckWatchTokenRef.current += 1;
+    pendingResponseMatcherRef.current = matcher;
+    setPendingResponseMatcher(matcher);
+    setResolvedResponsePreview(null);
+    setResolvedPushAckPreview(null);
+
     await protocol.process();
     const fullFrameHex = await waitForLatestTxFrameHex(protocol, previousFrameHex);
     const fullFrameBase64 = fullFrameHex ? Buffer.from(fullFrameHex, "hex").toString("base64") : "";
@@ -838,20 +1154,21 @@ export default function BleDebugScreen() {
       fullFrameBase64,
       mpFrame: txFrame,
       status,
-      sentAt: new Date().toLocaleTimeString(),
+      sentAt,
     });
     setFlowStatusByAction((prev) => ({ ...prev, [actionName]: status }));
 
-    // addLog(`[PPI][${actionName}] ${status}`, {
-    //   ppi,
-    //   type,
-    //   payloadHex,
-    //   fullFrameHex: fullFrameHex || null,
-    //   fullFrameBytesHex: txFrame?.frameBytesHex ?? null,
-    //   fullFrameBytesIndexedHex: txFrame?.frameBytesIndexedHex ?? null,
-    //   frame: txFrame,
-    //   note: "DATA frame sent.",
-    // });
+    addLog(`[PPI][${actionName}] ${status}`, {
+      ppi,
+      type,
+      payloadLen: payload.length,
+      sessionId: txFrame?.sessionId ?? null,
+      pktCounter: txFrame?.pktCounter ?? null,
+    });
+
+    if (type === PpiType.PUSH) {
+      void watchPushAckResolution(protocol, matcher, txFrame);
+    }
 
     return status;
   }
@@ -888,18 +1205,13 @@ export default function BleDebugScreen() {
     });
   }
 
-  function buildDemoDoseSchedulePayload() {
-    return encodeDoseSchedulePpi({
-      medication_type: 0,
-      dosage_mg: 2,
-      temp_upper_limit_deg_c: 60,
-      temp_lower_limit_deg_c: 0,
-      temp_avg_window_duration_sec: 1800,
-      dose_days_bitfield: 0x7f,
-      dose_window_duration_minutes: 30,
-      dose_window_count: 4,
-      dose_window_start_times_minutes: [630, 840, 1050, 1260].slice(0, MAX_DOSES_PER_DAY),
-    });
+  function buildDoseSchedulePayload(
+    action:
+      | "DOSE_SCHEDULE_PUSH"
+      | "DOSE_SCHEDULE_PUSH_ALT_1"
+      | "DOSE_SCHEDULE_PUSH_ALT_2"
+  ) {
+    return encodeDoseSchedulePpi(DOSE_SCHEDULE_PUSH_PAYLOADS[action]);
   }
 
   const onPpiDoseScheduleRequest = runZeroPayloadAction(
@@ -913,8 +1225,24 @@ export default function BleDebugScreen() {
   async function onPpiDoseSchedulePush() {
     setSelectedFlowAction("DOSE_SCHEDULE_PUSH");
     await withBusy("ppi-dose-schedule-push", async () => {
-      const payload = buildDemoDoseSchedulePayload();
+      const payload = buildDoseSchedulePayload("DOSE_SCHEDULE_PUSH");
       await sendPpi("DOSE_SCHEDULE_PUSH", PpiId.AD_DOSE_SCHEDULE, PpiType.PUSH, payload);
+    });
+  }
+
+  async function onPpiDoseSchedulePushAlt1() {
+    setSelectedFlowAction("DOSE_SCHEDULE_PUSH_ALT_1");
+    await withBusy("ppi-dose-schedule-push-alt-1", async () => {
+      const payload = buildDoseSchedulePayload("DOSE_SCHEDULE_PUSH_ALT_1");
+      await sendPpi("DOSE_SCHEDULE_PUSH_ALT_1", PpiId.AD_DOSE_SCHEDULE, PpiType.PUSH, payload);
+    });
+  }
+
+  async function onPpiDoseSchedulePushAlt2() {
+    setSelectedFlowAction("DOSE_SCHEDULE_PUSH_ALT_2");
+    await withBusy("ppi-dose-schedule-push-alt-2", async () => {
+      const payload = buildDoseSchedulePayload("DOSE_SCHEDULE_PUSH_ALT_2");
+      await sendPpi("DOSE_SCHEDULE_PUSH_ALT_2", PpiId.AD_DOSE_SCHEDULE, PpiType.PUSH, payload);
     });
   }
 
@@ -962,6 +1290,7 @@ export default function BleDebugScreen() {
         addLog("[DISCONNECT]", res);
         setIsConnected(false);
         setConnectedDeviceLabel("");
+        connectedDeviceIdRef.current = "";
       } catch (error) {
         addLog(`[DISCONNECT][ERR] ${String(error)}`);
       }
@@ -996,11 +1325,58 @@ export default function BleDebugScreen() {
     void refreshConnectionBanner();
   }, [refreshConnectionBanner]);
 
+  useEffect(() => {
+    if (!isConnected) {
+      return;
+    }
+
+    if (ppiProtocolRef.current) {
+      return;
+    }
+
+    let cancelled = false;
+    const maxAttempts = 3;
+
+    const runAutoStart = async () => {
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        if (cancelled || ppiProtocolRef.current) {
+          return;
+        }
+
+        const startProtocol = ensurePpiProtocolRef.current;
+        try {
+          await startProtocol();
+          return;
+        } catch (error) {
+          addLog(
+            `[PPI][AUTO][WARN] Auto-start attempt ${attempt}/${maxAttempts} failed.`,
+            toErrorDetails(error)
+          );
+
+          if (attempt < maxAttempts) {
+            // Force fresh GATT discovery before retrying subscription/notifications.
+            isGattDiscoveredRef.current = false;
+            gattDiscoveryInFlightRef.current = null;
+            await new Promise((resolve) => setTimeout(resolve, 700));
+          }
+        }
+      }
+    };
+
+    void runAutoStart();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isConnected]);
+
   const quickActionMap: Record<QuickFlowAction, () => Promise<void>> = {
     TIME_RQ: onPpiTimeRequest,
     TIME_PUSH: onPpiTimePush,
     DOSE_SCHEDULE_RQ: onPpiDoseScheduleRequest,
     DOSE_SCHEDULE_PUSH: onPpiDoseSchedulePush,
+    DOSE_SCHEDULE_PUSH_ALT_1: onPpiDoseSchedulePushAlt1,
+    DOSE_SCHEDULE_PUSH_ALT_2: onPpiDoseSchedulePushAlt2,
     DOCK_STATUS_RQ: onDockStatusRequest,
     RING_STATUS_RQ: onRingStatusRequest,
     DOCK_BATTERY_RQ: onDockBatteryRequest,
@@ -1016,7 +1392,11 @@ export default function BleDebugScreen() {
       case "DOSE_SCHEDULE_RQ":
         return "AD_DOSE_SCHEDULE (RQ, no payload)";
       case "DOSE_SCHEDULE_PUSH":
-        return "AD_DOSE_SCHEDULE (PUSH, dose_schedule_t)";
+        return "AD_DOSE_SCHEDULE (PUSH, preset A)";
+      case "DOSE_SCHEDULE_PUSH_ALT_1":
+        return "AD_DOSE_SCHEDULE (PUSH, preset B)";
+      case "DOSE_SCHEDULE_PUSH_ALT_2":
+        return "AD_DOSE_SCHEDULE (PUSH, preset C)";
       case "DOCK_STATUS_RQ":
         return "AD_DOCK_STATUS (RQ, no payload)";
       case "RING_STATUS_RQ":
@@ -1081,7 +1461,7 @@ export default function BleDebugScreen() {
                 style={styles.deviceActionButton}
               />
             </View>
-            <Text style={styles.sectionHint}>{statusText}</Text>
+            {/* <Text style={styles.sectionHint}>{statusText}</Text> */}
           </View>
         </View>
 
@@ -1092,10 +1472,10 @@ export default function BleDebugScreen() {
               Message protocol running means RX notifications (UUID 0x1509) are active and `process()` is executed on-demand to drive ACK/retry state.
             </Text>
             <Text style={styles.sectionHint}>
-              App master mode generates `session_id` while SYNC control flow is disabled.
+              App master mode owns session sync control and initiates `SYNC_START` as needed.
             </Text>
             <Text style={styles.sectionHint}>
-              TX ready means the TX state is ABANDONED or NEW, so the next DATA frame can be queued.
+              TX ready means the TX state is COMPLETED or ABANDONED, so the next DATA frame can be queued.
             </Text> */}
             <View style={styles.quickPpiGrid}>
               {QUICK_FLOW_ACTIONS.map((item) => {
@@ -1172,20 +1552,14 @@ export default function BleDebugScreen() {
                 <Text style={styles.ppiPreviewCode} selectable>
                   {lastPpiTxPreview.payloadBase64 || "(empty)"}
                 </Text>
-                <Text style={styles.ppiPreviewSectionLabel}>Parsed Payload</Text>
+                {/*<Text style={styles.ppiPreviewSectionLabel}>Parsed Payload</Text>
                 <Text style={styles.ppiPreviewCode} selectable>
                   {lastPpiTxHumanReadable || "(not available)"}
-                </Text>
+                </Text>*/}
                 <Text style={styles.ppiPreviewSectionLabel}>Full Frame Hex (CRC + header + PPI + payload)</Text>
                 <Text style={styles.ppiPreviewCode} selectable>
                   {lastPpiTxPreview.fullFrameHex
                     ? formatHexBytes(lastPpiTxPreview.fullFrameHex)
-                    : "(not captured yet)"}
-                </Text>
-                <Text style={styles.ppiPreviewSectionLabel}>Full Frame Bytes (index:hex)</Text>
-                <Text style={styles.ppiPreviewCode} selectable>
-                  {lastPpiTxPreview.mpFrame?.frameBytesIndexedHex?.length
-                    ? lastPpiTxPreview.mpFrame.frameBytesIndexedHex.join("\n")
                     : "(not captured yet)"}
                 </Text>
                 <Text style={styles.ppiPreviewSectionLabel}>Full Frame Base64</Text>
@@ -1196,76 +1570,63 @@ export default function BleDebugScreen() {
             )}
 
             <Text style={styles.ppiPreviewPrimaryLabel}>Last Incoming Update</Text>
-            {!lastPpiRxPreview ? (
-              <Text style={styles.ppiPreviewEmpty}>No incoming value yet.</Text>
-            ) : (
+            <View style={styles.panelTabs}>
+              <Pressable
+                style={[styles.tabButton, incomingDetailsTab === "RESOLVED" ? styles.tabButtonActive : null]}
+                onPress={() => setIncomingDetailsTab("RESOLVED")}
+              >
+                <Text
+                  style={[styles.tabText, incomingDetailsTab === "RESOLVED" ? styles.tabTextActive : null]}
+                >
+                  Response To Last Sent
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.tabButton, incomingDetailsTab === "LATEST" ? styles.tabButtonActive : null]}
+                onPress={() => setIncomingDetailsTab("LATEST")}
+              >
+                <Text style={[styles.tabText, incomingDetailsTab === "LATEST" ? styles.tabTextActive : null]}>
+                  Latest Incoming
+                </Text>
+              </Pressable>
+            </View>
+            {incomingDetailsTab === "LATEST" ? (
+              !lastPpiRxPreview ? (
+                <Text style={styles.ppiPreviewEmpty}>No incoming value yet.</Text>
+              ) : (
+                renderIncomingPreviewDetails(lastPpiRxPreview, lastPpiRxHumanReadable)
+              )
+            ) : !lastPpiTxPreview || lastPpiTxPreview.status !== "SENT_DATA" ? (
+              <Text style={styles.ppiPreviewEmpty}>No sent request available yet.</Text>
+            ) : resolvedResponsePreview ? (
               <>
                 <Text style={styles.ppiPreviewMeta}>
-                  {lastPpiRxPreview.receivedAt} · {lastPpiRxPreview.source}
+                  Resolved for {lastPpiTxPreview.action} sent at {lastPpiTxPreview.sentAt}
                 </Text>
-                {typeof lastPpiRxPreview.ppi === "number" ? (
-                  <Text style={styles.ppiPreviewLine}>
-                    PPI: {lastPpiRxPreview.ppiName} ({lastPpiRxPreview.ppi}) · Type: {lastPpiRxPreview.typeName} ({lastPpiRxPreview.type}) · Len: {lastPpiRxPreview.pktPayloadLen ?? 0}
-                  </Text>
-                ) : null}
-                <Text style={styles.ppiPreviewSectionLabel}>Payload Hex</Text>
-                <Text style={styles.ppiPreviewCode} selectable>
-                  {lastPpiRxPreview.payloadHex ? formatHexBytes(lastPpiRxPreview.payloadHex) : "(empty)"}
+                {renderIncomingPreviewDetails(resolvedResponsePreview, resolvedResponseHumanReadable)}
+              </>
+            ) : resolvedPushAckPreview &&
+              lastPpiTxPreview.type === PpiType.PUSH &&
+              resolvedPushAckPreview.actionName === lastPpiTxPreview.action ? (
+              <>
+                <Text style={styles.ppiPreviewMeta}>
+                  ACK received for {resolvedPushAckPreview.actionName} at {resolvedPushAckPreview.ackedAt}
                 </Text>
-                <Text style={styles.ppiPreviewSectionLabel}>Payload Base64</Text>
-                <Text style={styles.ppiPreviewCode} selectable>
-                  {lastPpiRxPreview.payloadBase64 || "(empty)"}
-                </Text>
-                <Text style={styles.ppiPreviewSectionLabel}>Payload UTF-8</Text>
-                <Text style={styles.ppiPreviewCode} selectable>
-                  {lastPpiRxPreview.payloadUtf8 || "(empty/non-utf8)"}
-                </Text>
-                <Text style={styles.ppiPreviewSectionLabel}>Incoming MP Header</Text>
-                <Text style={styles.ppiPreviewCode} selectable>
-                  {lastPpiRxPreview.mpFrame
-                    ? JSON.stringify(
-                        {
-                          pkt_crc: lastPpiRxPreview.mpFrame.crc,
-                          pkt_counter: lastPpiRxPreview.mpFrame.pktCounter,
-                          session_id: lastPpiRxPreview.mpFrame.sessionId,
-                          pkt_type: lastPpiRxPreview.mpFrame.pktType,
-                          pkt_type_label: getMpPacketTypeLabel(lastPpiRxPreview.mpFrame.pktType),
-                          status: lastPpiRxPreview.mpFrame.status,
-                          payload_type: lastPpiRxPreview.mpFrame.payloadType,
-                          payload_ppi: lastPpiRxPreview.mpFrame.payloadPpi,
-                          pkt_payload_len: lastPpiRxPreview.mpFrame.pktPayloadLen,
-                          frame_len: lastPpiRxPreview.mpFrame.frameLength,
-                        },
-                        null,
-                        2
-                      )
-                    : "(not captured yet)"}
-                </Text>
-                <Text style={styles.ppiPreviewSectionLabel}>Incoming Full Frame Hex</Text>
-                <Text style={styles.ppiPreviewCode} selectable>
-                  {lastPpiRxPreview.fullFrameHex
-                    ? formatHexBytes(lastPpiRxPreview.fullFrameHex)
-                    : "(not captured yet)"}
-                </Text>
-                <Text style={styles.ppiPreviewSectionLabel}>Incoming Full Frame Bytes (index:hex)</Text>
-                <Text style={styles.ppiPreviewCode} selectable>
-                  {lastPpiRxPreview.mpFrame?.frameBytesIndexedHex?.length
-                    ? lastPpiRxPreview.mpFrame.frameBytesIndexedHex.join("\n")
-                    : "(not captured yet)"}
-                </Text>
-                <Text style={styles.ppiPreviewSectionLabel}>Incoming Full Frame Base64</Text>
-                <Text style={styles.ppiPreviewCode} selectable>
-                  {lastPpiRxPreview.fullFrameBase64 || "(not captured yet)"}
-                </Text>
-                <Text style={styles.ppiPreviewSectionLabel}>Decoded Value</Text>
-                <Text style={styles.ppiPreviewCode} selectable>
-                  {formatDecodedValue(lastPpiRxPreview.decoded)}
-                </Text>
-                <Text style={styles.ppiPreviewSectionLabel}>Parsed Payload</Text>
-                <Text style={styles.ppiPreviewCode} selectable>
-                  {lastPpiRxHumanReadable || "(not available)"}
+                <Text style={styles.ppiPreviewLine}>
+                  PPI: {resolvedPushAckPreview.ppi} · Type: {resolvedPushAckPreview.type} · session_id:{" "}
+                  {resolvedPushAckPreview.sessionId ?? "(unknown)"} · pkt_counter:{" "}
+                  {resolvedPushAckPreview.pktCounter ?? "(unknown)"}
                 </Text>
               </>
+            ) : pendingResponseMatcher ? (
+              <Text style={styles.ppiPreviewEmpty}>
+                Waiting for{" "}
+                {pendingResponseMatcher.requestType === PpiType.PUSH ? "ACK/response" : "response"} to{" "}
+                {pendingResponseMatcher.actionName} (PPI {pendingResponseMatcher.ppi}) sent at{" "}
+                {pendingResponseMatcher.sentAt}.
+              </Text>
+            ) : (
+              <Text style={styles.ppiPreviewEmpty}>No matching response resolved yet for last sent request.</Text>
             )}
           </View>
 
@@ -1367,6 +1728,14 @@ export default function BleDebugScreen() {
               <View style={[styles.flowModalMetaPill, styles.flowModalMetaPillStatus]}>
                 <Text style={styles.flowModalMetaTextStatus}>{flowStatusBadge}</Text>
               </View>
+            </View>
+            <View style={styles.flowModalCurrentCard}>
+              <Text style={styles.flowModalCurrentLabel}>
+                {selectedFlowMeta.typeId === PpiType.PUSH ? "Value To Push" : "Payload Value"}
+              </Text>
+              <Text style={styles.flowModalCurrentText} selectable>
+                {selectedFlowPayloadValueText}
+              </Text>
             </View>
             <ScrollView
               style={styles.flowModalStepsScroll}
