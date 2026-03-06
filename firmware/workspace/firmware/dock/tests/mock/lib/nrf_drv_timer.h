@@ -1,5 +1,0 @@
-
-#ifndef NRF_DRV_TIMER_MOCK_H
-#define NRF_DRV_TIMER_MOCK_H
-
-#endif // NRF_DRV_TIMER_MOCK_H
