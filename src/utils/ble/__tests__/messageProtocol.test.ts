@@ -110,6 +110,10 @@ function createLinkedEndpoints(maxPacketLength = 64) {
   return { a, b };
 }
 
+async function flushAsyncWork() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 async function startLinked(
   mpA: BleMessageProtocol,
   mpB: BleMessageProtocol,
@@ -239,6 +243,44 @@ describe("BleMessageProtocol", () => {
       payload,
     });
     expect(second).toBe(MsgProtError.BUSY);
+  });
+
+  test("send rejects while TX packet is still NEW (queued but not processed)", async () => {
+    const now = { value: 0 };
+    const transport = new SinkTransport();
+
+    const mp = new BleMessageProtocol({
+      txCharacteristicUUID: "tx",
+      rxCharacteristicUUID: "rx",
+      transport,
+      processIntervalMs: 0,
+      autoConsumeRx: false,
+      isMaster: true,
+      nowProvider: () => now.value,
+      sessionIdProvider: () => 0x5a5a,
+    });
+
+    await mp.start();
+
+    const payload = new Uint8Array([0xa5]);
+    expect(
+      mp.send({
+        type: PpiType.PUSH,
+        ppi: 0,
+        pktPayloadLen: payload.length,
+        payload,
+      })
+    ).toBe(MsgProtError.NONE);
+
+    // Second send before process() should be rejected (firmware parity).
+    expect(
+      mp.send({
+        type: PpiType.PUSH,
+        ppi: 0,
+        pktPayloadLen: payload.length,
+        payload,
+      })
+    ).toBe(MsgProtError.BUSY);
   });
 
   test("send is allowed before control-plane initialization", async () => {
@@ -447,6 +489,162 @@ describe("BleMessageProtocol", () => {
     const { result, packet } = mpB.getRxPacket();
     expect(result).toBe(MsgProtError.NONE);
     expect(packet?.pktPayloadLen).toBe(0);
+  });
+
+  test("autoConsumeRx keeps RX slot free when RX callback throws", async () => {
+    const now = { value: 0 };
+    const { a, b } = createLinkedEndpoints(96);
+
+    const mpB = new BleMessageProtocol({
+      txCharacteristicUUID: "tx",
+      rxCharacteristicUUID: "rx",
+      transport: b,
+      processIntervalMs: 0,
+      autoConsumeRx: true,
+      isMaster: false,
+      nowProvider: () => now.value,
+      onRxPacket: () => {
+        throw new Error("rx callback failure");
+      },
+    });
+
+    const mpA = new BleMessageProtocol({
+      txCharacteristicUUID: "tx",
+      rxCharacteristicUUID: "rx",
+      transport: a,
+      processIntervalMs: 0,
+      autoConsumeRx: false,
+      isMaster: true,
+      nowProvider: () => now.value,
+      sessionIdProvider: () => 0x2222,
+    });
+
+    await startLinked(mpA, mpB, a, b);
+
+    const payload = new Uint8Array([0xab]);
+    expect(
+      mpA.send({
+        type: PpiType.PUSH,
+        ppi: 0,
+        pktPayloadLen: payload.length,
+        payload,
+      })
+    ).toBe(MsgProtError.NONE);
+
+    await mpA.process();
+    b.flush();
+    a.flush();
+
+    expect(getPacketType(b.lastTx)).toBe(DEFAULT_PACKET_TYPES.ACK);
+    expect(mpA.getTxPacketStatus()).toBe(MsgProtTxPacketStatus.COMPLETED);
+    expect(mpB.getRxPacketStatus()).toBe(MsgProtRxPacketStatus.PROCESSED);
+  });
+
+  test("onRxDataAcked fires after inbound DATA is ACKed", async () => {
+    const now = { value: 0 };
+    const { a, b } = createLinkedEndpoints(96);
+    const onRxDataAcked = jest.fn();
+
+    const mpB = new BleMessageProtocol({
+      txCharacteristicUUID: "tx",
+      rxCharacteristicUUID: "rx",
+      transport: b,
+      processIntervalMs: 0,
+      autoConsumeRx: true,
+      isMaster: false,
+      nowProvider: () => now.value,
+      onRxDataAcked,
+    });
+
+    const mpA = new BleMessageProtocol({
+      txCharacteristicUUID: "tx",
+      rxCharacteristicUUID: "rx",
+      transport: a,
+      processIntervalMs: 0,
+      autoConsumeRx: false,
+      isMaster: true,
+      nowProvider: () => now.value,
+      sessionIdProvider: () => 0x9999,
+    });
+
+    await startLinked(mpA, mpB, a, b);
+
+    const payload = new Uint8Array([0xab, 0xcd]);
+    expect(
+      mpA.send({
+        type: PpiType.PUSH,
+        ppi: 14,
+        pktPayloadLen: payload.length,
+        payload,
+      })
+    ).toBe(MsgProtError.NONE);
+
+    await mpA.process();
+    b.flush();
+    await flushAsyncWork();
+
+    expect(onRxDataAcked).toHaveBeenCalledTimes(1);
+    expect(onRxDataAcked).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pktCounter: expect.any(Number),
+        sessionId: expect.any(Number),
+        payload: expect.objectContaining({
+          ppi: 14,
+          type: PpiType.PUSH,
+          pktPayloadLen: 2,
+          payload: new Uint8Array([0xab, 0xcd]),
+        }),
+      })
+    );
+  });
+
+  test("onRxDataAcked does not fire if ACK send fails", async () => {
+    const now = { value: 0 };
+    const { a, b } = createLinkedEndpoints(96);
+    const onRxDataAcked = jest.fn();
+
+    const mpB = new BleMessageProtocol({
+      txCharacteristicUUID: "tx",
+      rxCharacteristicUUID: "rx",
+      transport: b,
+      processIntervalMs: 0,
+      autoConsumeRx: true,
+      isMaster: false,
+      nowProvider: () => now.value,
+      onRxDataAcked,
+    });
+
+    const mpA = new BleMessageProtocol({
+      txCharacteristicUUID: "tx",
+      rxCharacteristicUUID: "rx",
+      transport: a,
+      processIntervalMs: 0,
+      autoConsumeRx: false,
+      isMaster: true,
+      nowProvider: () => now.value,
+      sessionIdProvider: () => 0xaaaa,
+    });
+
+    await startLinked(mpA, mpB, a, b);
+
+    // Occupy A's mailbox so B cannot enqueue ACK back to A.
+    a.queue = new Uint8Array([0xff]);
+
+    const payload = new Uint8Array([0x11]);
+    expect(
+      mpA.send({
+        type: PpiType.PUSH,
+        ppi: 14,
+        pktPayloadLen: payload.length,
+        payload,
+      })
+    ).toBe(MsgProtError.NONE);
+
+    await mpA.process();
+    b.flush();
+    await flushAsyncWork();
+
+    expect(onRxDataAcked).not.toHaveBeenCalled();
   });
 
   test("NAK triggers immediate resend", async () => {
