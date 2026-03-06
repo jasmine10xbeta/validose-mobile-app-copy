@@ -1004,6 +1004,16 @@ export default function BleDebugScreen() {
           receivedAtMs >= pending.sentAtMs
         ) {
           setResolvedResponsePreview(rxPreview);
+          addLog(`[PPI][${pending.actionName}] RESPONSE_RESOLVED`, {
+            sentAt: pending.sentAt,
+            receivedAt: rxPreview.receivedAt,
+            ppi: rxPreview.ppi,
+            ppiName: rxPreview.ppiName,
+            type: rxPreview.type,
+            typeName: rxPreview.typeName,
+            payloadLen: rxPreview.pktPayloadLen,
+            decoded: rxPreview.decoded,
+          });
           pendingResponseMatcherRef.current = null;
           setPendingResponseMatcher(null);
         }
