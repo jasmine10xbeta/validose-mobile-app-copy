@@ -1,0 +1,1786 @@
+[
+    {
+        "SW_UNIT_ID_INVALID": 0,
+        "SW_UNIT_ID_DEBUG": 1,
+        "SW_UNIT_ID_QUEUE": 2,
+        "SW_UNIT_ID_UART_DRV": 3,
+        "SW_UNIT_ID_TWI_DRV": 4,
+        "SW_UNIT_ID_SYSTEM_TIME": 5,
+        "SW_UNIT_ID_IMU_DRV": 6,
+        "SW_UNIT_ID_STATE_MACHINE": 7,
+        "SW_UNIT_ID_BUTTON_DRIVER": 8,
+        "SW_UNIT_ID_MESSAGE_PROTOCOL": 9,
+        "SW_UNIT_ID_SERIALIZER_PROTOCOL": 10,
+        "SW_UNIT_ID_UART_IR_DRIVER": 11,
+        "SW_UNIT_ID_SPI_DRV": 12,
+        "SW_UNIT_ID_DOCK_COMMS_DRIVER": 13,
+        "SW_UNIT_ID_RING_COMMS_DRIVER": 14,
+        "SW_UNIT_ID_MAIN_DOCK": 15,
+        "SW_UNIT_ID_GENERAL_CONTROL_DOCK": 16,
+        "SW_UNIT_ID_BLE_CONTROL_DOCK": 17,
+        "SW_UNIT_ID_BATTERY_MANAGER_DOCK": 18,
+        "SW_UNIT_ID_DOSE_SCHEDULER_DOCK": 19,
+        "SW_UNIT_ID_LED_CONTROL_DOCK": 20,
+        "SW_UNIT_ID_BUZZER_DOCK": 21,
+        "SW_UNIT_ID_BLE_CS_DOCK": 22,
+        "SW_UNIT_ID_BLE_CS": 23,
+        "SW_UNIT_ID_BLE_CONTROL": 24,
+        "SW_UNIT_ID_BMS_NPM1300_DRV": 25,
+        "SW_UNIT_ID_NOTIFICATIONS_MODULE": 26,
+        "SW_UNIT_ID_RING_MANAGER": 27,
+        "SW_UNIT_ID_RTC_PCF85363A_DRIVER": 28,
+        "SW_UNIT_ID_SYSTEM_FSM": 29,
+        "SW_UNIT_ID_ADS1235_DRV": 30,
+        "SW_UNIT_ID_TEMP_DRV": 31,
+        "SW_UNIT_ID_WEIGHT_SENSOR": 32,
+        "SW_UNIT_ID_DOSE_SIZE_DETECTION": 33,
+        "SW_UNIT_ID_DOSE_SIZE_DETECTION_FSM": 34,
+        "SW_UNIT_ID_DOSE_DETECTION_DOCK": 35,
+        "SW_UNIT_ID_NFC_READER": 36,
+        "SW_UNIT_ID_MAIN_RING": 37,
+        "SW_UNIT_ID_DOCK_MANAGER": 38,
+        "SW_UNIT_ID_GENERAL_CONTROL_RING": 39,
+        "SW_UNIT_ID_BATTERY_MANAGER_RING": 40,
+        "SW_UNIT_ID_PROX_SENSOR_TMD2635_DRV": 41,
+        "SW_UNIT_ID_CAP_DETECTION_MODULE": 42,
+        "SW_UNIT_ID_TILT_DETECTION_MODULE": 43,
+        "SW_UNIT_ID_DOSE_DETECTION_MODULE": 44,
+        "SW_UNIT_ID_DOSE_DETECTION_FSM": 45,
+        "SW_UNIT_ID_BLE_CONTROL_RING": 46,
+        "SW_UNIT_ID_BLE_CS_RING": 47,
+        "SW_UNIT_ID_BMS_BQ25150_DRV": 48,
+        "SW_UNIT_ID_NFC_TAG_DRV": 49,
+        "SW_UNIT_ID_NFC_READER_DRV": 50,
+        "SW_UNIT_ID_NFC_RFAL_GLUE_DOCK": 51,
+        "SW_UNIT_ID_NFC_MOCK_SERIAL_DRIVER": 52,
+        "SW_UNIT_ID_NFC_UT_MSG_PROT": 53,
+        "SW_UNIT_ID_FLASH_DRV": 54,
+        "SW_UNIT_ID_FILESYSTEM": 55,
+        "SW_UNIT_ID_MAX": 56
+    },
+    {
+        "15": {
+            "98": [
+                "main.c",
+                "Starting Dock....."
+            ],
+            "118": [
+                "main.c",
+                "General control run failed. Result.unit = %d, result.code = %d"
+            ],
+            "123": [
+                "main.c",
+                "General control init failed. Result.unit = %d, result.code = %d"
+            ]
+        },
+        "30": {
+            "178": [
+                "ads1235.c",
+                "ADC ID: %d"
+            ]
+        },
+        "21": {},
+        "54": {
+            "540": [
+                "flash_driver_s25hl512t.c",
+                "Flash Driver Successfully Initialized."
+            ],
+            "544": [
+                "flash_driver_s25hl512t.c",
+                "Flash Driver Failed to Initialize."
+            ]
+        },
+        "41": {},
+        "51": {
+            "128": [
+                "rfal_nrf5_port.c",
+                "NFC I2C tx length %u exceeds 8-bit limit"
+            ],
+            "144": [
+                "rfal_nrf5_port.c",
+                "Buffer overflow."
+            ],
+            "178": [
+                "rfal_nrf5_port.c",
+                "Max I2C buffer size reached. Max = %d, data length = %d"
+            ],
+            "196": [
+                "rfal_nrf5_port.c",
+                "NFC I2C tx timeout"
+            ],
+            "210": [
+                "rfal_nrf5_port.c",
+                "Should never reach this section."
+            ],
+            "223": [
+                "rfal_nrf5_port.c",
+                "NFC I2C rx length %u exceeds 8-bit limit"
+            ],
+            "249": [
+                "rfal_nrf5_port.c",
+                "NFC I2C rx timeout"
+            ],
+            "269": [
+                "rfal_nrf5_port.c",
+                "Failed to init nrf gpiote."
+            ],
+            "281": [
+                "rfal_nrf5_port.c",
+                "Failed to init nrf gpiote."
+            ]
+        },
+        "50": {
+            "186": [
+                "st25r3916b_driver.c",
+                "NFC-V tag moved to quiet state"
+            ],
+            "190": [
+                "st25r3916b_driver.c",
+                "Failed to quiet NFC-V tag: %d"
+            ],
+            "224": [
+                "st25r3916b_driver.c",
+                "Failed to start GT: %d"
+            ],
+            "299": [
+                "st25r3916b_driver.c",
+                "NFC-A tag not present"
+            ],
+            "308": [
+                "st25r3916b_driver.c",
+                "Failed to restart GT after NFC-A absence: %d"
+            ],
+            "355": [
+                "st25r3916b_driver.c",
+                "Tag not present"
+            ],
+            "410": [
+                "st25r3916b_driver.c",
+                "NFC-V tag detected"
+            ],
+            "424": [
+                "st25r3916b_driver.c",
+                "RFAL_ERR_WRONG_STATE"
+            ],
+            "427": [
+                "st25r3916b_driver.c",
+                "RFAL_ERR_PARAM"
+            ],
+            "430": [
+                "st25r3916b_driver.c",
+                "RFAL_ERR_IO"
+            ],
+            "433": [
+                "st25r3916b_driver.c",
+                "RFAL_ERR_RF_COLLISION"
+            ],
+            "436": [
+                "st25r3916b_driver.c",
+                "RFAL_ERR_RF_CRC"
+            ],
+            "439": [
+                "st25r3916b_driver.c",
+                "RFAL_ERR_RF_PROTO"
+            ],
+            "449": [
+                "st25r3916b_driver.c",
+                "Tag discovery, err=%d"
+            ],
+            "499": [
+                "st25r3916b_driver.c",
+                "NFC-A tag detected"
+            ],
+            "513": [
+                "st25r3916b_driver.c",
+                "NFC-A protocol mismatch, retrying"
+            ],
+            "520": [
+                "st25r3916b_driver.c",
+                "NFC-A collision detected, retrying"
+            ],
+            "524": [
+                "st25r3916b_driver.c",
+                "NFC-A discovery err=%d"
+            ],
+            "585": [
+                "st25r3916b_driver.c",
+                "rfalFieldOff failed while waking NFC-V tag: %d"
+            ],
+            "617": [
+                "st25r3916b_driver.c",
+                "rfal poller init failed: %d"
+            ],
+            "626": [
+                "st25r3916b_driver.c",
+                "rfalFieldOnAndStartGT failed: %d"
+            ],
+            "715": [
+                "st25r3916b_driver.c",
+                "AAT tune failed: %d"
+            ],
+            "721": [
+                "st25r3916b_driver.c",
+                "AAT ok: A=%d B=%d phase=%d amp=%d measures=%d"
+            ],
+            "797": [
+                "st25r3916b_driver.c",
+                "COMMS_DRIVER_ERROR_COMM_RX"
+            ],
+            "1171": [
+                "st25r3916b_driver.c",
+                "rfalInitialize failed: %d"
+            ],
+            "1180": [
+                "st25r3916b_driver.c",
+                "rfalNfcInitialize failed: %d"
+            ],
+            "1208": [
+                "st25r3916b_driver.c",
+                "nfc_set_nfc_power failed: %d"
+            ],
+            "1228": [
+                "st25r3916b_driver.c",
+                "Auto-tune on boot failed: %d"
+            ],
+            "1232": [
+                "st25r3916b_driver.c",
+                "Auto-tune on boot completed"
+            ]
+        },
+        "25": {
+            "144": [
+                "npm1300_driver.c",
+                "PMIC driver: write to register failed."
+            ],
+            "151": [
+                "npm1300_driver.c",
+                "PMIC driver: read from register failed."
+            ],
+            "174": [
+                "npm1300_driver.c",
+                "PMIC driver: write to register failed."
+            ],
+            "231": [
+                "npm1300_driver.c",
+                "NPM1300 RESET: NPM1300_DRV_ERROR_RSTCAUSE_SWRESET"
+            ],
+            "236": [
+                "npm1300_driver.c",
+                "NPM1300 RESET: NPM1300_DRV_ERROR_RSTCAUSE_VSYSLOW"
+            ],
+            "241": [
+                "npm1300_driver.c",
+                "NPM1300 RESET: NPM1300_DRV_ERROR_RSTCAUSE_THERMALSHUTDOWN"
+            ],
+            "246": [
+                "npm1300_driver.c",
+                "NPM1300 RESET: NPM1300_DRV_ERROR_RSTCAUSE_LONGPRESSTIMEOUT"
+            ],
+            "251": [
+                "npm1300_driver.c",
+                "NPM1300 RESET: NPM1300_DRV_ERROR_RSTCAUSE_WATCHDOGTIMEOUT"
+            ],
+            "256": [
+                "npm1300_driver.c",
+                "NPM1300 RESET: NPM1300_DRV_ERROR_RSTCAUSE_BOOTMONITORTIMEOUT"
+            ],
+            "261": [
+                "npm1300_driver.c",
+                "NPM1300 RESET: NPM1300_DRV_ERROR_RSTCAUSE_SHIPMODEEXIT"
+            ],
+            "524": [
+                "npm1300_driver.c",
+                "PMIC driver status: VBUS current limit detected."
+            ],
+            "528": [
+                "npm1300_driver.c",
+                "PMIC driver status: VBUS suspended."
+            ],
+            "593": [
+                "npm1300_driver.c",
+                "PMIC driver: PMIC error detected: CHARGERERRREASON = %d"
+            ],
+            "605": [
+                "npm1300_driver.c",
+                "PMIC driver: PMIC error detected: CHARGERERRSENSOR = %d"
+            ],
+            "617": [
+                "npm1300_driver.c",
+                "PMIC driver: PMIC error detected: RSTCAUSE = %d"
+            ]
+        },
+        "28": {},
+        "31": {
+            "275": [
+                "sts30_dis_temp_sensor.c",
+                "Invalid repeatability value."
+            ],
+            "351": [
+                "sts30_dis_temp_sensor.c",
+                "Invalid repeatability value."
+            ],
+            "371": [
+                "sts30_dis_temp_sensor.c",
+                "Invalid repeatability value."
+            ],
+            "391": [
+                "sts30_dis_temp_sensor.c",
+                "Invalid repeatability value."
+            ],
+            "411": [
+                "sts30_dis_temp_sensor.c",
+                "Invalid repeatability value."
+            ],
+            "431": [
+                "sts30_dis_temp_sensor.c",
+                "Invalid repeatability value."
+            ],
+            "439": [
+                "sts30_dis_temp_sensor.c",
+                "Invalid measurement period value."
+            ],
+            "478": [
+                "sts30_dis_temp_sensor.c",
+                "Invalid repeatability value."
+            ],
+            "498": [
+                "sts30_dis_temp_sensor.c",
+                "Invalid repeatability value."
+            ],
+            "506": [
+                "sts30_dis_temp_sensor.c",
+                "Invalid clock stretching value."
+            ]
+        },
+        "18": {
+            "184": [
+                "battery_manager.c",
+                "ADC value out of range: %d"
+            ]
+        },
+        "24": {
+            "667": [
+                "ble_control.c",
+                "Failed to start stop advertising timer. Error: 0x%02X"
+            ],
+            "684": [
+                "ble_control.c",
+                "Failed to set BLE passkey. NRF error code: %u"
+            ],
+            "709": [
+                "ble_control.c",
+                "BLE NUS data received."
+            ],
+            "755": [
+                "ble_control.c",
+                "Advertising already stopped. Ignoring retry."
+            ],
+            "763": [
+                "ble_control.c",
+                "Trying to stop advertising (Attempt %d/%d)..."
+            ],
+            "771": [
+                "ble_control.c",
+                "Advertising stopped successfully."
+            ],
+            "779": [
+                "ble_control.c",
+                "Failed to stop advertising. NRF_ERROR_INVALID_STATE"
+            ],
+            "784": [
+                "ble_control.c",
+                "Failed to stop advertising. Error: 0x%02X"
+            ],
+            "790": [
+                "ble_control.c",
+                "Cannot stop advertising while there are active connections. Waiting for disconnection..."
+            ],
+            "801": [
+                "ble_control.c",
+                "Failed to start stop advertising timer. Error: 0x%02X"
+            ],
+            "806": [
+                "ble_control.c",
+                "Maximum retries reached. Could not stop advertising."
+            ],
+            "821": [
+                "ble_control.c",
+                "QWR connection handle assigned successfully."
+            ],
+            "829": [
+                "ble_control.c",
+                "Transmit power set successfully"
+            ],
+            "833": [
+                "ble_control.c",
+                "sd_ble_gap_tx_power_set() returned: NRF_ERROR_INVALID_PARAM"
+            ],
+            "837": [
+                "ble_control.c",
+                "sd_ble_gap_tx_power_set() returned: BLE_ERROR_INVALID_ADV_HANDLE"
+            ],
+            "841": [
+                "ble_control.c",
+                "sd_ble_gap_tx_power_set() returned: BLE_ERROR_INVALID_CONN_HANDLE"
+            ],
+            "845": [
+                "ble_control.c",
+                "sd_ble_gap_tx_power_set() returned unknown error"
+            ],
+            "855": [
+                "ble_control.c",
+                "Failed to assign QWR conn handle (retry %d). Error: 0x%02X"
+            ],
+            "864": [
+                "ble_control.c",
+                "Failed to restart QWR retry timer. Error: 0x%02X"
+            ],
+            "869": [
+                "ble_control.c",
+                "Max retry attempts reached for QWR connection handle assignment."
+            ],
+            "899": [
+                "ble_control.c",
+                "Advertising failed with error code: %d"
+            ],
+            "905": [
+                "ble_control.c",
+                "Address: %02X:%02X:%02X:%02X:%02X:%02X"
+            ],
+            "919": [
+                "ble_control.c",
+                "Manual whitelist cleared."
+            ],
+            "931": [
+                "ble_control.c",
+                "Failed pm_peer_id_list(), error: %d"
+            ],
+            "950": [
+                "ble_control.c",
+                "Failed pm_peer_data_bonding_load(), error: %d"
+            ],
+            "964": [
+                "ble_control.c",
+                "Manual whitelist populated with %d devices."
+            ],
+            "992": [
+                "ble_control.c",
+                "Attempt to delete invalid peer ID!"
+            ],
+            "997": [
+                "ble_control.c",
+                "Deleting all peers except ID %u"
+            ],
+            "1004": [
+                "ble_control.c",
+                "Unable to retrieve peer list: %u"
+            ],
+            "1041": [
+                "ble_control.c",
+                "Failed pm_conn_sec_status_get(), err_code %d"
+            ],
+            "1047": [
+                "ble_control.c",
+                "Link security status:\\n connected: %d\\n encrypted: %d\\n mitm_protected: %d\\n bonded: %d\\n lesc: %d"
+            ],
+            "1057": [
+                "ble_control.c",
+                "Link not MITM-secured, disconnecting and deleting peer."
+            ],
+            "1061": [
+                "ble_control.c",
+                "Failed to delete peer. Error: 0x%02X"
+            ],
+            "1073": [
+                "ble_control.c",
+                "Connected to a previously bonded device."
+            ],
+            "1089": [
+                "ble_control.c",
+                "Connection security failed for conn_handle: %d"
+            ],
+            "1096": [
+                "ble_control.c",
+                "Previously-bonded peer is requesting to pair again. Permitting..."
+            ],
+            "1104": [
+                "ble_control.c",
+                "PM_EVT_PEERS_DELETE_SUCCEEDED"
+            ],
+            "1110": [
+                "ble_control.c",
+                "Peer data update failed. Peer ID: %d, Error: 0x%02X"
+            ],
+            "1115": [
+                "ble_control.c",
+                "Flash storage full. Attempting to delete peer."
+            ],
+            "1119": [
+                "ble_control.c",
+                "Failed to delete peer. Error: 0x%02X"
+            ],
+            "1130": [
+                "ble_control.c",
+                "Peer deletion failed. Peer ID: %d, Error: 0x%02X"
+            ],
+            "1137": [
+                "ble_control.c",
+                "Retrying peer delete. Attempt: %d"
+            ],
+            "1141": [
+                "ble_control.c",
+                "Retry failed. Error: 0x%02X"
+            ],
+            "1146": [
+                "ble_control.c",
+                "Max retries reached. Peer deletion aborted."
+            ],
+            "1158": [
+                "ble_control.c",
+                "PM_EVT_PEERS_DELETE_FAILED"
+            ],
+            "1165": [
+                "ble_control.c",
+                "Unexpected error in Peer Manager. Error: 0x%02X"
+            ],
+            "1176": [
+                "ble_control.c",
+                "New Bond. Adding the peer to the whitelist."
+            ],
+            "1188": [
+                "ble_control.c",
+                "PM_EVT_CONN_SEC_CONFIG_REQ received. Conn handle: %d"
+            ],
+            "1210": [
+                "ble_control.c",
+                "PM_EVT_CONN_SEC_START"
+            ],
+            "1216": [
+                "ble_control.c",
+                "PM_EVT_LOCAL_DB_CACHE_APPLIED"
+            ],
+            "1220": [
+                "ble_control.c",
+                "PM_EVT_PEER_DELETE_SUCCEEDED"
+            ],
+            "1223": [
+                "ble_control.c",
+                "PM_EVT_LOCAL_DB_CACHE_APPLY_FAILED"
+            ],
+            "1226": [
+                "ble_control.c",
+                "PM_EVT_FLASH_GARBAGE_COLLECTION_FAILED"
+            ],
+            "1239": [
+                "ble_control.c",
+                "Unhandled Peer Manager event: %d"
+            ],
+            "1249": [
+                "ble_control.c",
+                "Invalid connection handle. Aborting retry."
+            ],
+            "1264": [
+                "ble_control.c",
+                "PHY update retry succeeded."
+            ],
+            "1269": [
+                "ble_control.c",
+                "Retrying PHY update (attempt %d)."
+            ],
+            "1276": [
+                "ble_control.c",
+                "Failed to process PHY update after retries. Error: 0x%02X"
+            ],
+            "1364": [
+                "ble_control.c",
+                "BLE NUS: Data len is set to (%d)"
+            ],
+            "1366": [
+                "ble_control.c",
+                "ATT MTU exchange completed. central %d peripheral %d"
+            ],
+            "1382": [
+                "ble_control.c",
+                "Failed to initialize GATT. Retrying (attempt %d)."
+            ],
+            "1403": [
+                "ble_control.c",
+                "Device preparing to enter bootloader mode..."
+            ],
+            "1406": [
+                "ble_control.c",
+                "Device entering bootloader mode"
+            ],
+            "1409": [
+                "ble_control.c",
+                "Device failed to enter bootloader mode"
+            ],
+            "1412": [
+                "ble_control.c",
+                "Device DFU response send error occurred"
+            ],
+            "1415": [
+                "ble_control.c",
+                "Unknown event from ble_dfu."
+            ],
+            "1429": [
+                "ble_control.c",
+                "SC: notifications enabled"
+            ],
+            "1436": [
+                "ble_control.c",
+                "SC: notifications disabled"
+            ],
+            "1531": [
+                "ble_control.c",
+                "BLE: Failed to initialize Custom Service (CS): %d"
+            ],
+            "1556": [
+                "ble_control.c",
+                "BLE: Failed to initialize the battery service: %d"
+            ],
+            "1581": [
+                "ble_control.c",
+                "BLE: Failed to initialize the Device Information Service: %d"
+            ],
+            "1595": [
+                "ble_control.c",
+                "BLE: Failed to initialize the Nordic UART Service: %d"
+            ],
+            "1651": [
+                "ble_control.c",
+                "Fast advertising."
+            ],
+            "1657": [
+                "ble_control.c",
+                "Slow advertising."
+            ],
+            "1663": [
+                "ble_control.c",
+                "Fast advertising with whitelist."
+            ],
+            "1669": [
+                "ble_control.c",
+                "Slow advertising with whitelist."
+            ],
+            "1675": [
+                "ble_control.c",
+                "BLE_ADV_EVT_IDLE"
+            ],
+            "1683": [
+                "ble_control.c",
+                "BLE_ADV_EVT_PEER_ADDR_REQUEST"
+            ],
+            "1706": [
+                "ble_control.c",
+                "Failed to reply with peer address. Error: 0x%02X"
+            ],
+            "1714": [
+                "ble_control.c",
+                "Peer address request denied: Peer not in manual whitelist."
+            ],
+            "1719": [
+                "ble_control.c",
+                "Failed to load bonding data for peer ID %d. Error: 0x%02X"
+            ],
+            "1724": [
+                "ble_control.c",
+                "Peer address request denied: Invalid peer ID."
+            ],
+            "1746": [
+                "ble_control.c",
+                "No valid connection handle for retry."
+            ],
+            "1755": [
+                "ble_control.c",
+                "Disconnect request sent successfully."
+            ],
+            "1760": [
+                "ble_control.c",
+                "Disconnect failed: Invalid parameter(s) supplied."
+            ],
+            "1764": [
+                "ble_control.c",
+                "Disconnect failed: Invalid connection handle."
+            ],
+            "1767": [
+                "ble_control.c",
+                "Disconnect failed: Invalid state. Retry attempt %d."
+            ],
+            "1776": [
+                "ble_control.c",
+                "Failed to restart disconnect retry timer. Error: 0x%02X"
+            ],
+            "1781": [
+                "ble_control.c",
+                "Max retry attempts reached for disconnect."
+            ],
+            "1790": [
+                "ble_control.c",
+                "Unexpected error code: 0x%02X."
+            ],
+            "1813": [
+                "ble_control.c",
+                "BLE disconnect failed: BLE_ERROR_INVALID_CONN_HANDLE."
+            ],
+            "1816": [
+                "ble_control.c",
+                "BLE disconnect request sent successfully."
+            ],
+            "1819": [
+                "ble_control.c",
+                "BLE disconnect failed: Invalid state. Starting retry timer."
+            ],
+            "1824": [
+                "ble_control.c",
+                "Failed to start disconnect retry timer. Error: 0x%02X"
+            ],
+            "1828": [
+                "ble_control.c",
+                "BLE disconnect failed with error: 0x%02X."
+            ],
+            "1890": [
+                "ble_control.c",
+                "Pairing not allowed. Disconnecting device."
+            ],
+            "1896": [
+                "ble_control.c",
+                "Device connected:"
+            ],
+            "1904": [
+                "ble_control.c",
+                "Device not in whitelist. Disconnecting."
+            ],
+            "1918": [
+                "ble_control.c",
+                "Failed to assign QWR conn handle (initial attempt). Error: 0x%02X"
+            ],
+            "1924": [
+                "ble_control.c",
+                "Failed to start QWR retry timer. Error: 0x%02X"
+            ],
+            "1929": [
+                "ble_control.c",
+                "QWR connection handle assigned successfully."
+            ],
+            "1940": [
+                "ble_control.c",
+                "Transmit power set successfully"
+            ],
+            "1944": [
+                "ble_control.c",
+                "sd_ble_gap_tx_power_set() returned: NRF_ERROR_INVALID_PARAM"
+            ],
+            "1948": [
+                "ble_control.c",
+                "sd_ble_gap_tx_power_set() returned: BLE_ERROR_INVALID_ADV_HANDLE"
+            ],
+            "1952": [
+                "ble_control.c",
+                "sd_ble_gap_tx_power_set() returned: BLE_ERROR_INVALID_CONN_HANDLE"
+            ],
+            "1956": [
+                "ble_control.c",
+                "sd_ble_gap_tx_power_set() returned unknown error"
+            ],
+            "1969": [
+                "ble_control.c",
+                "PHY update request received."
+            ],
+            "1985": [
+                "ble_control.c",
+                "PHY update initiated successfully."
+            ],
+            "1990": [
+                "ble_control.c",
+                "PHY update failed (NRF_ERROR_BUSY). Retrying..."
+            ],
+            "1999": [
+                "ble_control.c",
+                "PHY update failed with error: 0x%02X"
+            ],
+            "2006": [
+                "ble_control.c",
+                "Failed to process PHY update after %d retries. Error: 0x%02X"
+            ],
+            "2016": [
+                "ble_control.c",
+                "GATT Client Timeout on conn_handle: %d."
+            ],
+            "2023": [
+                "ble_control.c",
+                "GATT Server Timeout on conn_handle: %d."
+            ],
+            "2030": [
+                "ble_control.c",
+                "BLE_GAP_EVT_SEC_PARAMS_REQUEST received."
+            ],
+            "2034": [
+                "ble_control.c",
+                "Pairing not allowed. Rejecting security request."
+            ],
+            "2041": [
+                "ble_control.c",
+                "Failed to send pairing rejection. Error: 0x%02X"
+            ],
+            "2058": [
+                "ble_control.c",
+                "Failed to reply to security parameters request. Error: 0x%02X"
+            ],
+            "2062": [
+                "ble_control.c",
+                "Security parameters response sent successfully."
+            ],
+            "2069": [
+                "ble_control.c",
+                "BLE_GAP_EVT_AUTH_KEY_REQUEST received."
+            ],
+            "2073": [
+                "ble_control.c",
+                "Pairing not allowed. Rejecting auth key request."
+            ],
+            "2078": [
+                "ble_control.c",
+                "Failed to reject pairing request. Error: 0x%02X"
+            ],
+            "2085": [
+                "ble_control.c",
+                "Sending passkey."
+            ],
+            "2090": [
+                "ble_control.c",
+                "Failed to send passkey. Error: 0x%02X"
+            ],
+            "2094": [
+                "ble_control.c",
+                "BLE stack busy."
+            ],
+            "2100": [
+                "ble_control.c",
+                "Unsupported key type in auth key request."
+            ],
+            "2107": [
+                "ble_control.c",
+                "BLE_GAP_EVT_LESC_DHKEY_REQUEST"
+            ],
+            "2113": [
+                "ble_control.c",
+                "BLE_GAP_EVT_AUTH_STATUS: status=0x%02X bond=0x%02X lv4: %d kdist_own:0x%02X kdist_peer:0x%02X"
+            ],
+            "2258": [
+                "ble_control.c",
+                "BLE_ADVERTISING_START failed: 0x%02X. Retrying..."
+            ],
+            "2265": [
+                "ble_control.c",
+                "BLE_ADVERTISING_START failed: 0x%02X"
+            ],
+            "2271": [
+                "ble_control.c",
+                "Starting general advertising."
+            ],
+            "2283": [
+                "ble_control.c",
+                "Is bonded: %d"
+            ],
+            "2292": [
+                "ble_control.c",
+                "BLE_ADVERTISING_START failed: 0x%02X. Retrying..."
+            ],
+            "2299": [
+                "ble_control.c",
+                "BLE_ADVERTISING_START failed: 0x%02X"
+            ],
+            "2305": [
+                "ble_control.c",
+                "Starting whitelist advertising."
+            ]
+        },
+        "23": {
+            "377": [
+                "ble_cs.c",
+                "Failed to update characteristic: %d\\n"
+            ],
+            "395": [
+                "ble_cs.c",
+                "Failed to send notification: %d\\n"
+            ],
+            "439": [
+                "ble_cs.c",
+                "Invalid input parameters"
+            ],
+            "456": [
+                "ble_cs.c",
+                "Invalid input parameters. Events per day out of range. Expected < %d, Actual: %d"
+            ],
+            "469": [
+                "ble_cs.c",
+                "Invalid input parameters. Expected length = %d, Actual length: %d"
+            ],
+            "488": [
+                "ble_cs.c",
+                "Invalid input parameters. Dose window start or duration minutes out of range. start: %d, duration: %d"
+            ],
+            "568": [
+                "ble_cs.c",
+                "Failed to parse dose schedule."
+            ],
+            "651": [
+                "ble_cs.c",
+                "Invalid size of char_props_mask"
+            ]
+        },
+        "35": {},
+        "19": {},
+        "33": {
+            "131": [
+                "dose_size_detection.c",
+                "Dose size detection state machine provided invalid sampling frequency: %u"
+            ],
+            "441": [
+                "dose_size_detection.c",
+                "Short stddev: %u mg"
+            ],
+            "442": [
+                "dose_size_detection.c",
+                "Weight in bounds: %d, Stable: %d"
+            ],
+            "505": [
+                "dose_size_detection.c",
+                "Long stddev: %u mg"
+            ],
+            "506": [
+                "dose_size_detection.c",
+                "Weight in bounds: %d, Stable: %d, Weight (mg): %d, Stddev short: %u mg"
+            ],
+            "571": [
+                "dose_size_detection.c",
+                "Stability tracker: unstable sample detected, resetting stability"
+            ],
+            "601": [
+                "dose_size_detection.c",
+                "Dose size detection state machine entered RING_PRESENT state"
+            ],
+            "626": [
+                "dose_size_detection.c",
+                "Dose size detection RING_PRESENT state: valid weight sample obtained: %d mg"
+            ],
+            "631": [
+                "dose_size_detection.c",
+                "Dose size detection RING_PRESENT state: invalid weight sample"
+            ],
+            "663": [
+                "dose_size_detection.c",
+                "Dose size detection state machine entered RING_ABSENT state"
+            ],
+            "700": [
+                "dose_size_detection.c",
+                "Dose size detection RING_ABSENT state: valid weight sample obtained: %d mg"
+            ],
+            "704": [
+                "dose_size_detection.c",
+                "Dose size detection RING_ABSENT state: invalid weight sample"
+            ],
+            "736": [
+                "dose_size_detection.c",
+                "Dose size detection state machine entered RING_REPLACED state"
+            ],
+            "750": [
+                "dose_size_detection.c",
+                "Dose size detection RING_REPLACED state: valid weight sample obtained: %d mg"
+            ],
+            "782": [
+                "dose_size_detection.c",
+                "Dose size detection state machine entered RING_REPLACED_SETTLED state"
+            ],
+            "788": [
+                "dose_size_detection.c",
+                "Dose size calculation failed - missing valid DRB data"
+            ],
+            "803": [
+                "dose_size_detection.c",
+                "Total dispensed (mg) negative, setting to zero. Invalid value detected."
+            ],
+            "812": [
+                "dose_size_detection.c",
+                "Dose size (mg) negative, setting to zero. Invalid dose size detected."
+            ],
+            "856": [
+                "dose_size_detection.c",
+                "Entered IDLE state - weight measurements will be taken at a slower rate and dose size detection "
+            ],
+            "876": [
+                "dose_size_detection.c",
+                "Maximum wait time in IDLE state elapsed - cannot determine dose size, put Dock on a stable "
+            ],
+            "896": [
+                "dose_size_detection.c",
+                "IDLE state: Weight in bounds: %d, Stable: %d, Weight (mg): %d, Stddev: %u mg"
+            ],
+            "939": [
+                "dose_size_detection.c",
+                "Ring removed before dose size detection could be completed"
+            ],
+            "965": [
+                "dose_size_detection.c",
+                "Invalid state %d in dose size detection FSM"
+            ],
+            "1016": [
+                "dose_size_detection.c",
+                "Ring settle time elapsed after Ring was replaced, without getting a valid weight sample - "
+            ],
+            "1025": [
+                "dose_size_detection.c",
+                "Elapsed time: %u s, Wait time: %u s, is_max_time_elapsed: %d"
+            ],
+            "1053": [
+                "dose_size_detection.c",
+                "Dose size detection initialization attempted but weight scale is not calibrated"
+            ],
+            "1103": [
+                "dose_size_detection.c",
+                "Restarting dose size detection state machine after interruption or timer expiry"
+            ],
+            "1138": [
+                "dose_size_detection.c",
+                "Sample taken at time: %d ms"
+            ]
+        },
+        "34": {},
+        "55": {
+            "116": [
+                "filesystem.c",
+                "lfs_read - Unit: %d, Code: %d"
+            ],
+            "212": [
+                "filesystem.c",
+                "lfs_prog - Unit: %d, Code: %d"
+            ],
+            "253": [
+                "filesystem.c",
+                "lfs_erase - Unit: %d, Code: %d"
+            ],
+            "302": [
+                "filesystem.c",
+                "Filesystem Initialized."
+            ]
+        },
+        "16": {
+            "592": [
+                "general_control.c",
+                "External enqueue result: %d\\n"
+            ],
+            "606": [
+                "general_control.c",
+                "Button press event detected"
+            ],
+            "617": [
+                "general_control.c",
+                "Failed to handle button event"
+            ],
+            "700": [
+                "general_control.c",
+                "Error while executing an fstorage operation."
+            ],
+            "721": [
+                "general_control.c",
+                "Ring error received for unit %d with error code %d"
+            ],
+            "754": [
+                "general_control.c",
+                "Potential dose event received."
+            ],
+            "777": [
+                "general_control.c",
+                "Bad DOSE_EVENT_TYPE received: %d"
+            ],
+            "802": [
+                "general_control.c",
+                "Confirmed dose event received."
+            ],
+            "822": [
+                "general_control.c",
+                "Bad DOSE_EVENT_TYPE received: %d"
+            ],
+            "845": [
+                "general_control.c",
+                "Failed to send dose event."
+            ],
+            "851": [
+                "general_control.c",
+                "New event successfully sent"
+            ],
+            "880": [
+                "general_control.c",
+                "Showing error notification for new error. Unit %d, Code %d"
+            ],
+            "911": [
+                "general_control.c",
+                "Error notification reported via BLE: Unit: %u Code: %u"
+            ],
+            "933": [
+                "general_control.c",
+                "Event: %d received (NRF_SUCCESS)"
+            ],
+            "937": [
+                "general_control.c",
+                "Event: %d received (%d)"
+            ],
+            "953": [
+                "general_control.c",
+                "Record ID:\\t0x%04x"
+            ],
+            "954": [
+                "general_control.c",
+                "File ID:\\t0x%04x"
+            ],
+            "955": [
+                "general_control.c",
+                "Record key:\\t0x%04x"
+            ],
+            "1012": [
+                "general_control.c",
+                "FDS update failed."
+            ],
+            "1019": [
+                "general_control.c",
+                "FDS record find failed"
+            ],
+            "1056": [
+                "general_control.c",
+                "FDS update failed."
+            ],
+            "1063": [
+                "general_control.c",
+                "FDS record find failed"
+            ],
+            "1072": [
+                "general_control.c",
+                "LIMP MODE"
+            ],
+            "1073": [
+                "general_control.c",
+                "Battery voltage low. Trickle charging."
+            ],
+            "1074": [
+                "general_control.c",
+                "Battery voltage = %d mV"
+            ],
+            "1075": [
+                "general_control.c",
+                "PMIC charger connected = %d"
+            ],
+            "1076": [
+                "general_control.c",
+                "Battery connected = %d"
+            ],
+            "1077": [
+                "general_control.c",
+                "Charging stopped due to temp = %d"
+            ],
+            "1078": [
+                "general_control.c",
+                "Charging = %d"
+            ],
+            "1145": [
+                "general_control.c",
+                "SHIP MODE. Charger not connected and battery low."
+            ],
+            "1196": [
+                "general_control.c",
+                "PMIC Reset. Continuing power status check"
+            ],
+            "1204": [
+                "general_control.c",
+                "PMIC sensor or charge error"
+            ],
+            "1219": [
+                "general_control.c",
+                "ERROR: Ocurred during PMIC status update. Entering LIMP mode."
+            ],
+            "1251": [
+                "general_control.c",
+                "VBAT: %dmV"
+            ],
+            "1265": [
+                "general_control.c",
+                "Average VBAT : %dmV"
+            ],
+            "1305": [
+                "general_control.c",
+                "Received bad dose schedule: %d"
+            ],
+            "1310": [
+                "general_control.c",
+                "Dose schedule updated: \\n dose_amount: %d\\n events/day: %d\\n max Temp th: %d\\n Temp avg window: %d"
+            ],
+            "1315": [
+                "general_control.c",
+                "Windows:"
+            ],
+            "1319": [
+                "general_control.c",
+                "Window %d: %d - %d"
+            ],
+            "1331": [
+                "general_control.c",
+                "Bad time received: %d"
+            ],
+            "1335": [
+                "general_control.c",
+                "New unix time received: %d"
+            ],
+            "1341": [
+                "general_control.c",
+                "dd/mm/yy - %d/%d/%d"
+            ],
+            "1342": [
+                "general_control.c",
+                "hh:mm:ss - %d/%d/%d"
+            ],
+            "1348": [
+                "general_control.c",
+                "Device command received:%d"
+            ],
+            "1366": [
+                "general_control.c",
+                "Calibration instruction received:%d"
+            ],
+            "1375": [
+                "general_control.c",
+                "BLE connected"
+            ],
+            "1379": [
+                "general_control.c",
+                "BLE disconnected"
+            ],
+            "1386": [
+                "general_control.c",
+                "BLE timeout"
+            ],
+            "1496": [
+                "general_control.c",
+                "Systick timer failed to start. NRF_ERROR: %d"
+            ],
+            "1569": [
+                "general_control.c",
+                "Power management resetting...."
+            ],
+            "1637": [
+                "general_control.c",
+                "Unit:%d, code%d"
+            ],
+            "1680": [
+                "general_control.c",
+                "Watchdog timer expired. Resetting device..."
+            ],
+            "1813": [
+                "general_control.c",
+                "Data FDS record found"
+            ],
+            "1835": [
+                "general_control.c",
+                "Data FDS record doesn't exist, creating it."
+            ],
+            "1853": [
+                "general_control.c",
+                "FDS record created successfully"
+            ],
+            "1868": [
+                "general_control.c",
+                "Data FDS record found"
+            ],
+            "1890": [
+                "general_control.c",
+                "Data FDS record doesn't exist, creating it."
+            ],
+            "1905": [
+                "general_control.c",
+                "FDS record created successfully"
+            ],
+            "1940": [
+                "general_control.c",
+                "ENTERING SHIP MODE."
+            ],
+            "1941": [
+                "general_control.c",
+                "Device is Unbonded and charger not connected"
+            ],
+            "1962": [
+                "general_control.c",
+                "SHIP MODE. Unbonded and charger not connected"
+            ],
+            "1990": [
+                "general_control.c",
+                "Idle state first run. Bonding credentials found."
+            ],
+            "1995": [
+                "general_control.c",
+                "Idle state first run. No bonding credentials found."
+            ],
+            "2090": [
+                "general_control.c",
+                "Failed to load BLE passkey!"
+            ],
+            "2113": [
+                "general_control.c",
+                "Bonded successfully, restarting advertising with whitelist"
+            ],
+            "2128": [
+                "general_control.c",
+                "Pairing timeout."
+            ],
+            "2136": [
+                "general_control.c",
+                "Retained pre-existing bonding credentials. Restarting advertising with whitelist."
+            ],
+            "2144": [
+                "general_control.c",
+                "No pre-existing bonding credentials. Device is unbonded."
+            ],
+            "2226": [
+                "general_control.c",
+                ""
+            ],
+            "2227": [
+                "general_control.c",
+                "dd/mm/yy - %d/%d/%d"
+            ],
+            "2228": [
+                "general_control.c",
+                "hh:mm:ss - %d/%d/%d"
+            ],
+            "2230": [
+                "general_control.c",
+                "Current dose schedule: \\n dose_amount: %d\\n events/day: %d\\n max Temp th: %d\\n Temp avg window: %d"
+            ],
+            "2235": [
+                "general_control.c",
+                "Windows:"
+            ],
+            "2239": [
+                "general_control.c",
+                "Window %d: %d - %d"
+            ],
+            "2242": [
+                "general_control.c",
+                "Dose window status: %d"
+            ],
+            "2276": [
+                "general_control.c",
+                "Probable event queue size: %d"
+            ],
+            "2278": [
+                "general_control.c",
+                "Confirmed event queue size: %d"
+            ],
+            "2280": [
+                "general_control.c",
+                "To send event queue size: %d"
+            ],
+            "2307": [
+                "general_control.c",
+                "Starting advertising with whitelist."
+            ],
+            "2314": [
+                "general_control.c",
+                "Failed to start advertising with whitelist! Unit %d, Error: %d"
+            ],
+            "2355": [
+                "general_control.c",
+                "Vbat = %d mV, Level = %d, Charger = %d, ring charger = %d, ring charger high = %d"
+            ],
+            "2378": [
+                "general_control.c",
+                "Current state: STATEMACHINE_STATE_UNBONDED."
+            ],
+            "2385": [
+                "general_control.c",
+                "Current state: STATEMACHINE_STATE_IDLE."
+            ],
+            "2387": [
+                "general_control.c",
+                "Battery voltage (mv): %d"
+            ],
+            "2394": [
+                "general_control.c",
+                "Current state: STATEMACHINE_STATE_ACTIVE."
+            ],
+            "2401": [
+                "general_control.c",
+                "Current state: STATEMACHINE_STATE_INVALID_DOSE_INFO."
+            ],
+            "2408": [
+                "general_control.c",
+                "Current state: STATEMACHINE_STATE_PAIRING_BLE."
+            ],
+            "2415": [
+                "general_control.c",
+                "Current state: STATEMACHINE_STATE_CALIBRATION."
+            ],
+            "2422": [
+                "general_control.c",
+                "ERROR: UNKNOWN STATE. Default"
+            ],
+            "2449": [
+                "general_control.c",
+                "nfc process failed. Code %d"
+            ],
+            "2464": [
+                "general_control.c",
+                "Ring manager error: Unit:%d, Code:%d"
+            ],
+            "2488": [
+                "general_control.c",
+                "Temperature reported: %d"
+            ],
+            "2496": [
+                "general_control.c",
+                "Temperature over threshold: %d"
+            ],
+            "2528": [
+                "general_control.c",
+                "PMIC reset detected. Application firmware will restart in %u ms..."
+            ],
+            "2557": [
+                "general_control.c",
+                "Pairing gesture detected."
+            ],
+            "2564": [
+                "general_control.c",
+                "Battery below minimum operational voltage. Resetting to enter Limp mode"
+            ],
+            "2584": [
+                "general_control.c",
+                "Battery voltage = %d mV"
+            ],
+            "2585": [
+                "general_control.c",
+                "Battery voltage below minimum. Resetting MCU to place in protective charge mode"
+            ],
+            "2608": [
+                "general_control.c",
+                "nfc init failed. Code %d"
+            ],
+            "2633": [
+                "general_control.c",
+                "nfc process failed. Code %d"
+            ],
+            "2639": [
+                "general_control.c",
+                "nfc is_ring_present failed. Code %d"
+            ],
+            "2659": [
+                "general_control.c",
+                "Failed to read ring data. Err %d"
+            ],
+            "2687": [
+                "general_control.c",
+                "Successful data write to NFC."
+            ],
+            "2691": [
+                "general_control.c",
+                "Failed to write data to NFC. Err %d"
+            ],
+            "2703": [
+                "general_control.c",
+                "Starting sandbox3 - Type A or V detection"
+            ],
+            "2714": [
+                "general_control.c",
+                "Error: unit %d, code %d"
+            ],
+            "2723": [
+                "general_control.c",
+                "Error: unit %d, code %d"
+            ],
+            "2736": [
+                "general_control.c",
+                "Error: unit %d, code %d"
+            ],
+            "2759": [
+                "general_control.c",
+                "Error: unit %d, code %d"
+            ],
+            "2769": [
+                "general_control.c",
+                "Starting Flash Sandbox"
+            ],
+            "2814": [
+                "general_control.c",
+                "Testing swop"
+            ],
+            "2823": [
+                "general_control.c",
+                "Starting temp sensor sandbox"
+            ],
+            "2851": [
+                "general_control.c",
+                "Temperature: %d C, Stale: %d"
+            ],
+            "2869": [
+                "general_control.c",
+                "Current cal factor: %d"
+            ],
+            "2877": [
+                "general_control.c",
+                "New cal factor: %d"
+            ],
+            "2893": [
+                "general_control.c",
+                "Current offset: %d"
+            ],
+            "2895": [
+                "general_control.c",
+                "Calculating new offset"
+            ],
+            "2899": [
+                "general_control.c",
+                "New offset: %d"
+            ],
+            "2917": [
+                "general_control.c",
+                "Current full bottle weight: %d"
+            ],
+            "2919": [
+                "general_control.c",
+                "Calculating new offset"
+            ],
+            "2925": [
+                "general_control.c",
+                "New full bottle weight: %d"
+            ],
+            "2939": [
+                "general_control.c",
+                "Setting Ring Presence to: %d"
+            ],
+            "2993": [
+                "general_control.c",
+                "ITERATION: %d"
+            ],
+            "2994": [
+                "general_control.c",
+                "Timestamp: %d"
+            ],
+            "2995": [
+                "general_control.c",
+                "Ring presence: %d"
+            ],
+            "2996": [
+                "general_control.c",
+                "Avg weight over 100ms of ADC measurement at 400Hz: %d mg"
+            ],
+            "2997": [
+                "general_control.c",
+                "Is measurement stale: %d"
+            ],
+            "2998": [
+                "general_control.c",
+                "Std deviation of the ADC data over the previous 100ms: %d"
+            ],
+            "2999": [
+                "general_control.c",
+                "Temperature: %d, deciC"
+            ],
+            "3017": [
+                "general_control.c",
+                "Waiting for weight sensor calibration to complete..."
+            ],
+            "3021": [
+                "general_control.c",
+                "Weight sensor calibration complete."
+            ],
+            "3073": [
+                "general_control.c",
+                "Dose size detected: %d mg, Total dispensed: %d mg"
+            ],
+            "3074": [
+                "general_control.c",
+                "Dose size op1: %d"
+            ],
+            "3081": [
+                "general_control.c",
+                "DSD sandbox error: Unit:%d, Code:%d"
+            ],
+            "3085": [
+                "general_control.c",
+                "No valid data for dose size detection. Continuing..."
+            ],
+            "3092": [
+                "general_control.c",
+                "Dose size detection interrupted, can not compute dose size. Continuing..."
+            ],
+            "3105": [
+                "general_control.c",
+                "DSD sandbox not started. Calibrated: %d, Zero set: %d, Full bottle set: %d"
+            ],
+            "3132": [
+                "general_control.c",
+                "Starting main control loop"
+            ],
+            "3171": [
+                "general_control.c",
+                "general_control_init start."
+            ],
+            "3174": [
+                "general_control.c",
+                "wdt_init"
+            ],
+            "3199": [
+                "general_control.c",
+                "I2C read error during init. VBAT assumed to be low, entering limp mode"
+            ],
+            "3228": [
+                "general_control.c",
+                "fds_init_and_check"
+            ],
+            "3379": [
+                "general_control.c",
+                "general_control_init completed."
+            ]
+        },
+        "29": {},
+        "26": {
+            "292": [
+                "notifications_module.c",
+                "set probe LEDs\\n"
+            ],
+            "558": [
+                "notifications_module.c",
+                "clear timed event (timer wraparound)\\n"
+            ],
+            "575": [
+                "notifications_module.c",
+                "clear timed event\\n"
+            ],
+            "634": [
+                "notifications_module.c",
+                "get active event\\n"
+            ],
+            "640": [
+                "notifications_module.c",
+                "enqueue event\\n"
+            ],
+            "654": [
+                "notifications_module.c",
+                "enqueue event\\n"
+            ],
+            "657": [
+                "notifications_module.c",
+                "disable LEDs\\n"
+            ],
+            "660": [
+                "notifications_module.c",
+                "dequeue event\\n"
+            ],
+            "742": [
+                "notifications_module.c",
+                "get active event\\n"
+            ],
+            "746": [
+                "notifications_module.c",
+                "clear timed event\\n"
+            ],
+            "749": [
+                "notifications_module.c",
+                "get waiting event count\\n"
+            ],
+            "758": [
+                "notifications_module.c",
+                "dequeue waiting event\\n"
+            ],
+            "762": [
+                "notifications_module.c",
+                "Active event running, waiting event count: %d\\n"
+            ],
+            "767": [
+                "notifications_module.c",
+                "Priority queue empty OR error occurred\\n"
+            ]
+        },
+        "27": {
+            "123": [
+                "ring_manager.c",
+                "DOSE EVENT RECEIVED!! Event ID: %d. Number of doses enqueued on ring: %d"
+            ],
+            "171": [
+                "ring_manager.c",
+                "Failed to handle message with PPI: %d. Ignoring packet"
+            ],
+            "185": [
+                "ring_manager.c",
+                "RM request_ring_status_update(): Before calling MP send(): tx queue stats: count=%d, index front=%d, "
+            ],
+            "191": [
+                "ring_manager.c",
+                "RM request_ring_status_update(): After calling MP send(): tx queue stats: count=%d, index front=%d, "
+            ],
+            "203": [
+                "ring_manager.c",
+                "MP: MSG_PROT_ERROR_TIMEOUT"
+            ],
+            "212": [
+                "ring_manager.c",
+                "MP: TX queue full."
+            ],
+            "219": [
+                "ring_manager.c",
+                "Message protocol error: Unit: %d, Code: %d"
+            ],
+            "291": [
+                "ring_manager.c",
+                "MP: MSG_PROT_ERROR_TIMEOUT"
+            ],
+            "300": [
+                "ring_manager.c",
+                "MP: TX queue full."
+            ],
+            "307": [
+                "ring_manager.c",
+                "Message protocol error: Unit: %d, Code: %d"
+            ],
+            "338": [
+                "ring_manager.c",
+                "Message protocol error: Unit: %d, Code: %d"
+            ],
+            "360": [
+                "ring_manager.c",
+                "RM update_ring_time(): Before calling MP send(): tx queue stats: count=%d, index front=%d, index back=%d"
+            ],
+            "366": [
+                "ring_manager.c",
+                "RM update_ring_time(): After calling MP send(): tx queue stats: count=%d, index front=%d, index back=%d"
+            ],
+            "378": [
+                "ring_manager.c",
+                "MP: MSG_PROT_ERROR_TIMEOUT"
+            ],
+            "387": [
+                "ring_manager.c",
+                "MP: TX queue full."
+            ],
+            "394": [
+                "ring_manager.c",
+                "Message protocol error: Unit: %d, Code: %d"
+            ]
+        },
+        "32": {
+            "243": [
+                "weight_sensor.c",
+                "MA filled: %d"
+            ],
+            "392": [
+                "weight_sensor.c",
+                "Failed to snapshot full bottle weight"
+            ],
+            "463": [
+                "weight_sensor.c",
+                "Calibration calculation: net=%d, known_weight_mg=%d, cpg=%d"
+            ]
+        },
+        "52": {},
+        "10": {},
+        "12": {},
+        "5": {}
+    }
+]

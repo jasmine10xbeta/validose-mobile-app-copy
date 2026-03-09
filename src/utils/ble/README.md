@@ -1,35 +1,65 @@
 # BLE Message Protocol (App Side)
 
-This document explains how Message Protocol works in the app after the dual-characteristic firmware update.
-
----
+This folder contains the app-side BLE transport + Message Protocol + PPI decoding used to talk to dock/ring firmware.
 
 ## 1) Quick mental model
 
-Message Protocol uses one custom service with two one-way characteristics:
+Message Protocol uses one custom BLE service with two one-way characteristics:
 
 - App writes DATA/ACK/NAK to `UUID_DATA_RX` (`0x1508`)
 - App receives notifications from `UUID_DATA_TX` (`0x1509`)
 
-Control-plane sync uses `SYNC_START` / `SYNC_ACK` / `SYNC_MISMATCH`.
-Payload exchange uses DATA/ACK/NAK.
+Control plane:
+- `SYNC_START`, `SYNC_ACK`, `SYNC_MISMATCH`
+
+Data plane:
+- `DATA`, `ACK`, `NAK`
 
 For each outgoing DATA packet:
-- app queues frame
-- peripheral replies ACK
-- retries happen on timeout until max retries
+1. App queues frame
+2. Firmware replies ACK (or NAK)
+3. App retries on timeout until retry limit
 
----
+## 2) Directory Map
 
-## 2) End-to-end block diagram
+Entrypoint:
+- [`src/utils/ble/index.ts`](./index.ts)
+
+Connection/session:
+- [`src/utils/ble/connectionHandling/*`](./connectionHandling)
+  - [`connect.ts`](./connectionHandling/connect.ts): scan, bond/connect, discovery, protocol startup
+  - [`discovery.ts`](./connectionHandling/discovery.ts): resolve tx/rx UUIDs from GATT discovery
+  - [`protocol.ts`](./connectionHandling/protocol.ts): runtime handler registration, TX-ready helpers
+  - [`writes.ts`](./connectionHandling/writes.ts): AD_TIME / AD_DOSE_SCHEDULE sends
+  - [`subscriptions.ts`](./connectionHandling/subscriptions.ts): legacy subscriptions (battery/error/dose event fallback)
+
+Message Protocol:
+- Wrapper: [`src/utils/ble/messageProtocol.ts`](./messageProtocol.ts)
+- Modules: [`src/utils/ble/messageProtocol/*`](./messageProtocol)
+  - packet constants / interface / link-layer transport / implementation
+
+PPI Layer:
+- Wrapper: [`src/utils/ble/messageProtocolPpi.ts`](./messageProtocolPpi.ts)
+- Modules: [`src/utils/ble/messageProtocolPpi/*`](./messageProtocolPpi)
+  - [`types.ts`](./messageProtocolPpi/types.ts), [`definitions.ts`](./messageProtocolPpi/definitions.ts), [`constants.ts`](./messageProtocolPpi/constants.ts)
+  - [`decoders.scheduleDose.ts`](./messageProtocolPpi/decoders.scheduleDose.ts), [`decoders.status.ts`](./messageProtocolPpi/decoders.status.ts), [`decoders.calibration.ts`](./messageProtocolPpi/decoders.calibration.ts)
+  - [`decodePpiPayload.ts`](./messageProtocolPpi/decodePpiPayload.ts)
+
+Debug tooling:
+- [`src/utils/ble/debugLogStore.ts`](./debugLogStore.ts)
+- [`src/app/(tabs)/home/ble-debug/console/index.tsx`](../../app/%28tabs%29/home/ble-debug/console/index.tsx)
+- [`src/app/(tabs)/home/ble-debug/index.tsx`](../../app/%28tabs%29/home/ble-debug/index.tsx)
+- [`src/app/(tabs)/home/ble-debug/logs/index.tsx`](../../app/%28tabs%29/home/ble-debug/logs/index.tsx)
+
+## 3) End-To-End Flow
 
 ```mermaid
 flowchart LR
   subgraph App["Mobile App (this repo)"]
     UI["App screens / actions"]
-    ORCH["BLE orchestration<br/>src/utils/ble/index.ts"]
-    MP["BleMessageProtocol<br/>src/utils/ble/messageProtocol.ts"]
-    PPI["PPI payload decoder<br/>src/utils/ble/messageProtocolPpi.ts"]
+    ORCH["BLE orchestration<br/>src/utils/ble/connectionHandling"]
+    MP["BleMessageProtocol<br/>src/utils/ble/messageProtocol"]
+    PPI["PPI decoders<br/>src/utils/ble/messageProtocolPpi"]
     BLETX["BLE write<br/>0x1508 (App -> Device)"]
     BLERX["BLE notify<br/>0x1509 (Device -> App)"]
 
@@ -55,19 +85,10 @@ flowchart LR
 
   BLETX --> APPMGR
   APPMGR --> BLERX
-  MP -. "SYNC_START / SYNC_ACK / SYNC_MISMATCH" .-> FWMP
-  MP -. "DATA + ACK/NAK + retry on timeout" .-> FWMP
+  MP -. "SYNC_* + DATA/ACK/NAK" .-> FWMP
 ```
 
-Flow notes:
-- App initializes protocol (`start()`), runs SYNC control, and waits for TX-ready.
-- Outgoing app PPI payloads are encoded, wrapped into Message Protocol DATA frames, and written to `0x1508`.
-- Firmware replies with ACK/NAK and emits RE/PUSH frames over `0x1509`.
-- App decodes incoming PPI payloads and dispatches them to registered handlers.
-
----
-
-## 3) BLE UUIDs
+## 4) BLE UUIDs
 
 Service:
 - `00001500-EB00-430A-A8FF-C7AD4211BF86`
@@ -76,11 +97,12 @@ Characteristics:
 - `00001508-EB00-430A-A8FF-C7AD4211BF86` (`UUID_DATA_RX`, App -> device)
 - `00001509-EB00-430A-A8FF-C7AD4211BF86` (`UUID_DATA_TX`, device -> App, Notify)
 
----
+Notes:
+- App attempts to resolve tx/rx UUIDs from discovery ([`discovery.ts`](./connectionHandling/discovery.ts)) using short UUID + characteristic properties (write/notify) before falling back to defaults.
 
-## 4) Packet format
+## 5) Packet Format
 
-All values are little-endian.
+All fields are little-endian.
 
 ```text
 Byte 0..1   : CRC16
@@ -94,7 +116,7 @@ Byte 12..13 : payload length (uint16)
 Byte 14..N  : payload bytes
 ```
 
-Packet types:
+Packet type values:
 - `DATA = 0`
 - `ACK = 1`
 - `NAK = 2`
@@ -102,122 +124,113 @@ Packet types:
 - `SYNC_ACK = 4`
 - `SYNC_MISMATCH = 5`
 
----
+## 6) PPI Layer
 
-## 5) App files involved
+The app mirrors firmware PPI IDs/types/lengths:
+- IDs/types: [`messageProtocolPpi/types.ts`](./messageProtocolPpi/types.ts) (`PpiId`, `PpiType`)
+- Payload length expectations: [`messageProtocolPpi/definitions.ts`](./messageProtocolPpi/definitions.ts)
+- Decode routing: [`messageProtocolPpi/decodePpiPayload.ts`](./messageProtocolPpi/decodePpiPayload.ts)
 
-Core protocol:
-- `src/utils/ble/messageProtocol.ts`
+Current parser coverage includes:
+- Full `PPI_AD` ID set (`0..27`)
+- Calibration/baselining payloads
+- `ring_status_t` 47-byte layout (+ legacy 41-byte support)
+- `raw_debug_log_t` (32-byte) dock/ring debug pushes
 
-PPI encoding/decoding:
-- `src/utils/ble/messageProtocolPpi.ts`
+## 7) How Message Protocol Connects to Business Logic
 
-Production BLE integration:
-- `src/utils/ble/index.ts`
+Main runtime entry:
+- `connectAndSetupDevice()` in [`connectionHandling/connect.ts`](./connectionHandling/connect.ts)
 
-Debug screens:
-- `src/app/(tabs)/home/ble-debug/console/index.tsx` (scan/connect VAL devices)
-- `src/app/(tabs)/home/ble-debug/index.tsx` (protocol actions)
-- `src/app/(tabs)/home/ble-debug/logs/index.tsx`
+What it does:
+1. Scan + bond/connect
+2. Discover services/characteristics
+3. Create/start `BleMessageProtocol` (master mode, SYNC enabled, ACK/NAK enabled)
+4. Run explicit sync and wait for TX-ready
+5. Register protocol handlers + subscriptions
+6. Push initial AD_TIME and AD_DOSE_SCHEDULE
 
----
+Business-logic touchpoints:
+- ACKed inbound DATA packets are forwarded to hardware ingest service (`ingestRawHardwareData`) using raw MP frame bytes.
+- PPI handlers currently decode/log dose event + time response in [`connectionHandling/protocol.ts`](./connectionHandling/protocol.ts).
+- Battery/error subscriptions still use legacy characteristics in [`connectionHandling/subscriptions.ts`](./connectionHandling/subscriptions.ts).
 
-## 6) Debug quick actions currently exposed
+## 8) How Message Protocol Connects to Debug Screen
 
-- Time: `AD_TIME` (`RQ`, `RE`, `PUSH`)
-- Dose schedule: `AD_DOSE_SCHEDULE` (`RQ`, `RE`, `PUSH`)
-- Dock status: `AD_DOCK_STATUS` (`RQ`)
-- Ring status: `AD_RING_STATUS` (`RQ`)
+Debug screen uses its own protocol instance:
+- [`src/app/(tabs)/home/ble-debug/index.tsx`](../../app/%28tabs%29/home/ble-debug/index.tsx)
 
-There are three dose schedule push presets (`A`, `B`, `C`) for test payload variation.
+Behavior:
+- Starts protocol with master + SYNC + ACK/NAK settings
+- Decodes incoming PPI payloads into `lastPpiRxPreview`
+- Matches incoming RE/PUSH against pending action matcher
+- Tracks ACK completion for PUSH flows
+- Writes structured protocol logs into [`debugLogStore`](./debugLogStore.ts)
+- Logs screen ([`ble-debug/logs/index.tsx`](../../app/%28tabs%29/home/ble-debug/logs/index.tsx)) renders these entries with packet/PPI/type tags
 
-App parser is aligned with `firmware/workspace` for:
-- full `PPI_AD` ID set (`0..27`)
-- `ring_status_t` 47-byte layout
-- calibration and baselining payload structs
-- `raw_debug_log_t` (32-byte) for dock/ring debug log pushes
+Debug screen also supports raw packet ingest path (with auth bootstrap) for ACKed DATA packets.
 
----
+## 9) Debug Quick Actions
 
-## 7) TX ready and protocol running (UI definitions)
+General:
+- `AD_TIME` RQ/PUSH
+- `AD_DOSE_SCHEDULE` RQ/PUSH (presets A/B/C)
+- `AD_DOCK_STATUS` RQ
+- `AD_RING_STATUS` RQ
+- `AD_DOCK_BATT_LEVEL_LOG` RQ
+- `AD_RING_BATT_LEVEL_LOG` RQ
 
-In BLE Debug:
+Developer:
+- `AD_DEVELOPMENT_CMD` RQ (uint8 command input)
 
-- **Message protocol running** means:
-  - RX notifications are subscribed on `0x1509`
-  - protocol process loop is active
-  - protocol instance is initialized and can send/receive frames
+Calibration:
+- `AD_CALIBRATION_DATA` RQ
+- `AD_START_CALIBRATION` RQ (start/stop)
+- `AD_CALIBRATION_WEIGHT_PRESENT` PUSH (true/false)
 
-- **TX ready** means:
-  - current TX packet state is `COMPLETED` or `ABANDONED`
-  - next DATA frame can be queued safely
+Baselining:
+- `AD_START_BASELINING` RQ (start/stop)
+- `AD_VALIDATE_MED` RE (true/false)
 
-If TX is not ready, action returns `TX_BUSY`.
+## 10) Retries & Timeouts
 
----
+Production connection runtime ([`connectionHandling/constants.ts`](./connectionHandling/constants.ts) + protocol defaults):
+- process interval: `250 ms`
+- TX-ready wait: `5000 ms`
+- ACK timeout default: `1000 ms`
+- max retries default: `20`
+- max packet length: `244`
 
-## 8) Timeout / retry behavior
+Debug runtime ([`home/ble-debug/constants.ts`](../../app/%28tabs%29/home/ble-debug/constants.ts)):
+- process interval: `0` (process on demand)
+- ACK timeout: `1000 ms`
+- max retries: `20`
+- TX-ready / completion / late-ACK windows: `23000 ms`
 
-Configured in debug flow:
-
-- ACK timeout: `1000 ms` (firmware `ACK_TIMEOUT_MS`)
-- Max retries: `20` (firmware `MSG_PROT_MAX_RETRIES`)
-- TX-ready wait timeout: `23000 ms` (debug guard around firmware worst-case abandon at ~21000 ms)
-- TX-completion wait window: `23000 ms` (same rationale)
-- Late ACK watch window: `23000 ms`
-
-Common statuses:
-- `SENT_ACKED`
-- `SENT_WAITING_ACK`
-- `TX_ABANDONED`
+Common debug statuses:
+- `SENT_DATA`
 - `TX_BUSY`
+- `PAYLOAD_LENGTH_MISMATCH`
+- `SEND_ERROR_<code>`
+- `RESPONSE_RESOLVED` (log event)
 
----
+## 11) Tests
 
-## 9) Debug workflow
+Targeted parity checks:
 
-1. Open **BLE Debug Console**
-2. Scan devices and filter by names starting with `VAL`
-3. Tap **Connect** (bond attempt + connect + discovery)
-4. Screen navigates to BLE Debug actions
-5. Run quick actions and inspect payload preview + logs
+```bash
+npx jest src/utils/ble/__tests__/messageProtocol.test.ts src/utils/ble/__tests__/messageProtocolPpi.test.ts --runInBand --watchman=false
+```
 
----
+Files:
+- [`src/utils/ble/__tests__/messageProtocol.test.ts`](./__tests__/messageProtocol.test.ts)
+- [`src/utils/ble/__tests__/messageProtocolPpi.test.ts`](./__tests__/messageProtocolPpi.test.ts)
 
-## 10) nRF virtual peripheral notes (not supported by debug screen completely in currently)
+## 12) Firmware Review Checklist
 
-If testing with a virtual peripheral:
-
-- Expose service `0x1500`
-- Expose write characteristic `0x1508`
-- Expose notify characteristic `0x1509`
-- For each DATA write from app, notify a valid ACK frame back
-
----
-
-## 11) Troubleshooting
-
-### `call discoverServicesAndCharacteristics() first`
-- Usually auto-recovered.
-- If persistent: reconnect device and retry.
-
-### `TX_BUSY`
-- Previous TX has not reached `COMPLETED`/`ABANDONED` yet.
-- Wait, or inspect logs for stuck ACK path.
-
-### `SENT_WAITING_ACK`
-- DATA sent; ACK not received in action window.
-- Ensure peripheral notifies ACK for the sent frame.
-
-### `CRC mismatch; dropping packet`
-- Incoming notify frame is malformed.
-- Rebuild full frame (CRC + header + payload), not payload-only.
-
----
-
-## 12) FAQ
-
-### Who owns session control?
-- App runs as master for session_id generation.
-- App runtime keeps SYNC control flow enabled (`SYNC_START`/`SYNC_ACK`/`SYNC_MISMATCH`).
-- App and firmware exchange ACK/NAK for DATA reliability.
+Please confirm:
+1. UUID mapping and characteristic directions (`0x1508` write, `0x1509` notify)
+2. packet header/CRC/session semantics
+3. ACK/NAK/SYNC behavior and retry assumptions
+4. PPI ID/type values and payload lengths
+5. struct field order/endian for decoded payloads
