@@ -21,15 +21,18 @@ export function ActionButton({
   tone = "default",
   style,
 }: ActionButtonProps) {
+  const isDisabled = Boolean(disabled);
+  const isInactive = isDisabled || Boolean(loading);
+
   return (
     <Pressable
       onPress={onPress}
-      disabled={disabled || loading}
+      disabled={isInactive}
       style={[
         styles.actionButton,
         style,
         tone === "danger" && styles.actionButtonDanger,
-        (disabled || loading) && styles.actionButtonDisabled,
+        isDisabled && styles.actionButtonDisabled,
       ]}
     >
       <View style={styles.actionButtonInner}>
@@ -38,6 +41,7 @@ export function ActionButton({
           style={[
             styles.actionButtonText,
             tone === "danger" && styles.actionButtonTextDanger,
+            isDisabled && styles.actionButtonTextDisabled,
           ]}
         >
           {loading ? "Working..." : label}

@@ -11,6 +11,7 @@ type QuickPpiButtonProps = {
   onInfoPress?: () => void;
   loading?: boolean;
   disabled?: boolean;
+  fullWidth?: boolean;
 };
 
 export function QuickPpiButton({
@@ -20,15 +21,25 @@ export function QuickPpiButton({
   onInfoPress,
   loading,
   disabled,
+  fullWidth,
 }: QuickPpiButtonProps) {
+  const isDisabled = Boolean(disabled);
+  const isInactive = isDisabled || Boolean(loading);
+
   return (
     <Pressable
       onPress={onPress}
-      disabled={disabled || loading}
-      style={[styles.quickPpiButton, (disabled || loading) && styles.quickPpiButtonDisabled]}
+      disabled={isInactive}
+      style={[
+        styles.quickPpiButton,
+        fullWidth ? styles.quickPpiButtonFullWidth : null,
+        isDisabled && styles.quickPpiButtonDisabled,
+      ]}
     >
       <View style={styles.quickPpiButtonTop}>
-        <Text style={styles.quickPpiButtonTitle}>{title}</Text>
+        <Text style={[styles.quickPpiButtonTitle, isDisabled && styles.quickPpiButtonTitleDisabled]}>
+          {title}
+        </Text>
         <View style={styles.quickPpiButtonActions}>
           <View style={styles.quickPpiLoaderSlot}>
             {loading ? <ActivityIndicator size="small" color={validoseButtonColor} /> : null}
@@ -40,14 +51,23 @@ export function QuickPpiButton({
                 onInfoPress();
               }}
               hitSlop={6}
-              style={styles.quickPpiInfoButton}
+              style={[styles.quickPpiInfoButton, isDisabled && styles.quickPpiInfoButtonDisabled]}
             >
-              <Text style={styles.quickPpiInfoButtonText}>i</Text>
+              <Text
+                style={[
+                  styles.quickPpiInfoButtonText,
+                  isDisabled && styles.quickPpiInfoButtonTextDisabled,
+                ]}
+              >
+                i
+              </Text>
             </Pressable>
           ) : null}
         </View>
       </View>
-      <Text style={styles.quickPpiButtonSubtitle}>{subtitle}</Text>
+      <Text style={[styles.quickPpiButtonSubtitle, isDisabled && styles.quickPpiButtonSubtitleDisabled]}>
+        {subtitle}
+      </Text>
     </Pressable>
   );
 }

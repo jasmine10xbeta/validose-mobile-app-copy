@@ -11,6 +11,7 @@ import {
   Modal,
   ScrollView,
   TouchableOpacity,
+  Pressable,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -322,6 +323,12 @@ export default function PairingScreen() {
               label="Enter device ID manually"
               labelStyle={styles.manualPairingLabel}
             />
+            <Pressable
+              onPress={() => router.push("/home/ble-debug/console")}
+              style={styles.debugTextAction}
+            >
+              <Text style={styles.debugText}>BLE Debug Console</Text>
+            </Pressable>
           </View>
         </View>
       </SafeAreaView>
@@ -486,6 +493,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderRadius: 1,
     borderColor: "#255F6C",
+  },
+  debugTextAction: {
+    marginTop: 14,
+    paddingVertical: 4,
+  },
+  debugText: {
+    color: "#997D84",
+    fontSize: 18,
+    fontWeight: "700",
+    textDecorationLine: "underline",
   },
 
   // Continue Button Styles

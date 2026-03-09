@@ -225,7 +225,7 @@ export default function LoginScreen() {
         }
         illustration={require("../../../../assets/images/png/onboarding-qr.png")}
         buttonLabel="Scan QR code"
-        onPressDebug={() => router.push("/home/ble-debug-console")}
+        onPressDebug={() => router.push("/home/ble-debug/console")}
         onPress={async () => {
           const granted = await requestBluetoothPermissions();
           if (!granted) {

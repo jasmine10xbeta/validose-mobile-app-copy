@@ -17,7 +17,7 @@ import {
 } from "@/utils/ble/debugLogStore";
 import { PpiId, PpiType } from "@/utils/ble/messageProtocolPpi";
 import { exportLogsToFile } from "@/utils/log";
-import { formatHexTokensInText } from "./ble-debug/helpers";
+import { formatHexTokensInText } from "../helpers";
 
 type DirectionTag = "IN" | "OUT" | "SYS";
 type PacketTag = "ACK" | "NAK" | "DATA" | "SYNC" | "INFO";

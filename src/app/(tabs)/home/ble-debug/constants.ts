@@ -7,9 +7,9 @@ import {
   type DoseSchedulePpi,
 } from "@/utils/ble/messageProtocolPpi";
 
-import type { QuickFlowAction, QuickFlowMeta } from "./types";
+import type { QuickActionItem, QuickFlowAction, QuickFlowMeta } from "./types";
 
-export const QUICK_FLOW_ACTIONS: { key: QuickFlowAction; label: string }[] = [
+export const QUICK_FLOW_ACTIONS: QuickActionItem[] = [
   { key: "TIME_RQ", label: "Time RQ" },
   { key: "TIME_PUSH", label: "Time PUSH" },
   { key: "DOSE_SCHEDULE_RQ", label: "Dose RQ" },
@@ -18,7 +18,20 @@ export const QUICK_FLOW_ACTIONS: { key: QuickFlowAction; label: string }[] = [
   { key: "DOSE_SCHEDULE_PUSH_ALT_2", label: "Dose PUSH C" },
   { key: "DOCK_STATUS_RQ", label: "Dock Status" },
   { key: "RING_STATUS_RQ", label: "Ring Status" },
+  { key: "DEVELOPMENT_CMD_RQ", label: "Dev Cmd RQ" },
+  { key: "CALIBRATION_DATA_RQ", label: "Calibration Data" },
+  { key: "START_CALIBRATION_RQ", label: "Start Calibration" },
+  { key: "STOP_CALIBRATION_RQ", label: "Stop Calibration" },
+  { key: "CALIBRATION_WEIGHT_PRESENT_PUSH_TRUE", label: "Weight Present" },
+  { key: "CALIBRATION_WEIGHT_PRESENT_PUSH_FALSE", label: "Weight Removed" },
+  { key: "START_BASELINING_RQ", label: "Start Baselining" },
+  { key: "STOP_BASELINING_RQ", label: "Stop Baselining" },
+  { key: "VALIDATE_MED_RE_TRUE", label: "Validate Med OK" },
+  { key: "VALIDATE_MED_RE_FALSE", label: "Validate Med Fail" },
 ];
+
+// Match this with the fixture/operator flow from firmware HIL when needed.
+export const CALIBRATION_WEIGHT_MG_DEFAULT = 5000;
 
 export const DOSE_SCHEDULE_PUSH_PAYLOADS: Record<
   "DOSE_SCHEDULE_PUSH" | "DOSE_SCHEDULE_PUSH_ALT_1" | "DOSE_SCHEDULE_PUSH_ALT_2",
@@ -150,6 +163,143 @@ export const QUICK_FLOW_META: Record<QuickFlowAction, QuickFlowMeta> = {
     typeId: PpiType.RQ,
     payloadHint: "No payload",
     lenHint: "len=0",
+  },
+  DEVELOPMENT_CMD_RQ: {
+    title: "Development Command Request",
+    actionName: "DEVELOPMENT_CMD_RQ",
+    busyKey: "ppi-development-cmd-rq",
+    ppiName: "AD_DEVELOPMENT_CMD",
+    ppiId: PpiId.AD_DEVELOPMENT_CMD,
+    typeName: "RQ",
+    typeId: PpiType.RQ,
+    payloadHint: "uint8 dock_command_id",
+    lenHint: "len=1",
+    payloadPreview: "Uses Dev Cmd input (0-255 decimal or 0x00-0xFF).",
+  },
+  CALIBRATION_DATA_RQ: {
+    title: "Calibration Data Request",
+    actionName: "CALIBRATION_DATA_RQ",
+    busyKey: "ppi-calibration-data-rq",
+    ppiName: "AD_CALIBRATION_DATA",
+    ppiId: PpiId.AD_CALIBRATION_DATA,
+    typeName: "RQ",
+    typeId: PpiType.RQ,
+    payloadHint: "No payload",
+    lenHint: "len=0",
+  },
+  START_CALIBRATION_RQ: {
+    title: "Start Calibration",
+    actionName: "START_CALIBRATION_RQ",
+    busyKey: "ppi-start-calibration-rq",
+    ppiName: "AD_START_CALIBRATION",
+    ppiId: PpiId.AD_START_CALIBRATION,
+    typeName: "RQ",
+    typeId: PpiType.RQ,
+    payloadHint: "start=true + calibration_weight_mg",
+    lenHint: "len=5",
+    payloadPreview: {
+      start: true,
+      calibration_weight_mg: CALIBRATION_WEIGHT_MG_DEFAULT,
+    },
+  },
+  STOP_CALIBRATION_RQ: {
+    title: "Stop Calibration",
+    actionName: "STOP_CALIBRATION_RQ",
+    busyKey: "ppi-stop-calibration-rq",
+    ppiName: "AD_START_CALIBRATION",
+    ppiId: PpiId.AD_START_CALIBRATION,
+    typeName: "RQ",
+    typeId: PpiType.RQ,
+    payloadHint: "start=false + calibration_weight_mg",
+    lenHint: "len=5",
+    payloadPreview: {
+      start: false,
+      calibration_weight_mg: CALIBRATION_WEIGHT_MG_DEFAULT,
+    },
+  },
+  CALIBRATION_WEIGHT_PRESENT_PUSH_TRUE: {
+    title: "Calibration Weight Present",
+    actionName: "CALIBRATION_WEIGHT_PRESENT_PUSH_TRUE",
+    busyKey: "ppi-calibration-weight-present-push-true",
+    ppiName: "AD_CALIBRATION_WEIGHT_PRESENT",
+    ppiId: PpiId.AD_CALIBRATION_WEIGHT_PRESENT,
+    typeName: "PUSH",
+    typeId: PpiType.PUSH,
+    payloadHint: "is_present=true",
+    lenHint: "len=1",
+    payloadPreview: {
+      is_present: true,
+    },
+  },
+  CALIBRATION_WEIGHT_PRESENT_PUSH_FALSE: {
+    title: "Calibration Weight Removed",
+    actionName: "CALIBRATION_WEIGHT_PRESENT_PUSH_FALSE",
+    busyKey: "ppi-calibration-weight-present-push-false",
+    ppiName: "AD_CALIBRATION_WEIGHT_PRESENT",
+    ppiId: PpiId.AD_CALIBRATION_WEIGHT_PRESENT,
+    typeName: "PUSH",
+    typeId: PpiType.PUSH,
+    payloadHint: "is_present=false",
+    lenHint: "len=1",
+    payloadPreview: {
+      is_present: false,
+    },
+  },
+  START_BASELINING_RQ: {
+    title: "Start Baselining",
+    actionName: "START_BASELINING_RQ",
+    busyKey: "ppi-start-baselining-rq",
+    ppiName: "AD_START_BASELINING",
+    ppiId: PpiId.AD_START_BASELINING,
+    typeName: "RQ",
+    typeId: PpiType.RQ,
+    payloadHint: "start=true",
+    lenHint: "len=1",
+    payloadPreview: {
+      start: true,
+    },
+  },
+  STOP_BASELINING_RQ: {
+    title: "Stop Baselining",
+    actionName: "STOP_BASELINING_RQ",
+    busyKey: "ppi-stop-baselining-rq",
+    ppiName: "AD_START_BASELINING",
+    ppiId: PpiId.AD_START_BASELINING,
+    typeName: "RQ",
+    typeId: PpiType.RQ,
+    payloadHint: "start=false",
+    lenHint: "len=1",
+    payloadPreview: {
+      start: false,
+    },
+  },
+  VALIDATE_MED_RE_TRUE: {
+    title: "Validate Med Success",
+    actionName: "VALIDATE_MED_RE_TRUE",
+    busyKey: "ppi-validate-med-re-true",
+    ppiName: "AD_VALIDATE_MED",
+    ppiId: PpiId.AD_VALIDATE_MED,
+    typeName: "RE",
+    typeId: PpiType.RE,
+    payloadHint: "success=true",
+    lenHint: "len=1",
+    payloadPreview: {
+      success: true,
+    },
+  },
+  VALIDATE_MED_RE_FALSE: {
+    title: "Validate Med Failure",
+    actionName: "VALIDATE_MED_RE_FALSE",
+    busyKey: "ppi-validate-med-re-false",
+    ppiName: "AD_VALIDATE_MED",
+    ppiId: PpiId.AD_VALIDATE_MED,
+    typeName: "RE",
+    typeId: PpiType.RE,
+    payloadHint: "success=false",
+    lenHint: "len=1",
+    payloadPreview: {
+      success: false,
+    },
   },
   DOCK_BATTERY_RQ: {
     title: "Dock Battery Request",

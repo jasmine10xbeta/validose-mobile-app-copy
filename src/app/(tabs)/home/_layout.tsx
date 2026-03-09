@@ -5,9 +5,9 @@ export default function HomeStack() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="auth/index" />
       <Stack.Screen name="pairing/index" />
-      <Stack.Screen name="ble-debug-console" />
-      <Stack.Screen name="ble-debug" />
-      <Stack.Screen name="ble-debug-logs" />
+      <Stack.Screen name="ble-debug/console/index" />
+      <Stack.Screen name="ble-debug/index" />
+      <Stack.Screen name="ble-debug/logs/index" />
       <Stack.Screen name="dashboard/index" />
       <Stack.Screen name="led-info" />
     </Stack>

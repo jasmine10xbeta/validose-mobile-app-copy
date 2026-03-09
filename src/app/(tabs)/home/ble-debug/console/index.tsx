@@ -24,7 +24,7 @@ import {
   getConnectedDevice,
   isDeviceConnected,
   scanLeDevice,
-} from "../../../../modules/tenx-mdk-ble-rn-library/src/index";
+} from "../../../../../../modules/tenx-mdk-ble-rn-library/src/index";
 
 type ScanDevice = {
   deviceName?: string;
@@ -363,14 +363,19 @@ export default function BleDebugConsoleScreen() {
         </Text>
       </View> */}
 
-      {connectedLabel ? (
+      {connectedLabel && (
         <View style={styles.connectedBanner}>
-          <Text style={styles.connectedBannerText}>Connected: {connectedLabel}</Text>
-          <Pressable style={styles.debugButton} onPress={() => router.push("/home/ble-debug")}>
+          <Text style={styles.connectedBannerText}>
+            {connectedLabel ? `Connected: ${connectedLabel}` : "Not connected"}
+          </Text>
+          <Pressable
+            style={styles.debugButton}
+            onPress={() => router.push("/home/ble-debug")}
+          >
             <Text style={styles.debugButtonText}>Open Debug Screen</Text>
           </Pressable>
         </View>
-      ) : null}
+      )}
 
       <View style={styles.topActions}>
         <Pressable
@@ -384,7 +389,9 @@ export default function BleDebugConsoleScreen() {
             ) : (
               <View style={styles.scanButtonDot} />
             )}
-            <Text style={styles.scanButtonText}>{isScanning ? "Scanning..." : "Scan VAL Devices"}</Text>
+            <Text style={styles.scanButtonText}>
+              {isScanning ? "Scanning..." : "Scan VAL Devices"}
+            </Text>
           </View>
           {/* <Text style={styles.scanButtonHint}>Looks for nearby devices named VAL*</Text> */}
         </Pressable>
@@ -395,13 +402,17 @@ export default function BleDebugConsoleScreen() {
       <ScrollView contentContainerStyle={styles.listContent}>
         <View style={styles.resultsHeader}>
           <Text style={styles.resultsTitle}>Scan Results</Text>
-          <Text style={styles.resultsCount}>{devices.length} device{devices.length === 1 ? "" : "s"}</Text>
+          <Text style={styles.resultsCount}>
+            {devices.length} device{devices.length === 1 ? "" : "s"}
+          </Text>
         </View>
 
         {!hasDevices && !isScanning ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>No scanned VAL devices yet</Text>
-            <Text style={styles.emptyText}>Tap “Scan VAL Devices” to discover nearby docks and rings.</Text>
+            <Text style={styles.emptyText}>
+              Tap “Scan VAL Devices” to discover nearby docks and rings.
+            </Text>
           </View>
         ) : null}
 
@@ -413,24 +424,47 @@ export default function BleDebugConsoleScreen() {
         ) : null}
 
         {devices.map((device) => {
-          const key = device.deviceAddress || device.deviceName || Math.random().toString(16);
+          const key =
+            device.deviceAddress ||
+            device.deviceName ||
+            Math.random().toString(16);
           const isConnecting = connectingKey === key;
           const signal = getSignalTone(device.rssi);
-          const connectable = device.isConnectable === true ? "Connectable" : "Unknown";
+          const connectable =
+            device.isConnectable === true ? "Connectable" : "Unknown";
 
           return (
             <View key={key} style={styles.deviceCard}>
               <View style={styles.deviceInfo}>
                 <View style={styles.deviceHeaderRow}>
-                  <Text style={styles.deviceName}>{device.deviceName || "Unknown Device"}</Text>
-                  <View style={[styles.signalBadge, { backgroundColor: signal.backgroundColor }]}>
-                    <Text style={[styles.signalBadgeText, { color: signal.textColor }]}>{signal.label}</Text>
+                  <Text style={styles.deviceName}>
+                    {device.deviceName || "Unknown Device"}
+                  </Text>
+                  <View
+                    style={[
+                      styles.signalBadge,
+                      { backgroundColor: signal.backgroundColor },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.signalBadgeText,
+                        { color: signal.textColor },
+                      ]}
+                    >
+                      {signal.label}
+                    </Text>
                   </View>
                 </View>
-                <Text style={styles.deviceMeta}>{device.deviceAddress || "No address"}</Text>
+                <Text style={styles.deviceMeta}>
+                  {device.deviceAddress || "No address"}
+                </Text>
                 <View style={styles.metaRow}>
                   <View style={styles.metaPill}>
-                    <Text style={styles.metaPillText}>RSSI {typeof device.rssi === "number" ? device.rssi : "N/A"}</Text>
+                    <Text style={styles.metaPillText}>
+                      RSSI{" "}
+                      {typeof device.rssi === "number" ? device.rssi : "N/A"}
+                    </Text>
                   </View>
                   <View style={styles.metaPill}>
                     <Text style={styles.metaPillText}>{connectable}</Text>
@@ -438,11 +472,16 @@ export default function BleDebugConsoleScreen() {
                 </View>
               </View>
               <Pressable
-                style={[styles.connectButton, isConnecting && styles.connectButtonDisabled]}
+                style={[
+                  styles.connectButton,
+                  isConnecting && styles.connectButtonDisabled,
+                ]}
                 onPress={() => void onConnect(device)}
                 disabled={isBusy}
               >
-                <Text style={styles.connectButtonText}>{isConnecting ? "Connecting..." : "Connect"}</Text>
+                <Text style={styles.connectButtonText}>
+                  {isConnecting ? "Connecting..." : "Connect"}
+                </Text>
               </Pressable>
             </View>
           );
