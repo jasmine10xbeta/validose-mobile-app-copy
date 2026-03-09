@@ -1,22 +1,22 @@
 import { toUtcISOString } from "@/utils/date";
 import axiosInstance from "../axiosInstance";
-import { encodeHexPayloadForIngest } from "./encoding";
+import { encodePacketBytesForIngest } from "./encoding";
 
 export type IngestRawHardwareDataRequest = {
-  payloadHex: string;
+  packetBytes: Uint8Array;
   deviceId: string;
   timestamp?: unknown;
 };
 
-export { encodeHexPayloadForIngest } from "./encoding";
+export { encodePacketBytesForIngest } from "./encoding";
 
 export async function ingestRawHardwareData({
-  payloadHex,
+  packetBytes,
   deviceId,
   timestamp,
 }: IngestRawHardwareDataRequest): Promise<void> {
   const body = {
-    payload: encodeHexPayloadForIngest(payloadHex),
+    payload: encodePacketBytesForIngest(packetBytes),
     timestamp: toUtcISOString(timestamp),
     device_id: deviceId,
   };

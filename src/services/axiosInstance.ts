@@ -98,6 +98,11 @@ axiosInstance.interceptors.response.use(
     const status = error.response?.status;
     const originalRequest = error.config;
     const apiData = error.response?.data as { message?: string | undefined };
+    const requestUrl = (originalRequest?.url || "").toLowerCase();
+    const isAuthEndpoint =
+      requestUrl.includes("/auth/login") ||
+      requestUrl.includes("/auth/register") ||
+      requestUrl.includes("/auth/refresh");
 
     logAPIError(error);
 
@@ -107,18 +112,23 @@ axiosInstance.interceptors.response.use(
       return Promise.reject(new Error("Network error, please try again."));
     }
 
-    // Handle 401 Unauthorized by refreshing access token
-    if (status === 401 || (status === 403 && originalRequest)) {
+    // Handle 401/403 by refreshing access token for non-auth API requests only.
+    if ((status === 401 || status === 403) && originalRequest && !isAuthEndpoint) {
       try {
+        const refreshToken = await getRefreshToken().catch(() => null);
+        if (!refreshToken) {
+          return Promise.reject(error);
+        }
+
         const newSession = await refreshAccessToken();
         await invokeSignIn(newSession);
-        
-        if (originalRequest && originalRequest.headers && newSession.access_token) {
-            // Update authorization header with new token
-            originalRequest.headers.Authorization = `Bearer ${newSession.access_token}`;
 
-            console.warn("Retrying request with new token..");
-            return axiosInstance(originalRequest); // retry original request
+        if (originalRequest.headers && newSession.access_token) {
+          // Update authorization header with new token
+          originalRequest.headers.Authorization = `Bearer ${newSession.access_token}`;
+
+          console.warn("Retrying request with new token..");
+          return axiosInstance(originalRequest); // retry original request
         }
       } catch (refreshError) {
         console.error("Token refresh failed after retries:", refreshError);
