@@ -8,7 +8,6 @@ import {
   UnitId,
 } from "@/constants/ble";
 import { sendDoseEvent } from "@/services/schedule";
-import { sendTelemetry } from "@/services/telemetry";
 import useDeviceStore from "@/store/device";
 import useScheduleStore from "@/store/schedule";
 import useTreatmentStore from "@/store/treatment";
@@ -125,20 +124,6 @@ export async function subscribeToError(deviceId: string): Promise<void> {
       console.log(`Code: ${error.errorNumber} \nMessage: ${error.errorMessage}`);
       console.log(`Hex: ${hex}`);
 
-      const device = useDeviceStore.getState().getDevice(deviceId);
-      const deviceName = device?.deviceName ?? "Unknown Device";
-      const treatment = useTreatmentStore.getState().getDeviceTreatment(deviceName);
-      if (treatment?.id) {
-        sendTelemetry(treatment.id, {
-          device_id: deviceName,
-          characteristic: "ERROR",
-          value: error.errorMessage ?? `Code ${error.errorNumber}`,
-        }).catch((telemetryErr) => {
-          console.log("\n");
-          console.warn("[Telemetry] Failed to log error event", telemetryErr);
-        });
-      }
-
       updateDevice(deviceId, { error: `Error: ${error.errorMessage}` });
     }
   );
@@ -159,20 +144,6 @@ export async function subscribeToBatteryLevel(deviceId: string): Promise<void> {
         console.log("🔋 [BLE] Received and parsed battery level from device..");
         console.log(`Battery level: ${battery}%`);
         console.log(`Hex: ${hex}`);
-
-        const device = useDeviceStore.getState().getDevice(deviceId);
-        const deviceName = device?.deviceName ?? "Unknown Device";
-        const treatment = useTreatmentStore.getState().getDeviceTreatment(deviceName);
-        if (treatment?.id) {
-          sendTelemetry(treatment.id, {
-            device_id: deviceName,
-            characteristic: "BATTERY",
-            value: battery,
-          }).catch((telemetryErr) => {
-            console.log("\n");
-            console.warn("[Telemetry] Failed to log battery event", telemetryErr);
-          });
-        }
       } catch (error) {
         console.error("Error parsing battery level:", error);
       }

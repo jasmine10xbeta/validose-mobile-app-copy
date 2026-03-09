@@ -1,5 +1,6 @@
 import { Buffer } from "buffer";
 
+import { ingestRawHardwareData } from "@/services/hardware";
 import useDevStore from "@/store/dev";
 import useDeviceStore from "@/store/device";
 import {
@@ -29,6 +30,8 @@ import {
 import { writeDoseSchedule, writeSystemTime } from "./writes";
 
 const { addDevice, updateDevice } = useDeviceStore.getState();
+const MP_MIN_FRAME_LEN_BYTES = 14;
+const MP_PACKET_TYPE_DATA = 0;
 
 export async function connectAndSetupDevice(deviceName: string) {
   if (useDevStore.getState().isMockBleModeEnabled()) {
@@ -127,24 +130,70 @@ export async function connectAndSetupDevice(deviceName: string) {
         sendAckNak: true,
         autoConsumeRx: true,
         onRxDataAcked: (packet) => {
-          const payloadHex = Buffer.from(packet.payload.payload).toString("hex");
-          if (!payloadHex) {
+          const packetBytes = getMessageProtocolInstance()?.getLastRxPacketRaw() ?? new Uint8Array(0);
+          if (!packetBytes.length) {
+            console.warn("[MP][INGEST] Skipping ingest because no raw RX packet was available.", {
+              pktCounter: packet.pktCounter,
+              sessionId: packet.sessionId,
+              ppi: packet.payload.ppi,
+              type: packet.payload.type,
+            });
+            return;
+          }
+          if (packetBytes.length < MP_MIN_FRAME_LEN_BYTES) {
+            console.warn("[MP][INGEST] Skipping ingest because RX packet was shorter than MP frame header.", {
+              packetBytesLength: packetBytes.length,
+              pktCounter: packet.pktCounter,
+              sessionId: packet.sessionId,
+            });
             return;
           }
 
-          // void ingestRawHardwareData({
-          //   payloadHex,
-          //   timestamp: new Date(),
-          //   deviceId,
-          // }).catch((error) => {
-          //   console.warn("[MP][INGEST] Failed to ingest ACKed payload.", {
-          //     error: error instanceof Error ? error.message : String(error),
-          //     pktCounter: packet.pktCounter,
-          //     sessionId: packet.sessionId,
-          //     ppi: packet.payload.ppi,
-          //     type: packet.payload.type,
-          //   });
-          // });
+          const pktType = packetBytes[8];
+          const pktPayloadLen = packetBytes[12] | (packetBytes[13] << 8);
+          if (pktType !== MP_PACKET_TYPE_DATA) {
+            console.warn("[MP][INGEST] Skipping ingest because RX packet is not DATA.", {
+              pktType,
+              pktCounter: packet.pktCounter,
+              sessionId: packet.sessionId,
+            });
+            return;
+          }
+          if (pktPayloadLen <= 0 || packet.payload.payload.length <= 0) {
+            console.warn("[MP][INGEST] Skipping ingest because DATA packet has empty payload.", {
+              pktPayloadLen,
+              pktCounter: packet.pktCounter,
+              sessionId: packet.sessionId,
+              ppi: packet.payload.ppi,
+              type: packet.payload.type,
+            });
+            return;
+          }
+          if (packetBytes.length < MP_MIN_FRAME_LEN_BYTES + pktPayloadLen) {
+            console.warn("[MP][INGEST] Skipping ingest because DATA packet appears truncated.", {
+              packetBytesLength: packetBytes.length,
+              pktPayloadLen,
+              pktCounter: packet.pktCounter,
+              sessionId: packet.sessionId,
+            });
+            return;
+          }
+
+          void ingestRawHardwareData({
+            packetBytes,
+            timestamp: new Date(),
+            deviceId,
+          }).catch((error) => {
+            console.warn("[MP][INGEST] Failed to ingest ACKed packet.", {
+              error: error instanceof Error ? error.message : String(error),
+              pktCounter: packet.pktCounter,
+              sessionId: packet.sessionId,
+              ppi: packet.payload.ppi,
+              type: packet.payload.type,
+              packetBytesLength: packetBytes.length,
+              packetBase64: Buffer.from(packetBytes).toString("base64"),
+            });
+          });
         },
         logger: {
           debug: () => undefined,

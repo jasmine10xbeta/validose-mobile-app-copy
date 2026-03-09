@@ -116,9 +116,9 @@ Production BLE integration:
 - `src/utils/ble/index.ts`
 
 Debug screens:
-- `src/app/(tabs)/home/ble-debug-console.tsx` (scan/connect VAL devices)
-- `src/app/(tabs)/home/ble-debug.tsx` (protocol actions)
-- `src/app/(tabs)/home/ble-debug-logs.tsx`
+- `src/app/(tabs)/home/ble-debug/console/index.tsx` (scan/connect VAL devices)
+- `src/app/(tabs)/home/ble-debug/index.tsx` (protocol actions)
+- `src/app/(tabs)/home/ble-debug/logs/index.tsx`
 
 ---
 

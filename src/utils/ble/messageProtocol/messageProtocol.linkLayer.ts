@@ -29,7 +29,7 @@ function getBleModule(): BleModule {
 
   // Lazy require to keep tests from importing native modules at file-load time.
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const mod = require("../../../modules/tenx-mdk-ble-rn-library/src/index") as BleModule;
+  const mod = require("../../../../modules/tenx-mdk-ble-rn-library/src/index") as BleModule;
   bleModuleCache = mod;
   return mod;
 }
