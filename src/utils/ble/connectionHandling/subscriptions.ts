@@ -69,7 +69,6 @@ export async function subscribeToDoseEvent(deviceId: string): Promise<void> {
       if (uuid.toLowerCase() !== CHARACTERISTIC_UUIDS.DOSE_EVENT || callbackDeviceId !== deviceId) return;
 
       const parsed = decodeDoseEvent(hex);
-      console.log("\n");
       console.log(`💊 [BLE] Recieved dose event: (Hex: ${hex})`, parsed);
 
       if (!parsed) {
@@ -93,7 +92,6 @@ export async function subscribeToDoseEvent(deviceId: string): Promise<void> {
         .getState()
         .acknowledgeDoseEvent(deviceName, response.event_id, parsed);
 
-      console.log("\n");
       console.log("Locally acknowledged dose event?", acknowledged);
 
       if (acknowledged !== null) {
@@ -118,7 +116,6 @@ export async function subscribeToError(deviceId: string): Promise<void> {
         return;
       }
 
-      console.log("\n");
       console.log("⚠️ [BLE] Received and parsed the following error from device..");
       console.log(`Unit: ${error.unitName} (${error.unitId})`);
       console.log(`Code: ${error.errorNumber} \nMessage: ${error.errorMessage}`);
@@ -140,7 +137,6 @@ export async function subscribeToBatteryLevel(deviceId: string): Promise<void> {
         const battery = Buffer.from(hex, "hex").readUInt8(0);
         updateDevice(deviceId, { batteryLevel: battery });
 
-        console.log("\n");
         console.log("🔋 [BLE] Received and parsed battery level from device..");
         console.log(`Battery level: ${battery}%`);
         console.log(`Hex: ${hex}`);

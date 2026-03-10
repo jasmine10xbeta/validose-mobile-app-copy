@@ -62,7 +62,6 @@ export async function writeSystemTime(): Promise<boolean> {
   const unixTime = Math.floor(Date.now() / 1000);
   const messageProtocol = getMessageProtocolInstance();
 
-  console.log("\n");
   console.log("📝 [BLE] Writing system time to device..");
   console.log(`Unix time: ${unixTime}`);
 

@@ -88,7 +88,6 @@ export const updateSchedules = async (
 
 
 export const syncTreatmentsAndSchedules = async () => {
-  console.log("\n");
   console.log("[Scheduler] Syncing treatments and schedules..");
   
   const { clearOldSchedules, storeSchedules } = useScheduleStore.getState();
@@ -123,7 +122,6 @@ export const syncTreatmentsAndSchedules = async () => {
 
 // Refresh locally stored schedules if they are older than SCHEDULE_EXPIRY_DAYS_MS
 export const refreshExpiringSchedules = async () => {
-  console.log("\n");
   console.log("[Scheduler] Refreshing expiring schedules..");
   
   const { schedules, lastUpdated, setLastUpdated, storeSchedules } = useScheduleStore.getState();
@@ -191,10 +189,8 @@ export const refreshExpiringSchedules = async () => {
     updateNotificationsForSchedules(updatedSchedules);
     setLastUpdated(now);
 
-    console.log("\n");
     console.log("[Scheduler] Schedule refresh completed.");
   } catch (err) {
-    console.log("\n");
     console.error("[Scheduler] Failed to refresh schedules:", err);
   }
 };

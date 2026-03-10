@@ -102,7 +102,6 @@ export function setupMessageProtocolHandlers(_deviceId: string): void {
       return;
     }
 
-    console.log("\n");
     console.log("💊 [MP] Received dose event", decoded);
 
     // TODO: Map decoded fields to backend payload. The current backend expects
@@ -112,7 +111,6 @@ export function setupMessageProtocolHandlers(_deviceId: string): void {
 
   messageProtocol.registerRxHandler(PpiId.AD_TIME, PpiType.RE, (packet) => {
     const decoded = decodePpiPayload(packet.ppi, packet.type as PpiType, packet.payload);
-    console.log("\n");
     console.log("🕒 [MP] Time update response", decoded.value);
   });
 }

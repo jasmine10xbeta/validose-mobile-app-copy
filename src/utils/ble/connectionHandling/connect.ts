@@ -56,14 +56,12 @@ export async function connectAndSetupDevice(deviceName: string) {
       });
     }
 
-    console.log("\n");
     console.log(`[MOCK BLE] Bypassing BLE setup for ${mockDeviceName}`);
     return { deviceId: mockDeviceId, deviceName: mockDeviceName, status: "success" };
   }
 
   const scanResponse = await scanLeDevice(1);
 
-  console.log("\n");
   console.log("Scan result:", scanResponse);
 
   let deviceId = "";
@@ -72,7 +70,6 @@ export async function connectAndSetupDevice(deviceName: string) {
   try {
     const bondResponse = await bondDevice(deviceName);
 
-    console.log("\n");
     console.log(`Bonding with device ${deviceName}`);
     console.log("Response:", bondResponse);
 
@@ -113,7 +110,6 @@ export async function connectAndSetupDevice(deviceName: string) {
     const discoveryResponse = await discoverServicesAndCharacteristics();
     const resolvedMpUuids = resolveMessageProtocolUuidsFromDiscovery(discoveryResponse);
 
-    console.log("\n");
     console.log("[MP] Resolved UUIDs from discovery:", resolvedMpUuids);
 
     stopAndClearMessageProtocol();

@@ -69,7 +69,6 @@ export default function DashboardScreen() {
       return;
     }
 
-    console.log("\n");
     console.log("[Dashboard] Today's dose schedule:");
     entries.forEach(([deviceName, deviceSchedules]) => {
       if (!deviceSchedules || deviceSchedules.length === 0) {

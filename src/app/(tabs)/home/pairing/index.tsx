@@ -127,7 +127,6 @@ export default function PairingScreen() {
       const parsed = scanningResult;
       if (isMockBleModeEnabled()) return true;
 
-      console.log("\n");
       console.log("[APP] Scanned device name:", parsed);
 
       if (typeof parsed === "string" && Array.isArray(authorizedDevices) && !authorizedDevices.some((device) => device.deviceId === parsed)) {

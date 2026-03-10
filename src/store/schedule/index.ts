@@ -112,7 +112,6 @@ const useScheduleStore = create<ScheduleStore>()(
       },
 
       clearOldSchedules: () => {
-        console.log("\n");
         console.log("[Scheduler] Cleaning old schedules..");
         
         const now = Date.now();

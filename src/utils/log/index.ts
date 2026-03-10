@@ -7,7 +7,6 @@ const BOLD = (text: string) => `\x1b[1m${text}\x1b[22m`;
 export function logAPIRequest(config: any) {
   const fullUrl = `${config.baseURL || ""}${config.url || ""}`;
 
-  console.log("\n");
   console.log("➡️ [API Request]");
   console.log(`${config.method?.toUpperCase() || ""} ${fullUrl}`);
   console.log(`${"Headers:"} ${config.headers}`);
@@ -17,7 +16,6 @@ export function logAPIRequest(config: any) {
 export function logAPIResponse(response: AxiosResponse) {
   const fullUrl = `${response.config.baseURL || ""}${response.config.url || ""}`;
 
-  console.log("\n");
   console.log("✅ [API Response]");
   console.log(`${response.config.method?.toUpperCase() || ""} ${fullUrl}`);
   console.log(`${"Status:"} ${response.status}`);
@@ -27,7 +25,6 @@ export function logAPIResponse(response: AxiosResponse) {
 export function logAPIError(error: AxiosError) {
   const fullUrl = `${error.config?.baseURL || ""}${error.config?.url || ""}`;
 
-  console.log("\n");
   console.log("❌ [API Error]");
 
   if (fullUrl) console.log(`${"URL:"} ${fullUrl}`);

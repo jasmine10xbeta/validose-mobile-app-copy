@@ -28,7 +28,6 @@ const useDeviceStore = create<DeviceStore>()(
       
       devices: [],
       addDevice: (device) => {
-        console.log("\n");
         console.log(`Attempting to add the device below to the store..`, device);
 
         const currentDevices = get().devices;
@@ -41,7 +40,6 @@ const useDeviceStore = create<DeviceStore>()(
         return true;
       },
       updateDevice: (deviceIdentifier, data) => {
-        console.log("\n");
         console.log(`Attempting to update the device id ${deviceIdentifier} in the store..`);
         console.log(data);
 

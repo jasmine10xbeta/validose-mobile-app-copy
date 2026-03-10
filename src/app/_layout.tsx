@@ -86,14 +86,12 @@ function AppInitializer({ onReady }: { onReady: () => void }) {
   }, [isLoading]);
 
   const redirectTo = (path: AllowedPaths) => {
-    console.log("\n");
     console.log("Redirecting to", path);
 
     router.replace(path);
   };
 
   const hasStoredDevices = (devices: any[]) => {
-    console.log("\n");
     console.log(`Stored devices below..`, devices);
 
     if (!devices || devices.length === 0) {
@@ -106,7 +104,6 @@ function AppInitializer({ onReady }: { onReady: () => void }) {
 
   // Connect to all devices and setup with subscriptions
   const connectToAllDevices = async (devices: any[]) => {
-    console.log("\n");
     console.log("Attempting to connect to all stored devices..");
     let allConnected = true;
 

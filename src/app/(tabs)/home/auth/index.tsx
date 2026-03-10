@@ -163,7 +163,6 @@ export default function LoginScreen() {
     try {
       const onboardingCode = scanningResult?.data?.trim();
 
-      console.log("\n");
       console.log("Scanned onboarding code:", onboardingCode);
 
       if (onboardingCode) {

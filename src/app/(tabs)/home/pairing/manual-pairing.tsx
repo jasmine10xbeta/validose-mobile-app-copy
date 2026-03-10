@@ -45,7 +45,6 @@ export default function ManualPairingScreen() {
     try {
       if (isMockBleModeEnabled()) return true;
 
-      console.log("\n");
       console.log("[APP] Received device address:", address);
 
       if (Array.isArray(authorizedDevices) && !authorizedDevices.some((device) => device.deviceId === address)) {

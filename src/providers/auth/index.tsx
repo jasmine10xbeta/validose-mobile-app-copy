@@ -69,7 +69,6 @@ export function AuthenticationProvider({
 
   const signIn = async (userData: AuthTokenResponse) => {
     try {
-      console.log("\n");
       console.log("Signing in..", userData);
       console.log(`Saving token to SecureStore and loading user..`);
 
@@ -85,7 +84,6 @@ export function AuthenticationProvider({
 
   const signOut = async () => {
     try {
-      console.log("\n");
       console.log("Signing out.. clearing token and user from SecureStore");
 
       // Remove tokens and clear user state
@@ -105,7 +103,6 @@ export function AuthenticationProvider({
   const FIRST_RUN_KEY = 'is_first_run';
 
   useEffect(() => {
-    console.log("\n");
     console.log(`Loading user from SecureStore..`);
 
     const loadUser = async () => {
