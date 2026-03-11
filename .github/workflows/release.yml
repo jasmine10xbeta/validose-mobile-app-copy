@@ -1,34 +1,144 @@
-name: Release Deploy Validose Mobile Application
+name: Build And Distribute Mobile
 
 on:
-  push:
-    branches:
-      - release/*
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: "Branch/tag/SHA to build"
+        required: true
+        default: "main"
+        type: string
+      build_platform:
+        description: "Platforms to build"
+        required: true
+        default: "both"
+        type: choice
+        options:
+          - android
+          - ios
+          - both
+      store_target:
+        description: "Auto-submit to stores after build"
+        required: true
+        default: "none"
+        type: choice
+        options:
+          - none
+          - android
+          - ios
+          - both
+      build_profile:
+        description: "EAS build profile"
+        required: true
+        default: "preview"
+        type: choice
+        options:
+          - development
+          - preview
+          - production
+          - production-apk
+      submit_profile:
+        description: "EAS submit profile (used when store_target != none)"
+        required: true
+        default: "production"
+        type: string
+      run_checks:
+        description: "Run lint/tests before building"
+        required: true
+        default: true
+        type: boolean
+      create_tag:
+        description: "Create and push a build tag"
+        required: true
+        default: true
+        type: boolean
+      tag_prefix:
+        description: "Build tag prefix"
+        required: true
+        default: "build"
+        type: string
+      build_label:
+        description: "Human-friendly build label"
+        required: true
+        default: "manual-distribution"
+        type: string
+      changes_summary:
+        description: "What's changed in this build"
+        required: false
+        default: ""
+        type: string
+      artifact_retention_days:
+        description: "GitHub Actions artifact retention in days"
+        required: true
+        default: "30"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: manual-build-${{ inputs.target_ref }}-${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
-  slack:
+  checks:
+    name: Checks
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target_ref }}
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.MDK_GITHUB_ACCESS_TOKEN || github.token }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.18.1"
+
+      - name: Cache NPM
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run CI checks
+        if: ${{ inputs.run_checks }}
+        run: npm run ci:checks
+
+      - name: Skip checks
+        if: ${{ !inputs.run_checks }}
+        run: echo "Skipping checks by workflow input."
+
+  build_and_distribute:
+    name: Build + Artifact + Optional Submit
+    needs: [checks]
+    runs-on: ubuntu-latest
+    environment: production-release
     env:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
     steps:
-      - name: Begin Slack Notification
-        uses: act10ns/slack@v2
-        with:
-          channel: "#10xbeta-github-pipeline"
-          config: .github/config/slack.yml
-          message: "Starting Validose CI/CD Pipeline"
-          status: ${{ job.status }}
-          steps: ${{ toJson(steps) }}
-        if: always()
+      - name: Validate Expo token
+        run: |
+          if [[ -z "${EXPO_TOKEN}" ]]; then
+            echo "EXPO_TOKEN secret is required."
+            exit 1
+          fi
 
-  lint:
-    runs-on: ubuntu-latest
-    steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.target_ref }}
+          fetch-depth: 0
           submodules: recursive
-          token: ${{ secrets.MDK_GITHUB_ACCESS_TOKEN }}
+          token: ${{ secrets.MDK_GITHUB_ACCESS_TOKEN || github.token }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -43,122 +153,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-
 
-      - name: Install Dependencies
-        run: npm ci
-
-      - name: Run linter
-        run: npm run lint
-
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          token: ${{ secrets.MDK_GITHUB_ACCESS_TOKEN }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20.18.1"
-
-      - name: Cache NPM
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-
-      - name: Install Dependencies
-        run: npm ci
-
-      - name: npm audit action
-        uses: oke-py/npm-audit-action@v2
-        with:
-          audit_level: critical
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          issue_assignees: oke-py
-          issue_labels: vulnerability,test
-          dedupe_issues: true
-
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          token: ${{ secrets.MDK_GITHUB_ACCESS_TOKEN }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20.18.1"
-
-      - name: Cache NPM
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-
-      - name: Install Dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm run test
-
-  version-bump:
-    needs: [lint, audit, test]
-    permissions: write-all
-    name: version-bump
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          token: ${{ secrets.MDK_GITHUB_ACCESS_TOKEN }}
-
-      - name: Version bump and publish release
-        uses: MeilCli/bump-release-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          config_path: "./.github/bumpDevelop.yml"
-          bump: ${{ github.event.inputs.bump }}
-
-  deploy:
-    needs: [lint, audit, test, version-bump]
-    runs-on: ubuntu-latest
-    env:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          token: ${{ secrets.MDK_GITHUB_ACCESS_TOKEN }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20.18.1"
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v3
-        with:
-          java-version: "17"
-          distribution: "temurin"
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Setup Expo
+      - name: Set up Expo and EAS
         uses: expo/expo-github-action@v8
         with:
           expo-version: latest
@@ -166,36 +161,240 @@ jobs:
           token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Build Android APK
+      - name: Validate inputs
+        env:
+          BUILD_PLATFORM: ${{ inputs.build_platform }}
+          STORE_TARGET: ${{ inputs.store_target }}
+          BUILD_PROFILE: ${{ inputs.build_profile }}
         run: |
-          echo "Building Android APK..."
-          eas build --profile production --platform android --non-interactive --local --output=${{ github.workspace }}/app-release.apk
-          echo "Android APK built successfully!"
+          set -euo pipefail
 
-      #      - name: Build iOS IPA
-      #        run: |
-      #          echo "Building iOS IPA..."
-      #          npm run build:ios
-      #          echo "iOS IPA built successfully!"
+          if [[ "${STORE_TARGET}" != "none" && "${BUILD_PROFILE}" != "production" ]]; then
+            echo "Store submission requires build_profile=production."
+            exit 1
+          fi
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
+          if [[ "${STORE_TARGET}" == "android" && "${BUILD_PLATFORM}" == "ios" ]]; then
+            echo "store_target=android requires an Android build."
+            exit 1
+          fi
+          if [[ "${STORE_TARGET}" == "ios" && "${BUILD_PLATFORM}" == "android" ]]; then
+            echo "store_target=ios requires an iOS build."
+            exit 1
+          fi
+
+      - name: Prepare build context
+        id: context
+        env:
+          TARGET_REF: ${{ inputs.target_ref }}
+          TAG_PREFIX: ${{ inputs.tag_prefix }}
+          BUILD_LABEL_INPUT: ${{ inputs.build_label }}
+          CHANGES_SUMMARY: ${{ inputs.changes_summary }}
+        run: |
+          set -euo pipefail
+
+          safe_ref="$(echo "${TARGET_REF}" | tr '/._' '-' | tr -cd '[:alnum:]-' | cut -c1-40)"
+          timestamp="$(date -u +%Y%m%d%H%M%S)"
+          tag_name="${TAG_PREFIX}-${safe_ref}-${timestamp}-${GITHUB_RUN_NUMBER}"
+          short_changes="$(echo "${CHANGES_SUMMARY}" | tr '\n' ' ' | cut -c1-120)"
+
+          echo "tag_name=${tag_name}" >> "${GITHUB_OUTPUT}"
+          echo "safe_ref=${safe_ref}" >> "${GITHUB_OUTPUT}"
+          echo "build_label=${BUILD_LABEL_INPUT}" >> "${GITHUB_OUTPUT}"
+          echo "short_changes=${short_changes}" >> "${GITHUB_OUTPUT}"
+
+          mkdir -p build-artifacts metadata
+
+      - name: Show baseline build numbers
+        run: npm run version:build:show
+
+      - name: Build Android
+        id: build_android
+        if: ${{ inputs.build_platform == 'android' || inputs.build_platform == 'both' }}
+        env:
+          BUILD_PROFILE: ${{ inputs.build_profile }}
+          STORE_TARGET: ${{ inputs.store_target }}
+          SUBMIT_PROFILE: ${{ inputs.submit_profile }}
+          BUILD_LABEL: ${{ steps.context.outputs.build_label }}
+          TARGET_REF: ${{ inputs.target_ref }}
+          SHORT_CHANGES: ${{ steps.context.outputs.short_changes }}
+        run: |
+          set -euo pipefail
+
+          autosubmit_args=()
+          if [[ "${STORE_TARGET}" == "android" || "${STORE_TARGET}" == "both" ]]; then
+            autosubmit_args+=(--auto-submit-with-profile "${SUBMIT_PROFILE}")
+          fi
+
+          build_message="${BUILD_LABEL} | ${TARGET_REF} | ${SHORT_CHANGES}"
+          npx eas-cli build \
+            --platform android \
+            --profile "${BUILD_PROFILE}" \
+            --wait \
+            --json \
+            --non-interactive \
+            --message "${build_message}" \
+            "${autosubmit_args[@]}" > metadata/eas-build-android.json
+
+          node -e "const fs=require('fs');const data=JSON.parse(fs.readFileSync('metadata/eas-build-android.json','utf8'));const b=Array.isArray(data)?data[0]:data;const a=b?.artifacts||{};const url=a.buildUrl||a.applicationArchiveUrl||a.url||'';console.log('id='+(b?.id||''));console.log('status='+(b?.status||''));console.log('url='+url);" >> "${GITHUB_OUTPUT}"
+
+      - name: Download Android artifact
+        id: download_android
+        if: ${{ steps.build_android.outputs.url != '' }}
+        env:
+          BUILD_URL: ${{ steps.build_android.outputs.url }}
+          TAG_NAME: ${{ steps.context.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          extension="$(echo "${BUILD_URL}" | sed -E 's/.*\.([a-zA-Z0-9]+)(\?.*)?$/\1/')"
+          if [[ -z "${extension}" || "${extension}" == "${BUILD_URL}" ]]; then
+            extension="bin"
+          fi
+          filename="${TAG_NAME}-android.${extension}"
+          curl -fL "${BUILD_URL}" -o "build-artifacts/${filename}"
+          echo "filename=${filename}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build iOS
+        id: build_ios
+        if: ${{ inputs.build_platform == 'ios' || inputs.build_platform == 'both' }}
+        env:
+          BUILD_PROFILE: ${{ inputs.build_profile }}
+          STORE_TARGET: ${{ inputs.store_target }}
+          SUBMIT_PROFILE: ${{ inputs.submit_profile }}
+          BUILD_LABEL: ${{ steps.context.outputs.build_label }}
+          TARGET_REF: ${{ inputs.target_ref }}
+          SHORT_CHANGES: ${{ steps.context.outputs.short_changes }}
+        run: |
+          set -euo pipefail
+
+          autosubmit_args=()
+          if [[ "${STORE_TARGET}" == "ios" || "${STORE_TARGET}" == "both" ]]; then
+            autosubmit_args+=(--auto-submit-with-profile "${SUBMIT_PROFILE}")
+          fi
+
+          build_message="${BUILD_LABEL} | ${TARGET_REF} | ${SHORT_CHANGES}"
+          npx eas-cli build \
+            --platform ios \
+            --profile "${BUILD_PROFILE}" \
+            --wait \
+            --json \
+            --non-interactive \
+            --message "${build_message}" \
+            "${autosubmit_args[@]}" > metadata/eas-build-ios.json
+
+          node -e "const fs=require('fs');const data=JSON.parse(fs.readFileSync('metadata/eas-build-ios.json','utf8'));const b=Array.isArray(data)?data[0]:data;const a=b?.artifacts||{};const url=a.buildUrl||a.applicationArchiveUrl||a.url||'';console.log('id='+(b?.id||''));console.log('status='+(b?.status||''));console.log('url='+url);" >> "${GITHUB_OUTPUT}"
+
+      - name: Download iOS artifact
+        id: download_ios
+        if: ${{ steps.build_ios.outputs.url != '' }}
+        env:
+          BUILD_URL: ${{ steps.build_ios.outputs.url }}
+          TAG_NAME: ${{ steps.context.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          extension="$(echo "${BUILD_URL}" | sed -E 's/.*\.([a-zA-Z0-9]+)(\?.*)?$/\1/')"
+          if [[ -z "${extension}" || "${extension}" == "${BUILD_URL}" ]]; then
+            extension="bin"
+          fi
+          filename="${TAG_NAME}-ios.${extension}"
+          curl -fL "${BUILD_URL}" -o "build-artifacts/${filename}"
+          echo "filename=${filename}" >> "${GITHUB_OUTPUT}"
+
+      - name: Write metadata and release notes
+        env:
+          BUILD_LABEL: ${{ steps.context.outputs.build_label }}
+          TARGET_REF: ${{ inputs.target_ref }}
+          TAG_NAME: ${{ steps.context.outputs.tag_name }}
+          BUILD_PLATFORM: ${{ inputs.build_platform }}
+          STORE_TARGET: ${{ inputs.store_target }}
+          BUILD_PROFILE: ${{ inputs.build_profile }}
+          SUBMIT_PROFILE: ${{ inputs.submit_profile }}
+          CHANGES_SUMMARY: ${{ inputs.changes_summary }}
+          ANDROID_BUILD_ID: ${{ steps.build_android.outputs.id }}
+          ANDROID_BUILD_STATUS: ${{ steps.build_android.outputs.status }}
+          ANDROID_BUILD_URL: ${{ steps.build_android.outputs.url }}
+          IOS_BUILD_ID: ${{ steps.build_ios.outputs.id }}
+          IOS_BUILD_STATUS: ${{ steps.build_ios.outputs.status }}
+          IOS_BUILD_URL: ${{ steps.build_ios.outputs.url }}
+        run: |
+          set -euo pipefail
+
+          node -e "const fs=require('fs');const m={label:process.env.BUILD_LABEL,targetRef:process.env.TARGET_REF,tag:process.env.TAG_NAME,buildPlatform:process.env.BUILD_PLATFORM,storeTarget:process.env.STORE_TARGET,buildProfile:process.env.BUILD_PROFILE,submitProfile:process.env.SUBMIT_PROFILE,changesSummary:process.env.CHANGES_SUMMARY||'',android:{id:process.env.ANDROID_BUILD_ID||'',status:process.env.ANDROID_BUILD_STATUS||'',artifactUrl:process.env.ANDROID_BUILD_URL||''},ios:{id:process.env.IOS_BUILD_ID||'',status:process.env.IOS_BUILD_STATUS||'',artifactUrl:process.env.IOS_BUILD_URL||''},github:{runId:process.env.GITHUB_RUN_ID,runNumber:process.env.GITHUB_RUN_NUMBER,sha:process.env.GITHUB_SHA,repository:process.env.GITHUB_REPOSITORY}};fs.writeFileSync('metadata/build-metadata.json',JSON.stringify(m,null,2));"
+
+          {
+            echo "# ${BUILD_LABEL}"
+            echo
+            echo "- Tag: \`${TAG_NAME}\`"
+            echo "- Target ref: \`${TARGET_REF}\`"
+            echo "- Build profile: \`${BUILD_PROFILE}\`"
+            echo "- Store target: \`${STORE_TARGET}\`"
+            echo
+            echo "## Changes"
+            if [[ -n "${CHANGES_SUMMARY}" ]]; then
+              echo "${CHANGES_SUMMARY}"
+            else
+              echo "No changelog provided."
+            fi
+            echo
+            echo "## Android"
+            echo "- Build ID: \`${ANDROID_BUILD_ID:-n/a}\`"
+            echo "- Status: \`${ANDROID_BUILD_STATUS:-n/a}\`"
+            if [[ -n "${ANDROID_BUILD_URL}" ]]; then
+              echo "- Artifact URL: ${ANDROID_BUILD_URL}"
+            fi
+            echo
+            echo "## iOS"
+            echo "- Build ID: \`${IOS_BUILD_ID:-n/a}\`"
+            echo "- Status: \`${IOS_BUILD_STATUS:-n/a}\`"
+            if [[ -n "${IOS_BUILD_URL}" ]]; then
+              echo "- Artifact URL: ${IOS_BUILD_URL}"
+            fi
+            echo
+            echo "## GitHub Run"
+            echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+          } > metadata/release-notes.md
+
+      - name: Upload build artifacts to workflow
+        uses: actions/upload-artifact@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          name: ${{ steps.context.outputs.tag_name }}
+          path: |
+            build-artifacts/*
+            metadata/*
+          if-no-files-found: warn
+          retention-days: ${{ fromJSON(inputs.artifact_retention_days) }}
 
-      - name: Upload Android APK to S3
+      - name: Create and push tag
+        if: ${{ inputs.create_tag }}
+        env:
+          TAG_NAME: ${{ steps.context.outputs.tag_name }}
+          BUILD_LABEL: ${{ steps.context.outputs.build_label }}
         run: |
-          aws s3 cp ${{ github.workspace }}/app-release.apk s3://validose-lambda-artifacts-bucket/release/app-release.apk
-          echo "Android APK uploaded to S3 bucket: validose-lambda-artifacts-bucket/release/app-release.apk"
+          set -euo pipefail
 
-#  changelog:
-#    runs-on: ubuntu-latest
-#    steps:
-#      - name: "✏️ Generate changelog"
-#        uses: janheinrichmerker/action-github-changelog-generator@v2.3
-#        with:
-#          token: ${{ secrets.GITHUB_TOKEN }}
+          git fetch --tags --force
+          if git rev-parse "${TAG_NAME}" >/dev/null 2>&1; then
+            echo "Tag ${TAG_NAME} already exists. Skipping creation."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG_NAME}" -m "${BUILD_LABEL}"
+          git push origin "${TAG_NAME}"
+
+      - name: Create GitHub release with artifacts
+        if: ${{ inputs.create_tag }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.context.outputs.tag_name }}
+          name: ${{ steps.context.outputs.build_label }} (${{ steps.context.outputs.tag_name }})
+          body_path: metadata/release-notes.md
+          prerelease: true
+          files: |
+            build-artifacts/*
+            metadata/*
+          fail_on_unmatched_files: false

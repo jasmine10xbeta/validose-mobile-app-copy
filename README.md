@@ -7,6 +7,7 @@ Cross-platform mobile companion app for the Validose system, connecting to dock/
 - Node.js `>=18`
 - npm
 - Xcode (iOS builds) and/or Android Studio (Android builds)
+- EAS CLI account access (`EXPO_TOKEN`) for cloud builds/submissions
 
 ## Quick Start
 
@@ -32,13 +33,54 @@ npm start
 
 ## Common Scripts
 
-- `npm run android`: build/run Android app
-- `npm run ios`: build/run iOS app
-- `npm start`: start Expo dev server
+- `npm start`: start Expo with default `.env`
+- `npm run start:dev`: start Expo with `.env.development`
+- `npm run start:staging`: start Expo with `.env.staging`
+- `npm run start:prod`: start Expo with `.env.production`
+- `npm run android`: build/run Android app locally
+- `npm run ios`: build/run iOS app locally
 - `npm test`: run Jest tests
 - `npm run lint`: run ESLint
 - `npm run lint-fix`: run ESLint with auto-fix
 - `npm run prettier`: format codebase
+- `npm run version:build:show`: print current iOS/Android build numbers from `app.json`
+- `npm run version:build:bump -- 1`: increment both build numbers (`ios.buildNumber`, `android.versionCode`)
+- `npm run version:build:set -- 120`: set both build numbers to a specific value
+- `npm run build:android`: local Android release build (APK)
+- `npm run build:ios`: production iOS build
+
+## Environment Files
+
+1. Copy `.env.example` to `.env.development`, `.env.staging`, and/or `.env.production` (as needed).
+2. Fill values for each environment.
+3. Use scripts that set `ENV_FILE` (for example `npm run start:staging`) so Babel compiles with the right variables.
+
+## Build And Release (EAS)
+
+- Preview/internal builds:
+```bash
+npm run build:android:preview
+npm run build:ios:preview
+```
+- Store-ready production builds:
+```bash
+npm run build:android:production   # AAB
+npm run build:ios:production
+```
+- Local Android release artifact:
+```bash
+npm run build:android:production:local   # outputs build/android-release.apk
+```
+- Submit existing store binaries:
+```bash
+npm run submit:android:production
+npm run submit:ios:production
+```
+- Build + auto-submit in one command:
+```bash
+npm run release:android:production
+npm run release:ios:production
+```
 
 ## Project Structure (Current)
 
@@ -98,14 +140,17 @@ VALIDOSE_RELEASE_KEY_PASSWORD=YOUR_PASSWORD
 validose-release-key.keystore -> android/app/
 ```
 
-## CI/CD
+## CI/CD Ownership
 
-Fastlane + Jenkins pipeline docs:
+- Release runbook: [`docs/release-runbook.md`](./docs/release-runbook.md)
+- Manual release workflow: `Actions -> Build And Distribute Mobile`
 
-- [`docs/ci-cd-fastlane-jenkins.md`](./docs/ci-cd-fastlane-jenkins.md)
+- Local machine:
+Use local commands for testing credentials, ad-hoc/internal builds, and emergency/manual releases.
+- GitHub Actions:
+Use for repeatable production release jobs, store submissions, and protected-branch automation.
 
-Branch mapping:
-
-- `develop` -> `stage`
-- `main` -> `prod`
-- feature branches -> `temp` (guarded via Jenkins parameter)
+Recommended split:
+1. Keep `build` and `submit` commands available locally.
+2. Use GitHub Actions as the default path for production releases.
+3. Keep local release scripts as fallback when CI is unavailable.
