@@ -1,4 +1,5 @@
 import { Buffer } from "buffer";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -51,7 +52,6 @@ import { PayloadDetailsCard } from "./components/PayloadDetailsCard";
 import { ProtocolInfoCard } from "./components/ProtocolInfoCard";
 import { QuickActionsCarouselCard } from "./components/QuickActionsCarouselCard";
 import {
-  CALIBRATION_WEIGHT_MG_DEFAULT,
   PPI_ACK_TIMEOUT_MS,
   DOSE_SCHEDULE_PUSH_PAYLOADS,
   PPI_LATE_ACK_WATCH_POLL_MS,
@@ -124,6 +124,23 @@ const BASELINING_STATE_ERROR = 7;
 const BASELINING_INITIAL_INSTRUCTION = "Press Start Baselining to begin.";
 const MP_MIN_FRAME_LEN_BYTES = 14;
 const MP_PACKET_TYPE_DATA = 0;
+const CALIBRATION_WEIGHT_STORAGE_KEY = "ble_debug_calibration_weight_mg";
+const CALIBRATION_WEIGHT_MG_FALLBACK = 5000;
+const UINT32_MAX = 0xffffffff;
+
+function coerceCalibrationWeightMg(rawInput: string): number | null {
+  const value = rawInput.trim();
+  if (!value || !/^\d+$/.test(value)) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > UINT32_MAX) {
+    return null;
+  }
+
+  return parsed;
+}
 
 export default function BleDebugScreen() {
   const router = useRouter();
@@ -148,6 +165,10 @@ export default function BleDebugScreen() {
   const [quickActionPageHeights, setQuickActionPageHeights] = useState<Record<string, number>>({});
   const [developmentCmdInput, setDevelopmentCmdInput] = useState("0");
   const [developmentCmdInputError, setDevelopmentCmdInputError] = useState("");
+  const [calibrationWeightInput, setCalibrationWeightInput] = useState(
+    String(CALIBRATION_WEIGHT_MG_FALLBACK)
+  );
+  const [calibrationWeightInputError, setCalibrationWeightInputError] = useState("");
   const [calibrationFeedbackPreview, setCalibrationFeedbackPreview] =
     useState<CompactFeedbackPreview | null>(null);
   const [calibrationResponsePreview, setCalibrationResponsePreview] =
@@ -355,6 +376,14 @@ export default function BleDebugScreen() {
   }, [loadingAction, selectedFlowMeta.busyKey, selectedFlowStatus]);
 
   const selectedFlowPayloadValue = useMemo(() => {
+    if (selectedFlowAction === "START_CALIBRATION_RQ" || selectedFlowAction === "STOP_CALIBRATION_RQ") {
+      const calibrationWeightMg = coerceCalibrationWeightMg(calibrationWeightInput);
+      return {
+        start: selectedFlowAction === "START_CALIBRATION_RQ",
+        calibration_weight_mg: calibrationWeightMg ?? "(invalid input)",
+      };
+    }
+
     if (selectedFlowMeta.payloadPreview !== undefined) {
       return selectedFlowMeta.payloadPreview;
     }
@@ -369,7 +398,7 @@ export default function BleDebugScreen() {
     }
 
     return "(none)";
-  }, [selectedFlowAction, selectedFlowMeta]);
+  }, [calibrationWeightInput, selectedFlowAction, selectedFlowMeta]);
 
   const selectedFlowPayloadValueText = useMemo(
     () => prettifyForLog(selectedFlowPayloadValue),
@@ -1407,13 +1436,41 @@ export default function BleDebugScreen() {
       parsed = Number.parseInt(value, 10);
     }
 
-    if (!Number.isInteger(parsed) || parsed < 0 || parsed > 255) {
+    if (parsed === null || !Number.isInteger(parsed) || parsed < 0 || parsed > 255) {
       setDevelopmentCmdInputError("Command must be a uint8 (0-255).");
       return null;
     }
 
     setDevelopmentCmdInputError("");
     return parsed;
+  }
+
+  function parseCalibrationWeightInput(rawInput: string): number | null {
+    const parsed = coerceCalibrationWeightMg(rawInput);
+    if (parsed === null) {
+      const trimmedValue = rawInput.trim();
+      if (!trimmedValue) {
+        setCalibrationWeightInputError("Enter calibration weight in mg.");
+      } else if (!/^\d+$/.test(trimmedValue)) {
+        setCalibrationWeightInputError("Weight must be decimal digits only.");
+      } else {
+        setCalibrationWeightInputError("Weight must be a uint32 value (1-4294967295).");
+      }
+      return null;
+    }
+
+    setCalibrationWeightInputError("");
+    return parsed;
+  }
+
+  async function persistCalibrationWeight(weightMg: number) {
+    try {
+      await AsyncStorage.setItem(CALIBRATION_WEIGHT_STORAGE_KEY, String(weightMg));
+    } catch (error) {
+      addLog("[PPI][CALIBRATION_WEIGHT][WARN] Failed to persist calibration weight.", {
+        error: toErrorDetails(error),
+      });
+    }
   }
 
   const onPpiTimeRequest = runZeroPayloadAction(
@@ -1521,11 +1578,19 @@ export default function BleDebugScreen() {
     await requestCalibrationData();
   }
 
-  function buildStartCalibrationPayload(start: boolean): Uint8Array {
-    return encodeStartCalibrationParamPayload(start, CALIBRATION_WEIGHT_MG_DEFAULT);
+  function buildStartCalibrationPayload(start: boolean, calibrationWeightMg: number): Uint8Array {
+    return encodeStartCalibrationParamPayload(start, calibrationWeightMg);
   }
 
   async function onStartCalibrationRequest() {
+    const calibrationWeightMg = parseCalibrationWeightInput(calibrationWeightInput);
+    if (calibrationWeightMg === null) {
+      addLog("[PPI][START_CALIBRATION_RQ][WARN] Invalid calibration weight input.", {
+        input: calibrationWeightInput,
+      });
+      return;
+    }
+    await persistCalibrationWeight(calibrationWeightMg);
     calibrationCompletionAutoRequestRef.current = false;
     calibrationStopRequestedRef.current = false;
     setCalibrationGuideStage("START_SENT");
@@ -1539,7 +1604,7 @@ export default function BleDebugScreen() {
         "START_CALIBRATION_RQ",
         PpiId.AD_START_CALIBRATION,
         PpiType.RQ,
-        buildStartCalibrationPayload(true)
+        buildStartCalibrationPayload(true, calibrationWeightMg)
       );
       if (status !== "SENT_DATA") {
         setCalibrationGuideStage("IDLE");
@@ -1549,6 +1614,14 @@ export default function BleDebugScreen() {
   }
 
   async function onStopCalibrationRequest() {
+    const calibrationWeightMg = parseCalibrationWeightInput(calibrationWeightInput);
+    if (calibrationWeightMg === null) {
+      addLog("[PPI][STOP_CALIBRATION_RQ][WARN] Invalid calibration weight input.", {
+        input: calibrationWeightInput,
+      });
+      return;
+    }
+    await persistCalibrationWeight(calibrationWeightMg);
     calibrationStopRequestedRef.current = true;
     setSelectedFlowAction("STOP_CALIBRATION_RQ");
     setCalibrationGuideInstruction("Stop request sent. Waiting for firmware response...");
@@ -1557,7 +1630,7 @@ export default function BleDebugScreen() {
         "STOP_CALIBRATION_RQ",
         PpiId.AD_START_CALIBRATION,
         PpiType.RQ,
-        buildStartCalibrationPayload(false)
+        buildStartCalibrationPayload(false, calibrationWeightMg)
       );
       if (status !== "SENT_DATA") {
         calibrationStopRequestedRef.current = false;
@@ -1780,6 +1853,34 @@ export default function BleDebugScreen() {
     });
   }, []);
 
+  useEffect(() => {
+    let isActive = true;
+
+    const hydrateCalibrationWeight = async () => {
+      try {
+        const storedWeight = await AsyncStorage.getItem(CALIBRATION_WEIGHT_STORAGE_KEY);
+        if (!isActive || !storedWeight) {
+          return;
+        }
+
+        const parsedWeight = coerceCalibrationWeightMg(storedWeight);
+        if (parsedWeight === null) {
+          return;
+        }
+
+        setCalibrationWeightInput(String(parsedWeight));
+      } catch {
+        // Ignore hydration failures in debug mode.
+      }
+    };
+
+    void hydrateCalibrationWeight();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       void refreshConnectionBanner();
@@ -1923,6 +2024,8 @@ export default function BleDebugScreen() {
             isConnected={isConnected}
             developmentCmdInput={developmentCmdInput}
             developmentCmdInputError={developmentCmdInputError}
+            calibrationWeightInput={calibrationWeightInput}
+            calibrationWeightInputError={calibrationWeightInputError}
             calibrationGuideStage={calibrationGuideStage}
             calibrationGuideStageLabel={calibrationGuideStageLabel}
             calibrationGuideInstruction={calibrationGuideInstruction}
@@ -1943,6 +2046,17 @@ export default function BleDebugScreen() {
               setDevelopmentCmdInput(text);
               if (developmentCmdInputError) {
                 setDevelopmentCmdInputError("");
+              }
+            }}
+            onCalibrationWeightInputChange={(text) => {
+              setCalibrationWeightInput(text);
+              if (calibrationWeightInputError) {
+                setCalibrationWeightInputError("");
+              }
+
+              const parsedWeight = coerceCalibrationWeightMg(text);
+              if (parsedWeight !== null) {
+                void persistCalibrationWeight(parsedWeight);
               }
             }}
             onQuickActionPress={(action) => {

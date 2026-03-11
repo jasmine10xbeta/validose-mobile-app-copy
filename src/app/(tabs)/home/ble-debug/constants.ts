@@ -30,9 +30,6 @@ export const QUICK_FLOW_ACTIONS: QuickActionItem[] = [
   { key: "VALIDATE_MED_RE_FALSE", label: "Validate Med Fail" },
 ];
 
-// Match this with the fixture/operator flow from firmware HIL when needed.
-export const CALIBRATION_WEIGHT_MG_DEFAULT = 5000;
-
 export const DOSE_SCHEDULE_PUSH_PAYLOADS: Record<
   "DOSE_SCHEDULE_PUSH" | "DOSE_SCHEDULE_PUSH_ALT_1" | "DOSE_SCHEDULE_PUSH_ALT_2",
   DoseSchedulePpi
@@ -197,10 +194,7 @@ export const QUICK_FLOW_META: Record<QuickFlowAction, QuickFlowMeta> = {
     typeId: PpiType.RQ,
     payloadHint: "start=true + calibration_weight_mg",
     lenHint: "len=5",
-    payloadPreview: {
-      start: true,
-      calibration_weight_mg: CALIBRATION_WEIGHT_MG_DEFAULT,
-    },
+    payloadPreview: "Uses Calibration Weight input (mg).",
   },
   STOP_CALIBRATION_RQ: {
     title: "Stop Calibration",
@@ -212,10 +206,7 @@ export const QUICK_FLOW_META: Record<QuickFlowAction, QuickFlowMeta> = {
     typeId: PpiType.RQ,
     payloadHint: "start=false + calibration_weight_mg",
     lenHint: "len=5",
-    payloadPreview: {
-      start: false,
-      calibration_weight_mg: CALIBRATION_WEIGHT_MG_DEFAULT,
-    },
+    payloadPreview: "Uses Calibration Weight input (mg).",
   },
   CALIBRATION_WEIGHT_PRESENT_PUSH_TRUE: {
     title: "Calibration Weight Present",

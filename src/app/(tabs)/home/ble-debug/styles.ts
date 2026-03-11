@@ -580,7 +580,7 @@ export const styles = StyleSheet.create({
     backgroundColor: "#F8FAFC",
     padding: 10,
     gap: 8,
-    marginBottom: 2,
+    marginBottom: 12,
   },
   quickDevCommandHeader: {
     flexDirection: "row",

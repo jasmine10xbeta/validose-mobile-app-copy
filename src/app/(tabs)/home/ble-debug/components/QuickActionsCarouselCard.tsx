@@ -33,6 +33,8 @@ type QuickActionsCarouselCardProps = {
   isConnected: boolean;
   developmentCmdInput: string;
   developmentCmdInputError: string;
+  calibrationWeightInput: string;
+  calibrationWeightInputError: string;
   calibrationGuideStage: CalibrationGuideStage;
   calibrationGuideStageLabel: string;
   calibrationGuideInstruction: string;
@@ -50,6 +52,7 @@ type QuickActionsCarouselCardProps = {
   onQuickActionsMomentumEnd: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   onQuickActionPageLayout: (pageId: string, height: number) => void;
   onDevelopmentCmdInputChange: (text: string) => void;
+  onCalibrationWeightInputChange: (text: string) => void;
   onQuickActionPress: (action: QuickFlowAction) => void;
   onQuickActionInfoPress: (action: QuickFlowAction) => void;
   quickActionSubtitle: (action: QuickFlowAction) => string;
@@ -67,6 +70,8 @@ export function QuickActionsCarouselCard({
   isConnected,
   developmentCmdInput,
   developmentCmdInputError,
+  calibrationWeightInput,
+  calibrationWeightInputError,
   calibrationGuideStage,
   calibrationGuideStageLabel,
   calibrationGuideInstruction,
@@ -84,6 +89,7 @@ export function QuickActionsCarouselCard({
   onQuickActionsMomentumEnd,
   onQuickActionPageLayout,
   onDevelopmentCmdInputChange,
+  onCalibrationWeightInputChange,
   onQuickActionPress,
   onQuickActionInfoPress,
   quickActionSubtitle,
@@ -183,28 +189,65 @@ export function QuickActionsCarouselCard({
                   );
                 })()
               ) : (
-                <View style={styles.quickPpiGrid}>
-                  {page.actions.map((item) => {
-                    const meta = QUICK_FLOW_META[item.key];
-                    const busyKey = meta.busyKey;
-                    const isGuidedDisabled =
-                      (page.id === "calibration" && !isCalibrationActionEnabled(item.key)) ||
-                      (page.id === "baselining" && !isBaseliningActionEnabled(item.key));
-                    return (
-                      <QuickPpiButton
-                        key={item.key}
-                        title={meta.title}
-                        subtitle={quickActionSubtitle(item.key)}
-                        onPress={() => {
-                          onQuickActionPress(item.key);
-                        }}
-                        onInfoPress={() => onQuickActionInfoPress(item.key)}
-                        disabled={!isConnected || isBlockedByOtherAction(busyKey) || isGuidedDisabled}
-                        loading={loadingAction === busyKey}
-                      />
-                    );
-                  })}
-                </View>
+                <>
+                  {page.id === "calibration" ? (
+                    <View style={styles.quickDevCommandCard}>
+                      <View style={styles.quickDevCommandHeader}>
+                        <Text style={styles.quickDevCommandTitle}>Calibration Weight</Text>
+                        <Text style={styles.quickDevCommandMeta}>mg · uint32</Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.quickDevInlineInputWrap,
+                          calibrationWeightInputError ? styles.quickDevInlineInputWrapError : null,
+                        ]}
+                      >
+                        <Text style={styles.quickDevInlineInputPrefix}>mg</Text>
+                        <TextInput
+                          value={calibrationWeightInput}
+                          onChangeText={onCalibrationWeightInputChange}
+                          placeholder="e.g. 5000"
+                          placeholderTextColor="#98A2B3"
+                          keyboardType="number-pad"
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          style={styles.quickDevInlineInput}
+                        />
+                      </View>
+                      {calibrationWeightInputError ? (
+                        <Text style={styles.quickDevInputErrorText}>
+                          {calibrationWeightInputError}
+                        </Text>
+                      ) : (
+                        <Text style={styles.quickDevInputHint}>
+                          Used by Start/Stop Calibration payload.
+                        </Text>
+                      )}
+                    </View>
+                  ) : null}
+                  <View style={styles.quickPpiGrid}>
+                    {page.actions.map((item) => {
+                      const meta = QUICK_FLOW_META[item.key];
+                      const busyKey = meta.busyKey;
+                      const isGuidedDisabled =
+                        (page.id === "calibration" && !isCalibrationActionEnabled(item.key)) ||
+                        (page.id === "baselining" && !isBaseliningActionEnabled(item.key));
+                      return (
+                        <QuickPpiButton
+                          key={item.key}
+                          title={meta.title}
+                          subtitle={quickActionSubtitle(item.key)}
+                          onPress={() => {
+                            onQuickActionPress(item.key);
+                          }}
+                          onInfoPress={() => onQuickActionInfoPress(item.key)}
+                          disabled={!isConnected || isBlockedByOtherAction(busyKey) || isGuidedDisabled}
+                          loading={loadingAction === busyKey}
+                        />
+                      );
+                    })}
+                  </View>
+                </>
               )}
               {page.id === "calibration" ? (
                 <View style={styles.quickPageFeedbackWrap}>
