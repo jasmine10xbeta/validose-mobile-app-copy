@@ -47,7 +47,11 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_FDS_MANAGER_MODULE;
  **********************************************************************************************************************/
 // Interface function declarations
 static result_t store_uint64_t(const fds_manager_interface_t *const ifc, RECORD_ID record_id, uint64_t data);
+static result_t store_uint32_t(const fds_manager_interface_t *const ifc, RECORD_ID record_id, uint32_t data);
+static result_t store_uint16_t(const fds_manager_interface_t *const ifc, RECORD_ID record_id, uint16_t data);
 static result_t retrieve_uint64_t(const fds_manager_interface_t *const ifc, RECORD_ID record_id, uint64_t *data);
+static result_t retrieve_uint32_t(const fds_manager_interface_t *const ifc, RECORD_ID record_id, uint32_t *data);
+static result_t retrieve_uint16_t(const fds_manager_interface_t *const ifc, RECORD_ID record_id, uint16_t *data);
 
 // Non-interface function declarations
 static void fds_event_handler(fds_evt_t const *p_evt);
@@ -158,6 +162,16 @@ static result_t store_uint64_t(const fds_manager_interface_t *const ifc, RECORD_
    return result;
 }
 
+static result_t store_uint32_t(const fds_manager_interface_t *const ifc, RECORD_ID record_id, uint32_t data)
+{
+   return store_uint64_t(ifc, record_id, (uint64_t)data);
+}
+
+static result_t store_uint16_t(const fds_manager_interface_t *const ifc, RECORD_ID record_id, uint16_t data)
+{
+   return store_uint64_t(ifc, record_id, (uint64_t)data);
+}
+
 static result_t retrieve_uint64_t(const fds_manager_interface_t *const ifc, RECORD_ID record_id, uint64_t *data)
 {
    RETURN_ERR_IF_UNINITIALIZED(ifc, FDS_MANAGER_ERROR_NOT_INITIALIZED);
@@ -203,6 +217,48 @@ static result_t retrieve_uint64_t(const fds_manager_interface_t *const ifc, RECO
    return result;
 }
 
+static result_t retrieve_uint32_t(const fds_manager_interface_t *const ifc, RECORD_ID record_id, uint32_t *data)
+{
+   RETURN_ERR_IF_UNINITIALIZED(ifc, FDS_MANAGER_ERROR_NOT_INITIALIZED);
+   RETURN_ERR_IF_NULL(data, FDS_MANAGER_ERROR_NULL_PTR);
+   RETURN_ERR_IF_TRUE(record_id >= RECORD_ID_MAX, FDS_MANAGER_ERROR_INVALID_RECORD_ID);
+
+   uint64_t temp_data = 0;
+   result_t result = retrieve_uint64_t(ifc, record_id, &temp_data);
+
+   if(IS_OK(result))
+   {
+      UPDATE_ERR_IF_TRUE(result, temp_data > UINT32_MAX, FDS_MANAGER_ERROR_INVALID_VALUE_PARAMETERS);
+   }
+
+   if(IS_OK(result))
+   {
+      *data = (uint32_t)temp_data;
+   }
+   return result;
+}
+
+static result_t retrieve_uint16_t(const fds_manager_interface_t *const ifc, RECORD_ID record_id, uint16_t *data)
+{
+   RETURN_ERR_IF_UNINITIALIZED(ifc, FDS_MANAGER_ERROR_NOT_INITIALIZED);
+   RETURN_ERR_IF_NULL(data, FDS_MANAGER_ERROR_NULL_PTR);
+   RETURN_ERR_IF_TRUE(record_id >= RECORD_ID_MAX, FDS_MANAGER_ERROR_INVALID_RECORD_ID);
+
+   uint64_t temp_data = 0;
+   result_t result = retrieve_uint64_t(ifc, record_id, &temp_data);
+
+   if(IS_OK(result))
+   {
+      UPDATE_ERR_IF_TRUE(result, temp_data > UINT16_MAX, FDS_MANAGER_ERROR_INVALID_VALUE_PARAMETERS);
+   }
+
+   if(IS_OK(result))
+   {
+      *data = (uint16_t)temp_data;
+   }
+   return result;
+}
+
 /***********************************************************************************************************************
  * Global functions
  **********************************************************************************************************************/
@@ -216,7 +272,12 @@ result_t fds_manager_init(fds_manager_t *const self)
    self->interface.parent = self;
 
    self->interface.store_uint64_t = store_uint64_t;
+   self->interface.store_uint32_t = store_uint32_t;
+   self->interface.store_uint16_t = store_uint16_t;
+
    self->interface.retrieve_uint64_t = retrieve_uint64_t;
+   self->interface.retrieve_uint32_t = retrieve_uint32_t;
+   self->interface.retrieve_uint16_t = retrieve_uint16_t;
 
    // Register the event handler
    (void)fds_register(fds_event_handler);

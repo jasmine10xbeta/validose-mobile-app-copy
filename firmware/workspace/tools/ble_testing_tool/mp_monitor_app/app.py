@@ -34,6 +34,7 @@ _BATTERY_CHARGE_STATUS_NAMES = {
     3: "CHARGING_COMPLETED",
     4: "ERROR",
 }
+_MAX_INCOMING_MESSAGES = 500
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -557,7 +558,7 @@ class PacketEvent:
 
 
 class SimpleRuntimeMonitor:
-    def __init__(self, max_messages: int = 500) -> None:
+    def __init__(self, max_messages: int = _MAX_INCOMING_MESSAGES) -> None:
         self._host = os.getenv("MP_HIL_HOST", "localhost")
         self._port = int(os.getenv("MP_HIL_PORT", "5000"))
         self._is_master = _env_bool("MP_HIL_IS_MASTER", True)
@@ -567,7 +568,7 @@ class SimpleRuntimeMonitor:
         self._runtime: Optional[MessageProtocolRuntime] = None
         self._lock = threading.Lock()
 
-        self._messages: Deque[PacketEvent] = deque(maxlen=max_messages)
+        self._messages: Deque[PacketEvent] = deque(maxlen=max(1, min(max_messages, _MAX_INCOMING_MESSAGES)))
         self._next_id = 1
         self._dose_schedule = _empty_dose_schedule_dict()
         self._unix_time = _time_dict_from_unix(0)
@@ -738,6 +739,26 @@ class SimpleRuntimeMonitor:
             events = [event for event in self._messages if event.id > after_id]
         return events[:limit]
 
+    def get_messages(self) -> list[PacketEvent]:
+        with self._lock:
+            self._drain_runtime_rx_unlocked()
+            return list(self._messages)
+
+    def get_export_snapshot(self) -> dict:
+        with self._lock:
+            self._drain_runtime_rx_unlocked()
+            session_id = f"0x{self._session_id:08X}"
+            return {
+                "session_id": session_id,
+                "messages": [asdict(event) for event in self._messages],
+                "temperature_points": [dict(point) for point in self._temperature_points],
+                "dock_battery_level_points": [dict(point) for point in self._dock_battery_level_points],
+                "ring_battery_level_points": [dict(point) for point in self._ring_battery_level_points],
+                "ring_docked_status_points": [dict(point) for point in self._ring_docked_status_points],
+                "dose_events": [_copy_dose_event_dict(event) for event in self._dose_events],
+                "weight_measurements": [_copy_weight_measurement_dict(event) for event in self._weight_measurements],
+            }
+
     def get_state(self) -> dict:
         with self._lock:
             runtime = self._runtime
@@ -862,7 +883,7 @@ class SimpleRuntimeMonitor:
 
 app = Flask(__name__)
 monitor = SimpleRuntimeMonitor(
-    max_messages=min(500, max(1, int(os.getenv("MP_MONITOR_MAX_MESSAGES", "500")))),
+    max_messages=min(_MAX_INCOMING_MESSAGES, int(os.getenv("MP_MONITOR_MAX_MESSAGES", str(_MAX_INCOMING_MESSAGES)))),
 )
 
 
@@ -876,6 +897,24 @@ def index() -> str:
 def api_state():
     monitor.ensure_started()
     return jsonify(monitor.get_state())
+
+
+@app.get("/api/messages")
+def api_get_messages():
+    monitor.ensure_started()
+    state = monitor.get_state()
+    return jsonify(
+        {
+            "session_id": state["session_id"],
+            "messages": [asdict(event) for event in monitor.get_messages()],
+        }
+    )
+
+
+@app.get("/api/export_snapshot")
+def api_export_snapshot():
+    monitor.ensure_started()
+    return jsonify(monitor.get_export_snapshot())
 
 
 @app.get("/api/dose_schedule")

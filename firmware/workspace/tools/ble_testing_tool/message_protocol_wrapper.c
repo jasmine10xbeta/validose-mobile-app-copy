@@ -33,6 +33,7 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_DOCK_COMMS_DRIVER;
 #define MP_WIRE_PAYLOAD_HDR_LEN    (MESSAGE_PROTOCOL_MIN_PAYLOAD_STRUCT_SIZE)
 #define MP_WIRE_MIN_PACKET_LEN     (MP_WIRE_HEADER_LEN + MP_WIRE_PAYLOAD_HDR_LEN)
 #define MP_WIRE_PAYLOAD_LEN_OFFSET (12u)
+#define MP_ACK_TIMEOUT_MS          (1000u)
 
 typedef struct
 {
@@ -232,16 +233,23 @@ result_t create_message_protocol(const char *host, int port, bool is_master)
 
    if(is_master)
    {
-      IF_OK_RUN_AND_UPDATE(
-         result,
-         message_protocol_init(
-            &mp, &systick.interface, &tcp_link.interface, is_master, NULL, NULL, NULL, generate_session_id_master));
+      IF_OK_RUN_AND_UPDATE(result,
+                           message_protocol_init(&mp,
+                                                 &systick.interface,
+                                                 &tcp_link.interface,
+                                                 is_master,
+                                                 MP_ACK_TIMEOUT_MS,
+                                                 NULL,
+                                                 NULL,
+                                                 NULL,
+                                                 generate_session_id_master));
    }
    else
    {
       IF_OK_RUN_AND_UPDATE(
          result,
-         message_protocol_init(&mp, &systick.interface, &tcp_link.interface, is_master, NULL, NULL, NULL, NULL));
+         message_protocol_init(
+            &mp, &systick.interface, &tcp_link.interface, is_master, MP_ACK_TIMEOUT_MS, NULL, NULL, NULL, NULL));
    }
 
    if(IS_ERR(result))

@@ -44,6 +44,7 @@ MP_HIL_ENABLED=1 uv run pytest \
   --capture=fd \
   --show-capture=all \
   --log-level=INFO \
+  -x \
   -vv \
   -m hil \
   "${test_targets[@]}" \

@@ -40,17 +40,12 @@
 typedef struct cap_detection cap_detection_t;
 struct cap_detection
 {
-   // Interface
    cap_detection_interface_t interface;
-
-   // Dependencies
    const ir_proximity_driver_interface_t *_p_prox_ifc; /**< Pointer to the proximity sensor driver interface */
-
-   // Private data
-   CAP_STATE _cap_state; /** Current cap state */
-   proximity_thresholds_t _thresholds;
-
-   bool _is_initialized; /** Whether the instance is initialized */
+   CAP_STATE _cap_state;                               /** Current cap state */
+   uint16_t _threshhold;                               /** Proximity threshold for determining cap state */
+   uint16_t _hysteresis;                               /** Hysteresis value */
+   bool _is_initialized;                               /** Whether the instance is initialized */
 };
 
 /**********************************************************************************************************************
@@ -66,6 +61,9 @@ struct cap_detection
  * @param prox The instance of the tmd2635 proximity sensor driver.
  */
 
-result_t cap_detection_init(cap_detection_t *const self, const ir_proximity_driver_interface_t *const p_prox_ifc);
+result_t cap_detection_init(cap_detection_t *const self,
+                            const ir_proximity_driver_interface_t *const p_prox_ifc,
+                            uint16_t init_threshhold,
+                            uint16_t init_hysteresis);
 
 #endif // CAP_DETECTION_MODULE_H_

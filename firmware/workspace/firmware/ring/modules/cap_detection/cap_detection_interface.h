@@ -30,24 +30,12 @@
 /***********************************************************************************************************************
  * Definitions
  **********************************************************************************************************************/
-
-/** Upper threshold for proximity sensor readings when the cap is considered ON */
-#define CAP_ON_PROX_THRESHOLD (5500u)
-
-/** Lower threshold for proximity sensor readings when the cap is considered OFF */
-#define CAP_OFF_PROX_THRESHOLD (5499u)
-
-#define CAP_ON_SAMPLING_PERIOD_MS (500u) /**< Sampling period when the cap is ON in milliseconds */
-
+#define CAP_ON_SAMPLING_PERIOD_MS  (500u) /**< Sampling period when the cap is ON in milliseconds */
 #define CAP_OFF_SAMPLING_PERIOD_MS (100u) /**< Sampling period when the cap is OFF in milliseconds */
 
 /***********************************************************************************************************************
  * Assertions
  **********************************************************************************************************************/
-
-STATIC_ASSERT(CAP_OFF_PROX_THRESHOLD <= CAP_ON_PROX_THRESHOLD,
-              "CAP_OFF_PROX_THRESHOLD must be less than or equal to CAP_ON_PROX_THRESHOLD.");
-
 STATIC_ASSERT(CAP_ON_SAMPLING_PERIOD_MS <= PROX_SAMPLING_PERIOD_MS_MAX,
               "CAP_ON_SAMPLING_PERIOD_MS exceeds maximum supported sampling period.");
 
@@ -107,12 +95,23 @@ struct cap_detection_interface
                               CAP_STATE *cap_state,
                               uint16_t *prox_val);
 
-   result_t (*get_prox_sensor_thresholds)(const cap_detection_interface_t *const interface,
-                                          proximity_thresholds_t *thresholds);
+   /**
+    * @brief Set cap detection configuration (threshhold and hysteresis)
+    * @param interface The cap_detection_interface_t interface handles.
+    * @param threshhold The threshold value for cap detection
+    * @param hysteresis The hysteresis value for cap detection
+    * @return Status code indicating the result of the operation
+    */
+   result_t (*set_config)(const cap_detection_interface_t *const interface, uint16_t threshhold, uint16_t hysteresis);
 
-   result_t (*set_prox_sensor_thresholds)(const cap_detection_interface_t *const interface,
-                                          proximity_thresholds_t thresholds);
-   // todo: might add is_reliable flag -> saturation
+   /**
+    * @brief Get cap detection configuration (threshhold and hysteresis)
+    * @param interface The cap_detection_interface_t interface handles.
+    * @param threshhold Pointer to store the retrieved threshold value for cap detection
+    * @param hysteresis Pointer to store the retrieved hysteresis value for cap detection
+    * @return Status code indicating the result of the operation
+    */
+   result_t (*get_config)(const cap_detection_interface_t *const interface, uint16_t *threshhold, uint16_t *hysteresis);
 };
 
 /***********************************************************************************************************************

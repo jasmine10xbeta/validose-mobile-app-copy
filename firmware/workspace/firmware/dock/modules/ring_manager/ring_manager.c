@@ -26,9 +26,10 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_RING_MANAGER;
 /***********************************************************************************************************************
  * Definitions
  **********************************************************************************************************************/
-#define STATUS_POLL_INTERVAL_MS     (1000u)
-#define STATUS_STORAGE_RATE_LIMIT_S (10u)
-#define PERMISSIBLE_RING_DRIFT_S    (2u)
+#define STATUS_POLL_INTERVAL_MS            (1000u)
+#define STATUS_STORAGE_RATE_LIMIT_S        (10u)
+#define PERMISSIBLE_RING_DRIFT_S           (2u)
+#define MINIMUM_PERMISSIBLE_SAMPLE_TIME_MS (500u)
 
 /***********************************************************************************************************************
  * Types
@@ -38,11 +39,12 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_RING_MANAGER;
  * Static function declarations
  **********************************************************************************************************************/
 // Interface functions
-
 static result_t update_battery_sample_freq(const ring_manager_interface_t *const ifc, uint16_t battery_sample_freq);
 static result_t get_ring_status(const ring_manager_interface_t *const ifc, status_update_t *ring_status);
 static result_t process(const ring_manager_interface_t *const ifc, bool is_docked);
-static result_t update_proximity_thresholds(const ring_manager_interface_t *const ifc, uint16_t on, uint16_t off);
+static result_t get_cap_detection_status(const ring_manager_interface_t *const ifc, cap_detection_status_t *status);
+static result_t send_cap_detection_config_update(const ring_manager_interface_t *const ifc, cap_detection_cfg_t config);
+static result_t set_cap_detection_poll_period_ms(const ring_manager_interface_t *const ifc, uint16_t poll_period_ms);
 
 // Non-interface functions
 /**
@@ -124,8 +126,7 @@ static result_t store_status_on_delta_and_timeout(const ring_manager_interface_t
 /***********************************************************************************************************************
  * Variables
  **********************************************************************************************************************/
-static uint32_t counter = 0;
-static uint32_t average = 0;
+
 /***********************************************************************************************************************
  * Static non-interface function definitions
  **********************************************************************************************************************/
@@ -250,10 +251,8 @@ static result_t store_status_on_delta_and_timeout(const ring_manager_interface_t
       ifc->parent->_stored_status = *new_status;
       ring_status_t status_to_enqueue = *new_status;
       result = ifc->parent->_dock_data_manager_ifc->enqueue(
-         ifc->parent->_dock_data_manager_ifc, DATA_ID_RING_STATUS, &status_to_enqueue, sizeof(ring_status_t), 1lu);
+         ifc->parent->_dock_data_manager_ifc, DATA_ID_RING_STATUS, &status_to_enqueue, sizeof(ring_status_t), 1u);
    }
-
-   update_needed ? SEGGER_RTT_printf(0, "Status update stored\n") : SEGGER_RTT_printf(0, "Status update not stored\n");
 
    return result;
 }
@@ -289,35 +288,6 @@ static result_t dispatch_by_ppi(const ring_manager_interface_t *ifc, mp_packet_p
    // Should only be receiving packets of type response to our requests
    RETURN_ERR_IF_TRUE(PPI_TYPE_RE != rx_packet->type, RING_MANAGER_ERROR_INCORRECT_RX_PACKET_TYPE);
    RETURN_ERR_IF_TRUE(PPI_TYPE_MAX <= rx_packet->type, RING_MANAGER_ERROR_INVALID_RX_PACKET_TYPE);
-
-   SEGGER_RTT_printf(0, "Received packet with PPI: %d\n", rx_packet->ppi);
-
-   uint64_t current_systick_ms = 0u;
-   uint32_t delta = 0u;
-   static uint64_t last_status_request_systick_ms = 0u;
-
-   counter++;
-
-   ifc->parent->_systick_ifc->get_time_ms(ifc->parent->_systick_ifc, &current_systick_ms);
-
-   uint32_t current_systick_ms_32 = (uint32_t)(current_systick_ms & 0xFFFFFFFF);
-   uint32_t last_status_request_systick_ms_32 = (uint32_t)(last_status_request_systick_ms & 0xFFFFFFFF);
-
-   delta = current_systick_ms_32 - last_status_request_systick_ms_32;
-   last_status_request_systick_ms = current_systick_ms;
-
-   average = (average * 99 + delta) / 100;
-
-   SEGGER_RTT_SetTerminal(7);
-   SEGGER_RTT_printf(0,
-                     "Elapsed time since last valid PPI: %u ms. Systick: %u Last Systick: %u Average elapsed time: %u "
-                     "ms. Counter: %u\n",
-                     delta,
-                     current_systick_ms_32,
-                     last_status_request_systick_ms_32,
-                     average,
-                     counter);
-   SEGGER_RTT_SetTerminal(0);
 
    result_t result = RESULT_OK;
 
@@ -370,10 +340,9 @@ static result_t dispatch_by_ppi(const ring_manager_interface_t *ifc, mp_packet_p
             UPDATE_ERR_IF_TRUE(result, (0 != (payload_len % element_size)), RING_MANAGER_ERROR_INVALID_PAYLOAD_LENGTH);
 
             // Enqueue the received error data
-            // IF_OK_RUN_AND_UPDATE(
-            //    result,
-            //    data_manager_ifc->enqueue(data_manager_ifc, data_id, rx_packet->payload, element_size,
-            //    element_count));
+            IF_OK_RUN_AND_UPDATE(
+               result,
+               data_manager_ifc->enqueue(data_manager_ifc, data_id, rx_packet->payload, element_size, element_count));
             break;
 
          case PPI_RD_BATTERY_DATA:
@@ -408,14 +377,6 @@ static result_t dispatch_by_ppi(const ring_manager_interface_t *ifc, mp_packet_p
                // Update the last status update with the new status and the current time
                self->_last_status_update.ring_status = status;
                self->_last_status_update.update_time_unix_s = unix_time;
-
-               SEGGER_RTT_SetTerminal(10);
-               SEGGER_RTT_printf(0,
-                                 "Received status update.\n Cap on: %u\n Cap off: %u\nCurrent prox: %u\n",
-                                 status.cap_on,
-                                 status.cap_off,
-                                 status.current_prox);
-               SEGGER_RTT_SetTerminal(0);
             }
 
             // Determine which pending commands should be set as pending based on the status of the ring.
@@ -423,6 +384,19 @@ static result_t dispatch_by_ppi(const ring_manager_interface_t *ifc, mp_packet_p
 
             // Check if the new status is sufficiently different from the last stored status to warrant storing it
             IF_OK_RUN_AND_UPDATE(result, store_status_on_delta_and_timeout(ifc, &status, systick_ms));
+            break;
+
+         case PPI_RD_CAP_DETECTION_CONFIG:
+
+            // Check that the payload length is valid - It should be equal to the size of cap_detection_status_t
+            UPDATE_ERR_IF_TRUE(
+               result, (sizeof(cap_detection_status_t) != payload_len), RING_MANAGER_ERROR_INVALID_PAYLOAD_LENGTH);
+
+            if(IS_OK(result))
+            {
+               // Copy the cap detection status data from the payload
+               memcpy(&self->_last_cap_detection_status, rx_packet->payload, sizeof(cap_detection_status_t));
+            }
             break;
 
          default:
@@ -462,6 +436,16 @@ static result_t handle_tx(const ring_manager_interface_t *ifc)
    {
       ifc->parent->_last_status_request_systick_ms = systick_ms;
       ifc->parent->_pending_commands[CMD_ID_REQ_STATUS_UPDATE].pending = true;
+   }
+
+   // Check if the cap detection status poll time has expired - If so, set the cap detection status request command as
+   // pending to trigger a new cap detection status update from the ring
+   // Note. The statement checks that the poll period is greater than 0 to allow for disabling of automatic polling
+   if(((ifc->parent->_last_cap_detection_status_systick_ms + ifc->parent->_cap_detection_poll_period_ms) < systick_ms)
+      && (ifc->parent->_cap_detection_poll_period_ms > 0u) && (IS_OK(result)))
+   {
+      ifc->parent->_last_cap_detection_status_systick_ms = systick_ms;
+      ifc->parent->_pending_commands[CMD_ID_REQ_CAP_DETECTION_STATUS_DATA].pending = true;
    }
 
    // Ensure that there is space to receive data for any pending data request commands
@@ -516,22 +500,6 @@ static result_t update_battery_sample_freq(const ring_manager_interface_t *const
    return RESULT_OK;
 }
 
-static result_t update_proximity_thresholds(const ring_manager_interface_t *const ifc, uint16_t on, uint16_t off)
-{
-   RETURN_ERR_IF_INTERFACE_NULL(ifc, RING_MANAGER_ERROR_NULL_INTERFACE_PTR);
-
-   result_t result = RESULT_OK;
-
-   ifc->parent->_pending_commands[CMD_ID_SET_PROX].pending = true;
-
-   prox_data_t prox_data = {0};
-   prox_data.cap_on = on;
-   prox_data.cap_off = off;
-   memcpy(ifc->parent->_pending_commands[CMD_ID_SET_PROX].data, &prox_data, sizeof(prox_data));
-
-   return result;
-}
-
 static result_t get_ring_status(const ring_manager_interface_t *const ifc, status_update_t *ring_status)
 {
    RETURN_ERR_IF_INTERFACE_NULL(ifc, RING_MANAGER_ERROR_NULL_INTERFACE_PTR);
@@ -580,6 +548,47 @@ static result_t process(const ring_manager_interface_t *const ifc, bool is_docke
    return result;
 }
 
+static result_t send_cap_detection_config_update(const ring_manager_interface_t *const ifc, cap_detection_cfg_t config)
+{
+   RETURN_ERR_IF_INTERFACE_NULL(ifc, RING_MANAGER_ERROR_NULL_INTERFACE_PTR);
+
+   ifc->parent->_pending_commands[CMD_ID_UPDATE_CAP_DETECTION_CONFIG].pending = true;
+   memcpy(ifc->parent->_pending_commands[CMD_ID_UPDATE_CAP_DETECTION_CONFIG].data, &config, sizeof(config));
+
+   return RESULT_OK;
+}
+
+static result_t get_cap_detection_status(const ring_manager_interface_t *const ifc, cap_detection_status_t *status)
+{
+   RETURN_ERR_IF_INTERFACE_NULL(ifc, RING_MANAGER_ERROR_NULL_INTERFACE_PTR);
+   RETURN_ERR_IF_NULL(status, RING_MANAGER_ERROR_NULL_PTR);
+
+   *status = ifc->parent->_last_cap_detection_status;
+
+   return RESULT_OK;
+}
+
+static result_t set_cap_detection_poll_period_ms(const ring_manager_interface_t *const ifc, uint16_t poll_period_ms)
+{
+   RETURN_ERR_IF_INTERFACE_NULL(ifc, RING_MANAGER_ERROR_NULL_INTERFACE_PTR);
+
+   // Clamp the poll period to a minimum of 500ms to prevent congestion on the nfc link
+   if(poll_period_ms == 0u)
+   {
+      ifc->parent->_cap_detection_poll_period_ms = 0u;
+   }
+   else if(poll_period_ms < MINIMUM_PERMISSIBLE_SAMPLE_TIME_MS)
+   {
+      DEBUG_WARNING("[RING_MANAGER] Cap detection poll period too low - Clamping to 500ms");
+      ifc->parent->_cap_detection_poll_period_ms = MINIMUM_PERMISSIBLE_SAMPLE_TIME_MS;
+   }
+   else
+   {
+      ifc->parent->_cap_detection_poll_period_ms = poll_period_ms;
+   }
+   return RESULT_OK;
+}
+
 /***********************************************************************************************************************
  * Global function definitions
  **********************************************************************************************************************/
@@ -603,9 +612,11 @@ result_t ring_manager_init(ring_manager_t *const self,
    self->_dock_data_manager_ifc = dock_data_manager_ifc;
    self->_rtc_ifc = rtc_ifc;
 
+   self->interface.get_cap_detection_status = get_cap_detection_status;
+   self->interface.send_cap_detection_config_update = send_cap_detection_config_update;
    self->interface.update_battery_sample_freq = update_battery_sample_freq;
+   self->interface.set_cap_detection_poll_period_ms = set_cap_detection_poll_period_ms;
    self->interface.get_ring_status = get_ring_status;
-   self->interface.update_proximity_thresholds = update_proximity_thresholds;
    self->interface.process = process;
 
    // *****************************
@@ -619,10 +630,6 @@ result_t ring_manager_init(ring_manager_t *const self,
    }
 
    // Update PPIs and data lengths for all command types
-   self->_pending_commands[CMD_ID_SET_PROX].ppi = PPI_RD_PROX_DATA;
-   self->_pending_commands[CMD_ID_SET_PROX].type = PPI_TYPE_PUSH;
-   self->_pending_commands[CMD_ID_SET_PROX].data_length = sizeof(prox_data_t);
-
    self->_pending_commands[CMD_ID_UPDATE_TIME].ppi = PPI_RD_TIME;
    self->_pending_commands[CMD_ID_UPDATE_TIME].type = PPI_TYPE_PUSH;
    self->_pending_commands[CMD_ID_UPDATE_TIME].data_length = sizeof(uint32_t);
@@ -630,6 +637,10 @@ result_t ring_manager_init(ring_manager_t *const self,
    self->_pending_commands[CMD_ID_UPDATE_BATTERY_SAMPLE_FREQ].ppi = PPI_RD_BATTERY_SAMPLE_RATE;
    self->_pending_commands[CMD_ID_UPDATE_BATTERY_SAMPLE_FREQ].type = PPI_TYPE_PUSH;
    self->_pending_commands[CMD_ID_UPDATE_BATTERY_SAMPLE_FREQ].data_length = sizeof(uint16_t);
+
+   self->_pending_commands[CMD_ID_UPDATE_CAP_DETECTION_CONFIG].ppi = PPI_RD_CAP_DETECTION_CONFIG;
+   self->_pending_commands[CMD_ID_UPDATE_CAP_DETECTION_CONFIG].type = PPI_TYPE_PUSH;
+   self->_pending_commands[CMD_ID_UPDATE_CAP_DETECTION_CONFIG].data_length = sizeof(cap_detection_cfg_t);
 
    self->_pending_commands[CMD_ID_REQ_STATUS_UPDATE].ppi = PPI_RD_STATUS;
    self->_pending_commands[CMD_ID_REQ_STATUS_UPDATE].type = PPI_TYPE_RQ;
@@ -646,6 +657,10 @@ result_t ring_manager_init(ring_manager_t *const self,
    self->_pending_commands[CMD_ID_REQ_RING_BATTERY_LEVEL_DATA].ppi = PPI_RD_BATTERY_DATA;
    self->_pending_commands[CMD_ID_REQ_RING_BATTERY_LEVEL_DATA].type = PPI_TYPE_RQ;
    self->_pending_commands[CMD_ID_REQ_RING_BATTERY_LEVEL_DATA].data_length = sizeof(uint16_t);
+
+   self->_pending_commands[CMD_ID_REQ_CAP_DETECTION_STATUS_DATA].ppi = PPI_RD_CAP_DETECTION_CONFIG;
+   self->_pending_commands[CMD_ID_REQ_CAP_DETECTION_STATUS_DATA].type = PPI_TYPE_RQ;
+   self->_pending_commands[CMD_ID_REQ_CAP_DETECTION_STATUS_DATA].data_length = 0u;
 
    data_store_t *_data_stores = self->_data_store;
 
@@ -678,23 +693,19 @@ result_t ring_manager_init(ring_manager_t *const self,
    };
    memcpy(&_data_stores[RING_MANAGER_DATA_ID_RING_BATTERY_LEVEL], &battery_store, sizeof(data_store_t));
 
-   IF_OK_RUN_AND_UPDATE(
-      result, dock_data_manager_ifc->get_element_size(dock_data_manager_ifc, DATA_ID_RING_DOCKED_STATUS, &size));
-   data_store_t docking_store = {
-      .id = DATA_ID_RING_DOCKED_STATUS,
-      .element_size = (uint16_t)size,
-      .associated_command_id = CMD_ID_REQ_RING_DOCKED_STATUS_DATA,
-   };
-   memcpy(&_data_stores[RING_MANAGER_DATA_ID_RING_DOCKED_STATUS], &docking_store, sizeof(data_store_t));
-
    // Initialize last status update
    self->_last_status_update.update_time_unix_s = 0u;
    self->_last_status_update.ring_status = (ring_status_t){0};
 
+   // Initialize last cap detection status update
+   self->_cap_detection_poll_period_ms = 0u; // Default to no automatic polling
+   self->_last_cap_detection_status_systick_ms = 0u;
+   self->_last_cap_detection_status = (cap_detection_status_t){0};
+
    // Initialize last stored status
    self->_stored_status = (ring_status_t){0};
 
-   // Initilize the last status request and storage systick
+   // Initialize the last status request and storage systick
    self->_last_status_request_systick_ms = 0u;
    self->_last_status_store_systick_ms = 0u;
 

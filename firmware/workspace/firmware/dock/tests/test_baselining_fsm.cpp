@@ -28,6 +28,7 @@ extern "C"
 static baselining_fsm_inputs_t make_inputs(bool start_baselining,
                                            bool is_baselining_active,
                                            bool is_ring_present,
+                                           bool is_medication_uid_avail,
                                            bool is_empty_dock_weight_set,
                                            bool is_ring_dock_full_med_weight_set,
                                            BACKEND_VAL_STATUS backend_status,
@@ -40,6 +41,7 @@ static baselining_fsm_inputs_t make_inputs(bool start_baselining,
    inputs.start_baselining = start_baselining;
    inputs.is_baselining_active = is_baselining_active;
    inputs.is_ring_present = is_ring_present;
+   inputs.is_medication_uid_avail = is_medication_uid_avail;
    inputs.is_empty_dock_weight_set = is_empty_dock_weight_set;
    inputs.is_ring_dock_full_med_weight_set = is_ring_dock_full_med_weight_set;
    inputs.backend_validation_status = backend_status;
@@ -100,7 +102,7 @@ static BASELINING_STATE expected_next_state(BASELINING_STATE current_state,
          {
             return BASELINING_STATE_ERROR;
          }
-         if(true == inputs->is_ring_present)
+         if((true == inputs->is_ring_present) && (true == inputs->is_medication_uid_avail))
          {
             return BASELINING_STATE_SET_RING_DOCK_WEIGHT;
          }
@@ -293,8 +295,9 @@ TEST_F(BaseliningFsmTest, happy_path_reaches_complete)
    ASSERT_EQ(m_fsm.current_state, BASELINING_STATE_WAIT_FOR_RING);
 
    // WAIT_FOR_RING -> SET_RING_DOCK_WEIGHT
-   // Condition: ring present.
+   // Condition: ring present and medication UID available.
    inputs.is_ring_present = true;
+   inputs.is_medication_uid_avail = true;
    UpdateWithInputs(&inputs);
    ASSERT_EQ(m_fsm.current_state, BASELINING_STATE_SET_RING_DOCK_WEIGHT);
 
@@ -437,40 +440,45 @@ TEST_F(BaseliningFsmTest, all_input_combinations_without_timeout)
                   {
                      for(uint8_t ring_present = 0u; ring_present < 2u; ++ring_present)
                      {
-                        for(uint8_t empty_dock_weight_set = 0u; empty_dock_weight_set < 2u; ++empty_dock_weight_set)
+                        for(uint8_t med_uid_avail = 0u; med_uid_avail < 2u; ++med_uid_avail)
                         {
-                           for(uint8_t ring_dock_full_med_weight_set = 0u; ring_dock_full_med_weight_set < 2u;
-                               ++ring_dock_full_med_weight_set)
+                           for(uint8_t empty_dock_weight_set = 0u; empty_dock_weight_set < 2u; ++empty_dock_weight_set)
                            {
-                              baselining_fsm_inputs_t inputs = make_inputs((0u != start),
-                                                                           (0u != active),
-                                                                           (0u != ring_present),
-                                                                           (0u != empty_dock_weight_set),
-                                                                           (0u != ring_dock_full_med_weight_set),
-                                                                           backend_statuses[b],
-                                                                           dose_statuses[d],
-                                                                           med_uid_statuses[m]);
+                              for(uint8_t ring_dock_full_med_weight_set = 0u; ring_dock_full_med_weight_set < 2u;
+                                  ++ring_dock_full_med_weight_set)
+                              {
+                                 baselining_fsm_inputs_t inputs = make_inputs((0u != start),
+                                                                              (0u != active),
+                                                                              (0u != ring_present),
+                                                                              (0u != med_uid_avail),
+                                                                              (0u != empty_dock_weight_set),
+                                                                              (0u != ring_dock_full_med_weight_set),
+                                                                              backend_statuses[b],
+                                                                              dose_statuses[d],
+                                                                              med_uid_statuses[m]);
 
-                              // Force FSM into a known state for this test vector.
-                              m_fsm.current_state = states[s];
-                              UpdateWithInputs(&inputs);
+                                 // Force FSM into a known state for this test vector.
+                                 m_fsm.current_state = states[s];
+                                 UpdateWithInputs(&inputs);
 
-                              BASELINING_STATE expected
-                                 = expected_next_state(states[s], &inputs, false /* timeout */);
+                                 BASELINING_STATE expected
+                                    = expected_next_state(states[s], &inputs, false /* timeout */);
 
-                              // Provide context on failures for fast diagnosis.
-                              SCOPED_TRACE(::testing::Message() << "state=" << states[s]
-                                                               << " start=" << (0u != start)
-                                                               << " active=" << (0u != active)
-                                                               << " ring=" << (0u != ring_present)
-                                                               << " empty_set=" << (0u != empty_dock_weight_set)
-                                                               << " ring_med_set=" << (0u != ring_dock_full_med_weight_set)
-                                                               << " backend=" << backend_statuses[b]
-                                                               << " dose=" << dose_statuses[d]
-                                                               << " med_uid_store=" << med_uid_statuses[m]);
+                                 // Provide context on failures for fast diagnosis.
+                                 SCOPED_TRACE(::testing::Message() << "state=" << states[s]
+                                                                  << " start=" << (0u != start)
+                                                                  << " active=" << (0u != active)
+                                                                  << " ring=" << (0u != ring_present)
+                                                                  << " med_uid_avail=" << (0u != med_uid_avail)
+                                                                  << " empty_set=" << (0u != empty_dock_weight_set)
+                                                                  << " ring_med_set=" << (0u != ring_dock_full_med_weight_set)
+                                                                  << " backend=" << backend_statuses[b]
+                                                                  << " dose=" << dose_statuses[d]
+                                                                  << " med_uid_store=" << med_uid_statuses[m]);
 
-                              EXPECT_EQ(m_fsm.current_state, expected);
-                              EXPECT_EQ(m_outputs.changed, (expected != states[s]));
+                                 EXPECT_EQ(m_fsm.current_state, expected);
+                                 EXPECT_EQ(m_outputs.changed, (expected != states[s]));
+                              }
                            }
                         }
                      }

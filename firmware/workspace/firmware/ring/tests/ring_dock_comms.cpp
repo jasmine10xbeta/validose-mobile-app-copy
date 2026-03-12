@@ -362,10 +362,11 @@ protected:
       m_link_ring.peer = &m_link_dock;
 
       // Initialize mock message protocol interfaces with the link layer endpoints
-      result = message_protocol_init(&m_mp_dock, systick_ifc, &m_link_dock.interface, true, NULL, NULL, NULL, NULL);
+      result = message_protocol_init(&m_mp_dock, systick_ifc, &m_link_dock.interface, true, 1u, NULL, NULL, NULL, NULL);
       ASSERT_EQ(RESULT_OK, result);
       mp_dock_ifc = &m_mp_dock.interface;
-      result = message_protocol_init(&m_mp_ring, systick_ifc, &m_link_ring.interface, false, NULL, NULL, NULL, NULL);
+      result
+         = message_protocol_init(&m_mp_ring, systick_ifc, &m_link_ring.interface, false, 1u, NULL, NULL, NULL, NULL);
       ASSERT_EQ(RESULT_OK, result);
       mp_ring_ifc = &m_mp_ring.interface;
 
@@ -425,7 +426,7 @@ TEST_F(RingDockComms, dock_ring_comms_test_update_time_on_drift_250ms_loop)
    ASSERT_EQ(RESULT_OK, result);
 
    // Check that the RTC time is within 2 seconds of the ring time
-   ASSERT_NEAR(rtc_mock_ifc->parent->_epoch, mock_ring_data_manager._current_time_ms / 1000u, 2u);
+   ASSERT_NEAR(rtc_mock_ifc->parent->_epoch, mock_ring_data_manager._current_time_ms, 2000u);
 }
 
 /**
@@ -451,7 +452,7 @@ TEST_F(RingDockComms, dock_ring_comms_test_update_time_on_drift_1ms_loop)
    ASSERT_EQ(RESULT_OK, result);
 
    // Check that the RTC time is within 2 seconds of the ring time
-   ASSERT_NEAR(rtc_mock_ifc->parent->_epoch, mock_ring_data_manager._current_time_ms / 1000u, 2u);
+   ASSERT_NEAR(rtc_mock_ifc->parent->_epoch, mock_ring_data_manager._current_time_ms, 2000u);
 }
 
 /**
@@ -782,8 +783,8 @@ TEST_F(RingDockComms, dock_ring_comms_test_check_data_transmission)
    result = dock_data_manager_ifc->get_free_element_count(dock_data_manager_ifc, DATA_ID_DOSE_EVENT, &free_elements);
    ASSERT_EQ(result, RESULT_OK);
 
-   // Simulate the passing of 10 seconds
-   result = run_process_loop_for_time(10000u, 10u, true, false);
+   // Simulate the passing of 60 seconds
+   result = run_process_loop_for_time(60000u, 10u, true, false);
    ASSERT_EQ(result, RESULT_OK);
 
    result = dock_data_manager_ifc->get_free_element_count(dock_data_manager_ifc, DATA_ID_DOSE_EVENT, &free_elements);

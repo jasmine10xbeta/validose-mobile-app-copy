@@ -252,11 +252,13 @@ protected:
       m_link_app.peer = &m_link_dock;
 
       // Initialize mock message protocol interfaces with the link layer endpoints
-      result = message_protocol_init(&m_mp_dock, m_systick_ifc, &m_link_dock.interface, true, NULL, NULL, NULL, NULL);
+      result
+         = message_protocol_init(&m_mp_dock, m_systick_ifc, &m_link_dock.interface, true, 1000u, NULL, NULL, NULL, NULL);
       ASSERT_EQ(RESULT_OK, result);
       m_mp_dock_ifc = &m_mp_dock.interface;
 
-      result = message_protocol_init(&m_mp_app, m_systick_ifc, &m_link_app.interface, false, NULL, NULL, NULL, NULL);
+      result
+         = message_protocol_init(&m_mp_app, m_systick_ifc, &m_link_app.interface, false, 1000u, NULL, NULL, NULL, NULL);
       ASSERT_EQ(RESULT_OK, result);
       m_mp_app_ifc = &m_mp_app.interface;
 

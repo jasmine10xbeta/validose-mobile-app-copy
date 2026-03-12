@@ -82,6 +82,18 @@ typedef struct ring_data_manager_interface
    result_t (*get_status)(const ring_data_manager_interface_t *const interface, ring_status_t *const status);
 
    /**
+    * @brief Get the current cap detection status
+    *
+    * @details This function retrieves the current status of the cap detection module.
+    *
+    * @param status Pointer to a cap_detection_status_t structure where the status will be stored.
+    *
+    * @return result_t indicating the success or failure of the function.
+    */
+   result_t (*get_cap_detection_status)(const ring_data_manager_interface_t *const interface,
+                                        cap_detection_status_t *status);
+
+   /**
     * @brief Update the current time
     *
     * @details This function updates the current systick time
@@ -104,15 +116,16 @@ typedef struct ring_data_manager_interface
    result_t (*enqueue_error)(const ring_data_manager_interface_t *const ifc, raw_debug_log_t *debug_log);
 
    /**
-    * @brief Update proximity data
+    * @brief Get the current cap detection configuration
     *
-    * @details This function updates the proximity data (cap on and cap off values)
+    * @details This function retrieves the current cap detection configuration
     *
-    * @param prox_data The new proximity data.
+    * @param config A cap_detection_cfg_t structure with the current cap detection configuration.
     *
     * @return result_t indicating the success or failure of the function.
     */
-   result_t (*update_prox_data)(const ring_data_manager_interface_t *const ifc, prox_data_t prox_data);
+   result_t (*set_cap_detection_config)(const ring_data_manager_interface_t *const interface,
+                                        cap_detection_cfg_t config);
 
 } ring_data_manager_interface_t;
 

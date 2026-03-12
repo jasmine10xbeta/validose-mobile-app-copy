@@ -16,9 +16,13 @@
 /***********************************************************************************************************************
  * Definitions
  **********************************************************************************************************************/
-// After sending a command to the sensor a minimal waiting time of 1ms is needed before another command can be received
-// by the sensor
-#define STS30_COMMAND_DELAY_MS (1u) // same as soft/hw reset delay - From datasheet section 4 and Section 2.2
+/* After sending a command to the sensor a minimal waiting time of 1ms is needed before another command can be received
+   by the sensor. Same as soft/hw reset delay.
+   From datasheet section 4 and Section 2.2 this delay is 1ms. Increased to 3ms in                             \
+   practice to account for timing variability and ensure we meet the requirement, as well as to accomodate     \
+   app timer resolution limitations.
+*/
+#define STS30_COMMAND_DELAY_MS (3u)
 #define COMMAND_SIZE_BYTES     (2u)
 
 // Repeatability settings for single shot and periodic mode
@@ -96,11 +100,11 @@ typedef enum
 #define CMD_CLEAR_STATUS (0x3041u)
 
 // -------------------- Timing rules -------------------- //
-// Datasheet requires at least 1 ms between commands
-#define STS30_MIN_CMD_GAP_MS (1u)
-
-// Max measurement durations in ms (Table 3): 4.5, 6.5, 15.5ms.
-// Add a small margin and enforce min gap rule separately.
+/* Max measurement durations in ms (Table 3): 4.5, 6.5, 15.5ms.
+   Add a small margin and enforce min gap rule separately.
+   Margin added to account for variability in timing and ensure we meet the requirement, as well as to accomodate
+   app timer resolution limitations.
+*/
 #define STS30_TMEAS_MAX_LOW_MS  (5u)
 #define STS30_TMEAS_MAX_MED_MS  (7u)
 #define STS30_TMEAS_MAX_HIGH_MS (16u)

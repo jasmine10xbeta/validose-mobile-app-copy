@@ -589,3 +589,8 @@ sdk_config:
 	java -jar $(CMSIS_CONFIG_TOOL) $(SDK_CONFIG_FILE)
 
 new:  erase  flash_softdevice  flash
+
+clean:
+	find ../ -name "*.gcda" -delete
+	find ../ -name "*.gcno" -delete
+	find ../ -name "*.o" -delete

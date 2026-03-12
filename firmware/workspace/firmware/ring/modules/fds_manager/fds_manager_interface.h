@@ -35,17 +35,17 @@ typedef enum
 {
    RECORD_ID_SHIP_MODE_EXIT_TIME,
    RECORD_ID_BATTERY_SAMPLE_FREQUENCY,
-   RECORD_ID_PROXIMITY_CAP_ON,
-   RECORD_ID_PROXIMITY_CAP_OFF,
+   RECORD_ID_CAP_DETECTION_THRESHOLD,
+   RECORD_ID_CAP_DETECTION_HYSTERESIS,
    RECORD_ID_MAX,
 } RECORD_ID;
 
 typedef enum
 {
-   RECORD_KEY_SHIP_MODE_EXIT_TIME = 0x0001,
-   RECORD_KEY_BATTERY_SAMPLE_FREQUENCY = 0x0002,
-   RECORD_KEY_PROXIMITY_CAP_ON = 0x0003,
-   RECORD_KEY_PROXIMITY_CAP_OFF = 0x0004,
+   RECORD_KEY_SHIP_MODE_EXIT_TIME = 0x0001u,
+   RECORD_KEY_BATTERY_SAMPLE_FREQUENCY = 0x0002u,
+   RECORD_KEY_CAP_DETECTION_THRESHOLD = 0x0003u,
+   RECORD_KEY_CAP_DETECTION_HYSTERESIS = 0x0004u,
 } RECORD_KEY;
 
 typedef struct __attribute__((packed, aligned(4)))
@@ -77,6 +77,26 @@ typedef struct fds_manager_interface
    result_t (*store_uint64_t)(const fds_manager_interface_t *const ifc, RECORD_ID record_id, uint64_t data);
 
    /**
+    * @brief Store a uint32_t in NVM
+    *
+    * @param ifc A pointer to the interface instance.
+    * @param record_id The ID of the record to store.
+    * @param data Value to be stored
+    * @return result_t A status code indicating success or failure.
+    */
+   result_t (*store_uint32_t)(const fds_manager_interface_t *const ifc, RECORD_ID record_id, uint32_t data);
+
+   /**
+    * @brief Store a uint16_t in NVM
+    *
+    * @param ifc A pointer to the interface instance.
+    * @param record_id The ID of the record to store.
+    * @param data Value to be stored
+    * @return result_t A status code indicating success or failure.
+    */
+   result_t (*store_uint16_t)(const fds_manager_interface_t *const ifc, RECORD_ID record_id, uint16_t data);
+
+   /**
     * @brief Retrieve a uint64_t from NVM
     *
     * @param ifc A pointer to the interface instance.
@@ -86,6 +106,29 @@ typedef struct fds_manager_interface
     * @return result_t A status code indicating success or failure.
     */
    result_t (*retrieve_uint64_t)(const fds_manager_interface_t *const ifc, RECORD_ID record_id, uint64_t *data);
+
+   /**
+    * @brief Retrieve a uint32_t from NVM
+    *
+    * @param ifc A pointer to the interface instance.
+    * @param record_id The ID of the record to retrieve.
+    * @param data Pointer to the memory allocated to receive the record data.
+    *
+    * @return result_t A status code indicating success or failure.
+    */
+   result_t (*retrieve_uint32_t)(const fds_manager_interface_t *const ifc, RECORD_ID record_id, uint32_t *data);
+
+   /**
+    * @brief Retrieve a uint16_t from NVM
+    *
+    * @param ifc A pointer to the interface instance.
+    * @param record_id The ID of the record to retrieve.
+    * @param data Pointer to the memory allocated to receive the record data.
+    *
+    * @return result_t A status code indicating success or failure.
+    */
+   result_t (*retrieve_uint16_t)(const fds_manager_interface_t *const ifc, RECORD_ID record_id, uint16_t *data);
+
 } fds_manager_interface_t;
 
 /***********************************************************************************************************************
@@ -98,8 +141,8 @@ typedef struct fds_manager_interface
 static const record_info_t RECORD_INFOS[] = {
    {{0}, RECORD_KEY_SHIP_MODE_EXIT_TIME},
    {{0}, RECORD_KEY_BATTERY_SAMPLE_FREQUENCY},
-   {{0}, RECORD_KEY_PROXIMITY_CAP_ON},
-   {{0}, RECORD_KEY_PROXIMITY_CAP_OFF},
+   {{0}, RECORD_KEY_CAP_DETECTION_THRESHOLD},
+   {{0}, RECORD_KEY_CAP_DETECTION_HYSTERESIS},
 };
 /***********************************************************************************************************************
  * Static non-interface function definitions

@@ -27,10 +27,10 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_TEMP_DRV;
 #define STALE_AGAIN_FACTOR (1.5f)
 
 // Celsius conversion constants (datasheet): T[°C] = -45 + 175 * raw / 65535
-#define STS30_TEMP_OFFSET_DC   (-450)   // -45.0°C in deci-degC
-#define STS30_TEMP_SCALE_DC    (1750u)  // 175.0°C in deci-degC
-#define STS30_RAW_DENOMINATOR  (65535u) // (2^16 - 1)
-#define STS30_RAW_DIV_ROUNDING (32767u) // (STS30_RAW_DENOMINATOR / 2) for rounding
+#define STS30_TEMP_OFFSET_DC   (int32_t)(-450)  // -45.0°C in deci-degC
+#define STS30_TEMP_SCALE_DC    (int32_t)(1750)  // 175.0°C in deci-degC
+#define STS30_RAW_DENOMINATOR  (int32_t)(65535) // (2^16 - 1)
+#define STS30_RAW_DIV_ROUNDING (int32_t)(32767) // (STS30_RAW_DENOMINATOR / 2) for rounding
 
 // Fahrenheit conversion derived from Celsius formula:
 // T[°F] = T[°C] * 9/5 + 32
@@ -40,7 +40,7 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_TEMP_DRV;
 
 #define STS30_TEMP_DATA_SIZE_BYTES (3u) // 2 bytes data + 1 byte CRC
 
-#define I2C_TIMEOUT_MS (100u)
+#define I2C_TIMEOUT_US (100u)
 
 // Macro to return error if STS30 is not ready
 #define RETURN_ERR_IF_STS30_NOT_READY(self, err_code)                                                                  \
@@ -64,47 +64,30 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_TEMP_DRV;
 // Interface functions
 static result_t soft_reset(const sts30_dis_temp_sensor_interface_t *const interface);
 static result_t
-   start_single_shot(const sts30_dis_temp_sensor_interface_t *const interface, STS30_REP rep_val, STS30_CS cs_val);
-static result_t
-   start_periodic(const sts30_dis_temp_sensor_interface_t *const interface, STS30_REP rep_val, STS30_MPS mps_val);
-static result_t stop_periodic(const sts30_dis_temp_sensor_interface_t *const interface);
-static result_t get_temperature(const sts30_dis_temp_sensor_interface_t *const interface,
-                                bool is_single_shot,
-                                int16_t *temp_decidegc,
-                                bool *is_stale);
+   get_temperature(const sts30_dis_temp_sensor_interface_t *const interface, int16_t *temp_decidegc, bool *is_stale);
 static result_t set_heater(const sts30_dis_temp_sensor_interface_t *const interface, bool enable);
-static result_t start_status(const sts30_dis_temp_sensor_interface_t *const interface);
-static result_t get_status(const sts30_dis_temp_sensor_interface_t *const interface, status_t *status);
-static result_t clear_status(const sts30_dis_temp_sensor_interface_t *const interface);
 static result_t temp_sensor_process(const sts30_dis_temp_sensor_interface_t *const interface,
                                     uint64_t temp_read_freq_ms);
 
 // Non-interface functions
 /// Internal functions
+static result_t start_single_shot(sts30_dis_temp_sensor_driver_t *const self, STS30_REP rep_val, STS30_CS cs_val);
 static result_t write_cmd(sts30_dis_temp_sensor_driver_t *const self, uint16_t cmd);
-static result_t read_word(sts30_dis_temp_sensor_driver_t *const self, int16_t *word);
+static result_t read_word(sts30_dis_temp_sensor_driver_t *const self, uint16_t *word);
 static result_t read_temp(sts30_dis_temp_sensor_driver_t *const self, int16_t *temp_decidegC);
 static result_t command_timer_start(sts30_dis_temp_sensor_driver_t *const self);
 static result_t reset_timer_start(sts30_dis_temp_sensor_driver_t *const self, uint32_t delay_ms);
 static result_t temp_tmeas_timer_start(sts30_dis_temp_sensor_driver_t *const self, uint32_t delay_ms);
 // Helper functions
-static result_t convert_temp_decidegc(int16_t raw, int16_t *temp_decidegc);
+static result_t convert_temp_decidegc(uint16_t raw, int16_t *temp_decidegc);
 static result_t get_single_shot_cmd(STS30_REP rep_val, STS30_CS cs_val, uint16_t *cmd_value);
-static result_t get_periodic_cmd(STS30_REP rep_val, STS30_MPS mps, uint16_t *cmd_value);
 static result_t get_tmeas_max_ms(STS30_REP rep_val, uint8_t *ms_value);
 static uint8_t get_crc8_2bytes(uint8_t data_MSB, uint8_t data_LSB);
 /// Interrupt handlers
 static void reset_timer_handler(void *p_context);
 static void command_timer_handler(void *p_context);
 static void temp_tmeas_timer_handler(void *p_context);
-static result_t execute_command_completion(sts30_dis_temp_sensor_driver_t *const self);
 static result_t execute_temp_tmeas_completion(sts30_dis_temp_sensor_driver_t *const self);
-// Inline
-static inline bool sts30_status_bit(int16_t status_word, uint8_t bit_pos)
-{
-   // Cast to uint16_t to ensure bitwise operation is unsigned and safe for all values
-   return (((uint16_t)status_word) & COMMON_BIT_MASK(bit_pos)) != 0u;
-}
 
 /***********************************************************************************************************************
  * Variables
@@ -212,9 +195,9 @@ static void reset_timer_handler(void *p_context)
 /**
  * @brief Timer handler for temperature measurement completion.
  *
- * This function is called when the temperature measurement timer elapses. It reads the temperature
- * from the sensor (single-shot mode) or initiates a data fetch (periodic mode), and updates the
- * driver's state accordingly.
+ * This function is called when the temperature measurement timer elapses. It updates the driver's state to indicate
+ * that the measurement time has completed, allowing the driver to proceed with reading the temperature result from the
+ * sensor. If the temperature result still is not ready, the driver will handle retries as needed.
  *
  * @param p_context Pointer to the timer context (should contain driver instance).
  */
@@ -231,8 +214,7 @@ static void temp_tmeas_timer_handler(void *p_context)
  * @brief Timer handler for command delay completion.
  *
  * This function is called when the command delay timer elapses. It updates the driver's state to
- * indicate that the command delay has completed, and processes any pending temperature or status
- * read operations as needed.
+ * indicate that the command delay has completed.
  *
  * @param p_context Pointer to the timer context (should contain driver instance).
  */
@@ -243,6 +225,8 @@ static void command_timer_handler(void *p_context)
    sts30_dis_temp_sensor_driver_t *self = context->driver_instance;
 
    self->_command_timer_elapsed = true;
+   self->_is_busy_command = false;  // allow new commands now that delay has elapsed
+   self->_command_num_retries = 0u; // reset command retry count on successful delay completion
 }
 
 /**
@@ -284,7 +268,7 @@ static result_t get_tmeas_max_ms(STS30_REP rep_val, uint8_t *ms_value)
  * @brief Calculates the CRC-8 checksum for two data bytes.
  *
  * This function computes the CRC-8 checksum for exactly two data bytes, as used by the STS30 sensor.
- * The sensor sends temperature or status as 2 data bytes followed by 1 CRC byte. The driver recomputes
+ * The sensor sends temperature as 2 data bytes followed by 1 CRC byte. The driver recomputes
  * the CRC over the 2 received bytes and compares it to the third CRC byte from the sensor to detect
  * corrupted I²C data.
  *
@@ -314,134 +298,6 @@ static uint8_t get_crc8_2bytes(uint8_t data_MSB, uint8_t data_LSB)
    }
 
    return crc;
-}
-
-/**
- * @brief Returns the command code for periodic measurement mode.
- *
- * This function selects the appropriate command code for the STS30 sensor to start periodic
- * temperature measurements, based on the specified repeatability and measurement per second (MPS) settings.
- *
- * @param rep_val The repeatability setting (STS30_REP_LOW, STS30_REP_MEDIUM, or STS30_REP_HIGH).
- * @param mps The measurement frequency (STS30_MPS_0P5, STS30_MPS_1, STS30_MPS_2, STS30_MPS_4, or STS30_MPS_10).
- * @return The command code to send to the sensor for the given settings.
- */
-static result_t get_periodic_cmd(STS30_REP rep_val, STS30_MPS mps, uint16_t *cmd_value)
-{
-   RETURN_ERR_IF_NULL(cmd_value, STS30_DIS_TEMP_SENSOR_ERROR_NULL_POINTER);
-
-   result_t result = RESULT_OK;
-
-   switch(mps)
-   {
-      case STS30_MPS_0P5:
-         switch(rep_val)
-         {
-            case STS30_REP_HIGH:
-               *cmd_value = CMD_PER_H_0P5;
-               break;
-            case STS30_REP_MEDIUM:
-               *cmd_value = CMD_PER_M_0P5;
-               break;
-            case STS30_REP_LOW:
-               *cmd_value = CMD_PER_L_0P5;
-               break;
-            case STS30_REP_MAX:
-            default:
-               DEBUG_ERROR("Invalid repeatability value.");
-               SET_ERR(result, STS30_DIS_TEMP_SENSOR_ERROR_INVALID_ARGUMENT);
-               break;
-         }
-         break;
-
-      case STS30_MPS_1:
-         switch(rep_val)
-         {
-            case STS30_REP_HIGH:
-               *cmd_value = CMD_PER_H_1;
-               break;
-            case STS30_REP_MEDIUM:
-               *cmd_value = CMD_PER_M_1;
-               break;
-            case STS30_REP_LOW:
-               *cmd_value = CMD_PER_L_1;
-               break;
-            case STS30_REP_MAX:
-            default:
-               DEBUG_ERROR("Invalid repeatability value.");
-               SET_ERR(result, STS30_DIS_TEMP_SENSOR_ERROR_INVALID_ARGUMENT);
-               break;
-         }
-         break;
-
-      case STS30_MPS_2:
-         switch(rep_val)
-         {
-            case STS30_REP_HIGH:
-               *cmd_value = CMD_PER_H_2;
-               break;
-            case STS30_REP_MEDIUM:
-               *cmd_value = CMD_PER_M_2;
-               break;
-            case STS30_REP_LOW:
-               *cmd_value = CMD_PER_L_2;
-               break;
-            case STS30_REP_MAX:
-            default:
-               DEBUG_ERROR("Invalid repeatability value.");
-               SET_ERR(result, STS30_DIS_TEMP_SENSOR_ERROR_INVALID_ARGUMENT);
-               break;
-         }
-         break;
-
-      case STS30_MPS_4:
-         switch(rep_val)
-         {
-            case STS30_REP_HIGH:
-               *cmd_value = CMD_PER_H_4;
-               break;
-            case STS30_REP_MEDIUM:
-               *cmd_value = CMD_PER_M_4;
-               break;
-            case STS30_REP_LOW:
-               *cmd_value = CMD_PER_L_4;
-               break;
-            case STS30_REP_MAX:
-            default:
-               DEBUG_ERROR("Invalid repeatability value.");
-               SET_ERR(result, STS30_DIS_TEMP_SENSOR_ERROR_INVALID_ARGUMENT);
-               break;
-         }
-         break;
-
-      case STS30_MPS_10:
-         switch(rep_val)
-         {
-            case STS30_REP_HIGH:
-               *cmd_value = CMD_PER_H_10;
-               break;
-            case STS30_REP_MEDIUM:
-               *cmd_value = CMD_PER_M_10;
-               break;
-            case STS30_REP_LOW:
-               *cmd_value = CMD_PER_L_10;
-               break;
-            case STS30_REP_MAX:
-            default:
-               DEBUG_ERROR("Invalid repeatability value.");
-               SET_ERR(result, STS30_DIS_TEMP_SENSOR_ERROR_INVALID_ARGUMENT);
-               break;
-         }
-         break;
-
-      case STS30_MPS_MAX:
-      default:
-         DEBUG_ERROR("Invalid measurement period value.");
-         SET_ERR(result, STS30_DIS_TEMP_SENSOR_ERROR_INVALID_ARGUMENT);
-         break;
-   }
-
-   return result;
 }
 
 /**
@@ -528,13 +384,25 @@ static result_t get_single_shot_cmd(STS30_REP rep_val, STS30_CS cs_val, uint16_t
  * @param temp_decidegc Output: temperature in deci-degrees Celsius.
  * @return RESULT_OK on success, or error code on failure.
  */
-static result_t convert_temp_decidegc(int16_t raw, int16_t *temp_decidegc)
+static result_t convert_temp_decidegc(uint16_t raw, int16_t *temp_decidegc)
 {
    RETURN_ERR_IF_NULL(temp_decidegc, STS30_DIS_TEMP_SENSOR_ERROR_NULL_POINTER);
 
-   int64_t num = (int64_t)STS30_TEMP_SCALE_DC * (int64_t)raw;
-   int16_t frac = (int16_t)((num + STS30_RAW_DIV_ROUNDING) / STS30_RAW_DENOMINATOR);
-   *temp_decidegc = (int16_t)(STS30_TEMP_OFFSET_DC + frac);
+   int32_t num = STS30_TEMP_SCALE_DC * (int32_t)raw;
+   int32_t frac = ((num + STS30_RAW_DIV_ROUNDING) / STS30_RAW_DENOMINATOR);
+   int32_t temp_dc = STS30_TEMP_OFFSET_DC + frac;
+
+   // Clamp to int16_t bounds to prevent overflow/underflow
+   if(temp_dc > INT16_MAX)
+   {
+      temp_dc = INT16_MAX;
+   }
+   else if(temp_dc < INT16_MIN)
+   {
+      temp_dc = INT16_MIN;
+   }
+
+   *temp_decidegc = (int16_t)temp_dc;
 
    return RESULT_OK;
 }
@@ -561,7 +429,41 @@ static result_t write_cmd(sts30_dis_temp_sensor_driver_t *const self, uint16_t c
    cmd_buffer[1u] = (uint8_t)(cmd & 0xFFu); // LSB
 
    result_t result = self->_i2c_interface->transmit(
-      self->_i2c_interface, self->_i2c_address, cmd_buffer, COMMAND_SIZE_BYTES, I2C_TIMEOUT_MS);
+      self->_i2c_interface, self->_i2c_address, cmd_buffer, COMMAND_SIZE_BYTES, I2C_TIMEOUT_US);
+
+   if(IS_OK(result))
+   {
+      // Initiate command gap delay
+      result = command_timer_start(self);
+      if(IS_OK(result))
+      {
+         self->_command_timer_elapsed = false;
+      }
+   }
+   else if((TWI_DRV_ERROR_ANAK == GET_ERR_CODE(result)) && (SW_UNIT_ID_TEMP_DRV == GET_ERR_UNIT(result))
+           && (self->_command_num_retries < MAX_NUM_COMMAND_RETRIES))
+   {
+      // NACK can occur if the sensor is not ready to be read from after measurement time - catch and release
+      // error
+      result = RESULT_OK;
+      DEBUG_TRACE("Temp not ready, retry on next read attempt.");
+      self->_command_num_retries++;
+      self->_is_busy_command = true; // keep as busy to prevent new measurement attempts until we can read the
+                                     // result or reach max retries
+   }
+   else if((TWI_DRV_ERROR_ANAK == GET_ERR_CODE(result)) && (SW_UNIT_ID_TEMP_DRV == GET_ERR_UNIT(result))
+           && (self->_command_num_retries >= MAX_NUM_COMMAND_RETRIES))
+   {
+      // Max retries reached, handle error
+      DEBUG_WARNING("Max command retries reached. Failed to send command.");
+      self->_command_num_retries = 0u;
+      self->_is_busy_command = false; // allow new command attempts, but log that we failed to send this command
+   }
+   else
+   {
+      SET_ERR(result, STS30_DIS_TEMP_SENSOR_ERROR_I2C_ERROR);
+      DEBUG_ERROR("Failed to send command. Error: %d", result);
+   }
 
    return result;
 }
@@ -576,7 +478,7 @@ static result_t write_cmd(sts30_dis_temp_sensor_driver_t *const self, uint16_t c
  * @param word Output: pointer to store the received 16-bit word.
  * @return RESULT_OK on success, or error code on failure (including CRC mismatch).
  */
-static result_t read_word(sts30_dis_temp_sensor_driver_t *const self, int16_t *word)
+static result_t read_word(sts30_dis_temp_sensor_driver_t *const self, uint16_t *word)
 {
    RETURN_ERR_IF_NULL(self, STS30_DIS_TEMP_SENSOR_ERROR_NULL_POINTER);
    RETURN_ERR_IF_TRUE(!self->_initialized, STS30_DIS_TEMP_SENSOR_ERROR_NOT_INITIALIZED);
@@ -586,7 +488,7 @@ static result_t read_word(sts30_dis_temp_sensor_driver_t *const self, int16_t *w
    uint8_t read_buffer[STS30_TEMP_DATA_SIZE_BYTES] = {0u};
 
    result_t result = self->_i2c_interface->receive(
-      self->_i2c_interface, self->_i2c_address, read_buffer, STS30_TEMP_DATA_SIZE_BYTES, I2C_TIMEOUT_MS);
+      self->_i2c_interface, self->_i2c_address, read_buffer, STS30_TEMP_DATA_SIZE_BYTES, I2C_TIMEOUT_US);
 
    if(IS_OK(result))
    {
@@ -594,11 +496,13 @@ static result_t read_word(sts30_dis_temp_sensor_driver_t *const self, int16_t *w
       uint8_t computed_crc = get_crc8_2bytes(read_buffer[0u], read_buffer[1u]);
       if(received_crc != computed_crc)
       {
-         result = STS30_DIS_TEMP_SENSOR_ERROR_CRC_MISMATCH;
+         SET_ERR(result, STS30_DIS_TEMP_SENSOR_ERROR_CRC_MISMATCH);
       }
       else
       {
-         *word = (int16_t)((read_buffer[0u] << 8u) | read_buffer[1u]);
+         uint16_t msb = (uint16_t)read_buffer[0u];
+         uint16_t lsb = (uint16_t)read_buffer[1u];
+         *word = (uint16_t)((msb << 8u) | lsb);
       }
    }
 
@@ -623,7 +527,7 @@ static result_t read_temp(sts30_dis_temp_sensor_driver_t *const self, int16_t *t
    RETURN_ERR_IF_TRUE(!self->_initialized, STS30_DIS_TEMP_SENSOR_ERROR_NOT_INITIALIZED);
    RETURN_ERR_IF_NULL(temp_decidegC, STS30_DIS_TEMP_SENSOR_ERROR_NULL_POINTER);
 
-   int16_t raw_temp = 0;
+   uint16_t raw_temp = 0;
    int16_t temp_decidegc_get = 0;
 
    result_t result = read_word(self, &raw_temp);
@@ -638,91 +542,57 @@ static result_t read_temp(sts30_dis_temp_sensor_driver_t *const self, int16_t *t
    return result;
 }
 
-static result_t execute_command_completion(sts30_dis_temp_sensor_driver_t *const self)
-{
-   RETURN_ERR_IF_NULL(self, STS30_DIS_TEMP_SENSOR_ERROR_NULL_POINTER);
-   RETURN_ERR_IF_TRUE(!self->_initialized, STS30_DIS_TEMP_SENSOR_ERROR_NOT_INITIALIZED);
-
-   result_t result = RESULT_OK;
-   int16_t status_word = 0;
-   int16_t temp = 0;
-   uint64_t time_ms = 0u;
-   system_time_interface_t const *systick_interface = self->_system_time_interface;
-
-   switch(self->_last_command_type)
-   {
-      case COMMAND_TYPE_GET_TEMP:
-         if((GET_TEMP_MODE_PERIODIC == self->_current_mode))
-         {
-            result = systick_interface->get_time_ms(systick_interface, &time_ms);
-            IF_OK_RUN_AND_UPDATE(result, read_temp(self, &temp));
-            if(IS_OK(result))
-            {
-               self->_p_current_temp_decidegC = temp;
-               self->_p_is_temp_measurement_stale = false;
-               self->_last_temp_read_time_ms = time_ms;
-            }
-         }
-         break;
-      case COMMAND_TYPE_GET_STATUS:
-         result = read_word(self, &status_word);
-         if(IS_OK(result))
-         {
-            self->_current_status.status = status_word;
-            self->_current_status.is_stale = false;
-            self->_current_status.checksum_failed
-               = sts30_status_bit(status_word, STS30_STATUS_REG_BITS_CHECKSUM_FAILED);
-            self->_current_status.command_not_processed
-               = sts30_status_bit(status_word, STS30_STATUS_REG_BITS_CMD_NOT_PROCESSED);
-            self->_current_status.reset_detected = sts30_status_bit(status_word, STS30_STATUS_REG_BITS_RESET_DETECTED);
-            self->_current_status.alert_tracking = sts30_status_bit(status_word, STS30_STATUS_REG_BITS_ALERT_TRACKING);
-            self->_current_status.heater_active = sts30_status_bit(status_word, STS30_STATUS_REG_BITS_HEATER_ACTIVE);
-            self->_current_status.alert_pending = sts30_status_bit(status_word, STS30_STATUS_REG_BITS_ALERT_PENDING);
-         }
-         break;
-      case COMMAND_TYPE_OTHER:
-      default:
-         // No action needed
-         break;
-   }
-
-   return result;
-}
-
 static result_t execute_temp_tmeas_completion(sts30_dis_temp_sensor_driver_t *const self)
 {
    RETURN_ERR_IF_NULL(self, STS30_DIS_TEMP_SENSOR_ERROR_NULL_POINTER);
    RETURN_ERR_IF_TRUE(!self->_initialized, STS30_DIS_TEMP_SENSOR_ERROR_NOT_INITIALIZED);
+   RETURN_ERR_IF_TRUE(!self->_command_timer_elapsed, STS30_DIS_TEMP_SENSOR_ERROR_DELAY_NOT_MET);
 
    result_t result = RESULT_OK;
    int16_t temp = 0;
    uint64_t time_ms = 0u;
    system_time_interface_t const *systick_interface = self->_system_time_interface;
 
-   switch(self->_current_mode)
+   result = systick_interface->get_time_ms(systick_interface, &time_ms);
+
+   IF_OK_RUN_AND_UPDATE(result, read_temp(self, &temp));
+   if(IS_OK(result))
    {
-      case GET_TEMP_MODE_SINGLE_SHOT:
-         result = systick_interface->get_time_ms(systick_interface, &time_ms);
-         IF_OK_RUN_AND_UPDATE(result, read_temp(self, &temp));
-         if(IS_OK(result))
-         {
-            self->_ss_current_temp_decidegC = temp;
-            self->_ss_is_temp_measurement_stale = false;
-            self->_last_temp_read_time_ms = time_ms;
-         }
-         break;
-      case GET_TEMP_MODE_PERIODIC:
-         result = write_cmd(self, CMD_FETCH_DATA);
-         if(IS_OK(result))
-         {
-            self->_command_timer_elapsed = false;
-            self->_last_command_type = COMMAND_TYPE_GET_TEMP;
-            result = command_timer_start(self);
-         }
-         break;
-      default:
-         // No action needed
-         break;
+      self->_ss_current_temp_decidegC = temp;
+      self->_ss_is_temp_measurement_stale = false;
+      self->_last_temp_read_time_ms = time_ms;
+      self->_read_temp_num_retries = 0u;
+      self->_is_busy_measuring = false;
+   }
+   else if((TWI_DRV_ERROR_ANAK == GET_ERR_CODE(result)) && (SW_UNIT_ID_TEMP_DRV == GET_ERR_UNIT(result))
+           && (self->_read_temp_num_retries < MAX_NUM_TEMP_READ_RETRIES))
+   {
+      // NACK can occur if the sensor is not ready to be read from after measurement time - catch and release
+      // error
+      CLEAR_ERR(result);
+      DEBUG_TRACE("Temp not ready, retry on next read attempt.");
+      self->_read_temp_num_retries++;
+      self->_is_busy_measuring = true; // keep as busy to prevent new measurement attempts until we can read the
+                                       // result or reach max retries
+   }
+   else if((TWI_DRV_ERROR_ANAK == GET_ERR_CODE(result)) && (SW_UNIT_ID_TEMP_DRV == GET_ERR_UNIT(result))
+           && (self->_read_temp_num_retries >= MAX_NUM_TEMP_READ_RETRIES))
+   {
+      // Max retries reached, handle error
+      DEBUG_WARNING("Max temp read retries reached. Failed to read temperature.");
+      self->_read_temp_num_retries = 0u;
+      self->_is_busy_measuring
+         = false; // allow new measurement attempts, but log that we failed to read this measurement
+   }
+   else if(IS_ERR(result) && (TWI_DRV_ERROR_ANAK != GET_ERR_CODE(result)))
+   {
+      // Any non-NACK error: do NOT stay stuck busy-measuring forever.
+      // Allow the process loop to start a fresh measurement next cycle.
+      self->_read_temp_num_retries = 0u;
+      self->_is_busy_measuring = false;
+
+      SET_ERR(result, STS30_DIS_TEMP_SENSOR_ERROR_I2C_ERROR);
+      DEBUG_ERROR("Failed to read temperature. Error: %d", GET_ERR_CODE(result));
    }
 
    return result;
@@ -743,31 +613,46 @@ static result_t temp_sensor_process(const sts30_dis_temp_sensor_interface_t *con
    uint64_t time_ms = 0u;
    uint64_t elapsed_ms = 0u;
    bool elapsed = false;
-   bool first_read = false;
 
    result_t result = systick_interface->get_time_ms(systick_interface, &time_ms);
 
-   if(IS_OK(result))
+   if(self->_is_first_read)
    {
-      elapsed_ms = time_ms - self->_last_temp_read_time_ms;
-      elapsed = (elapsed_ms >= temp_read_freq_ms);
-      first_read = (0u == self->_last_temp_read_time_ms);
+      IF_OK_RUN_AND_UPDATE(result, start_single_shot(self, STS30_REP_LOW, STS30_CS_DISABLED));
+      if(IS_OK(result))
+      {
+         self->_is_first_read = false;
+      }
+   }
+   else
+   {
+      if(IS_OK(result))
+      {
+         elapsed_ms = time_ms - self->_last_temp_read_time_ms;
+         elapsed = (elapsed_ms >= temp_read_freq_ms);
+      }
+
+      // Only attempt to read a measurement result if a measurement actually started
+      // and the t_meas timer has elapsed.
+      if((self->_is_busy_measuring) && (self->_temp_meas_timer_elapsed))
+      {
+         IF_OK_RUN_AND_UPDATE(result, execute_temp_tmeas_completion(self));
+      }
+
+      if((elapsed) && (!self->_is_busy_measuring))
+      {
+         // Time to update temperature reading
+         // Use low repeatability, clock stretching disabled for fastest single-shot measurement and lowest power usage
+         // must be in single-shot mode to read on demand - used for this implementation
+         IF_OK_RUN_AND_UPDATE(result, start_single_shot(self, STS30_REP_LOW, STS30_CS_DISABLED));
+      }
    }
 
-   if((elapsed || first_read))
+   if((STS30_DIS_TEMP_SENSOR_ERROR_DELAY_NOT_MET == GET_ERR_CODE(result))
+      && (SW_UNIT_ID_TEMP_DRV == GET_ERR_UNIT(result)))
    {
-      // Time to update temperature reading & status
-      // Use low repeatability, clock stretching disabled for fastest single-shot measurement and lowest power usage
-      // must be in single-shot mode to read on demand - used for this implementation
-      IF_OK_RUN_AND_UPDATE(result, interface->start_single_shot(interface, STS30_REP_LOW, STS30_CS_DISABLED));
-   }
-   else if(self->_command_timer_elapsed)
-   {
-      IF_OK_RUN_AND_UPDATE(result, execute_command_completion(self));
-   }
-   else if(self->_temp_meas_timer_elapsed)
-   {
-      IF_OK_RUN_AND_UPDATE(result, execute_temp_tmeas_completion(self));
+      // Not ready for next measurement yet - this is expected to happen often, so just clear error and continue
+      CLEAR_ERR(result);
    }
 
    return result;
@@ -784,22 +669,30 @@ static result_t soft_reset(const sts30_dis_temp_sensor_interface_t *const interf
 
    if(IS_OK(result))
    {
-      self->_reset_timer_elapsed = false;
       // Datasheet: wait at least 1ms after soft reset
       result = reset_timer_start(self, STS30_RESET_RECOVERY_MS);
+      if(IS_OK(result))
+      {
+         self->_reset_timer_elapsed = false;
+      }
    }
 
    return result;
 }
 
-static result_t
-   start_single_shot(const sts30_dis_temp_sensor_interface_t *const interface, STS30_REP rep_val, STS30_CS cs_val)
+/**
+ * @brief Starts a single-shot temperature measurement.
+ *
+ * @param interface Pointer to the STS30 interface.
+ * @param rep_val Repeatability setting (STS30_REP_LOW, _MEDIUM, _HIGH).
+ * @param cs_val Clock stretching setting (STS30_CS_ENABLED or _DISABLED).
+ * @return result_t indicating success or failure.
+ */
+static result_t start_single_shot(sts30_dis_temp_sensor_driver_t *const self, STS30_REP rep_val, STS30_CS cs_val)
 {
-   RETURN_ERR_IF_INTERFACE_NULL(interface, STS30_DIS_TEMP_SENSOR_ERROR_NULL_POINTER);
-   RETURN_ERR_IF_TRUE(!interface->parent->_initialized, STS30_DIS_TEMP_SENSOR_ERROR_NOT_INITIALIZED);
-   RETURN_ERR_IF_STS30_NOT_READY(interface->parent, STS30_DIS_TEMP_SENSOR_ERROR_DELAY_NOT_MET);
-
-   sts30_dis_temp_sensor_driver_t *self = interface->parent;
+   RETURN_ERR_IF_NULL(self, STS30_DIS_TEMP_SENSOR_ERROR_NULL_POINTER);
+   RETURN_ERR_IF_TRUE(!self->_initialized, STS30_DIS_TEMP_SENSOR_ERROR_NOT_INITIALIZED);
+   RETURN_ERR_IF_STS30_NOT_READY(self, STS30_DIS_TEMP_SENSOR_ERROR_DELAY_NOT_MET);
 
    uint16_t cmd = 0u;
    result_t result = get_single_shot_cmd(rep_val, cs_val, &cmd);
@@ -808,25 +701,27 @@ static result_t
 
    if(IS_OK(result))
    {
-      // Wait for measurement time
-      self->_ss_is_temp_measurement_stale = true;
-      self->_current_mode = GET_TEMP_MODE_SINGLE_SHOT;
-      self->_last_command_type = COMMAND_TYPE_GET_TEMP;
-      self->_temp_meas_timer_elapsed = false;
-
       uint8_t tmeas_max_ms = 0u;
       IF_OK_RUN_AND_UPDATE(result, get_tmeas_max_ms(rep_val, &tmeas_max_ms));
-
       IF_OK_RUN_AND_UPDATE(result, temp_tmeas_timer_start(self, tmeas_max_ms));
+      if(IS_OK(result))
+      {
+         // Successfully started timer for measurement time
+         // Measurement command accepted -> now busy measuring until the result is successfully read (or given up)
+         self->_is_busy_measuring = true;
+         self->_read_temp_num_retries = 0u;
+
+         // Wait for measurement time
+         self->_ss_is_temp_measurement_stale = true;
+         self->_temp_meas_timer_elapsed = false;
+      }
    }
 
    return result;
 }
 
-static result_t get_temperature(const sts30_dis_temp_sensor_interface_t *const interface,
-                                bool is_single_shot,
-                                int16_t *temp_decidegc,
-                                bool *is_stale)
+static result_t
+   get_temperature(const sts30_dis_temp_sensor_interface_t *const interface, int16_t *temp_decidegc, bool *is_stale)
 {
    RETURN_ERR_IF_INTERFACE_NULL(interface, STS30_DIS_TEMP_SENSOR_ERROR_NULL_POINTER);
    RETURN_ERR_IF_TRUE(!interface->parent->_initialized, STS30_DIS_TEMP_SENSOR_ERROR_NOT_INITIALIZED);
@@ -834,74 +729,11 @@ static result_t get_temperature(const sts30_dis_temp_sensor_interface_t *const i
    RETURN_ERR_IF_NULL(is_stale, STS30_DIS_TEMP_SENSOR_ERROR_NULL_POINTER);
 
    sts30_dis_temp_sensor_driver_t *self = interface->parent;
-   if(is_single_shot)
-   {
-      *temp_decidegc = self->_ss_current_temp_decidegC;
-      *is_stale = self->_ss_is_temp_measurement_stale;
-   }
-   else
-   {
-      *temp_decidegc = self->_p_current_temp_decidegC;
-      *is_stale = self->_p_is_temp_measurement_stale;
-   }
+
+   *temp_decidegc = self->_ss_current_temp_decidegC;
+   *is_stale = self->_ss_is_temp_measurement_stale;
 
    return RESULT_OK;
-}
-
-static result_t
-   start_periodic(const sts30_dis_temp_sensor_interface_t *const interface, STS30_REP rep_val, STS30_MPS mps_val)
-{
-   RETURN_ERR_IF_INTERFACE_NULL(interface, STS30_DIS_TEMP_SENSOR_ERROR_NULL_POINTER);
-
-   RETURN_ERR_IF_TRUE(!interface->parent->_initialized, STS30_DIS_TEMP_SENSOR_ERROR_NOT_INITIALIZED);
-   RETURN_ERR_IF_STS30_NOT_READY(interface->parent, STS30_DIS_TEMP_SENSOR_ERROR_DELAY_NOT_MET);
-   RETURN_ERR_IF_TRUE(mps_val >= STS30_MPS_MAX, STS30_DIS_TEMP_SENSOR_ERROR_INVALID_ARGUMENT);
-   RETURN_ERR_IF_TRUE(rep_val >= STS30_REP_MAX, STS30_DIS_TEMP_SENSOR_ERROR_INVALID_ARGUMENT);
-
-   sts30_dis_temp_sensor_driver_t *self = interface->parent;
-
-   uint16_t cmd;
-   result_t result = get_periodic_cmd(rep_val, mps_val, &cmd);
-
-   IF_OK_RUN_AND_UPDATE(result, write_cmd(self, cmd));
-
-   if(IS_OK(result))
-   {
-      // Wait for measurement time
-      self->_p_is_temp_measurement_stale = true;
-      self->_current_mode = GET_TEMP_MODE_PERIODIC;
-      self->_last_command_type = COMMAND_TYPE_GET_TEMP;
-      self->_temp_meas_timer_elapsed = false;
-
-      uint8_t tmeas_max_ms = 0u;
-      IF_OK_RUN_AND_UPDATE(result, get_tmeas_max_ms(rep_val, &tmeas_max_ms));
-
-      IF_OK_RUN_AND_UPDATE(result, temp_tmeas_timer_start(self, tmeas_max_ms));
-   }
-
-   return result;
-}
-
-static result_t stop_periodic(const sts30_dis_temp_sensor_interface_t *const interface)
-{
-   RETURN_ERR_IF_INTERFACE_NULL(interface, STS30_DIS_TEMP_SENSOR_ERROR_NULL_POINTER);
-   RETURN_ERR_IF_TRUE(!interface->parent->_initialized, STS30_DIS_TEMP_SENSOR_ERROR_NOT_INITIALIZED);
-   RETURN_ERR_IF_STS30_NOT_READY(interface->parent, STS30_DIS_TEMP_SENSOR_ERROR_DELAY_NOT_MET);
-
-   sts30_dis_temp_sensor_driver_t *self = interface->parent;
-   result_t result = write_cmd(self, CMD_BREAK);
-
-   if(IS_OK(result))
-   {
-      self->_command_timer_elapsed = false;
-      self->_current_mode = GET_TEMP_MODE_SINGLE_SHOT;
-      self->_last_command_type = COMMAND_TYPE_OTHER;
-
-      // Break takes 1ms to enter single shot mode; keep minimum command gap too.
-      result = command_timer_start(self);
-   }
-
-   return result;
 }
 
 static result_t set_heater(const sts30_dis_temp_sensor_interface_t *const interface, bool enable)
@@ -915,70 +747,11 @@ static result_t set_heater(const sts30_dis_temp_sensor_interface_t *const interf
 
    result_t result = write_cmd(self, cmd);
 
-   if(IS_OK(result))
+   if((STS30_DIS_TEMP_SENSOR_ERROR_DELAY_NOT_MET == GET_ERR_CODE(result))
+      && (SW_UNIT_ID_TEMP_DRV == GET_ERR_UNIT(result)))
    {
-      self->_command_timer_elapsed = false;
-      self->_last_command_type = COMMAND_TYPE_OTHER;
-
-      // Initiate command gap delay
-      result = command_timer_start(self);
-   }
-
-   return result;
-}
-
-static result_t start_status(const sts30_dis_temp_sensor_interface_t *const interface)
-{
-   RETURN_ERR_IF_INTERFACE_NULL(interface, STS30_DIS_TEMP_SENSOR_ERROR_NULL_POINTER);
-   RETURN_ERR_IF_TRUE(!interface->parent->_initialized, STS30_DIS_TEMP_SENSOR_ERROR_NOT_INITIALIZED);
-   RETURN_ERR_IF_STS30_NOT_READY(interface->parent, STS30_DIS_TEMP_SENSOR_ERROR_DELAY_NOT_MET);
-
-   sts30_dis_temp_sensor_driver_t *self = interface->parent;
-   result_t result = write_cmd(self, CMD_READ_STATUS);
-
-   if(IS_OK(result))
-   {
-      self->_command_timer_elapsed = false;
-      self->_last_command_type = COMMAND_TYPE_GET_STATUS;
-      self->_current_status.is_stale = true;
-
-      // Initiate command gap delay
-      result = command_timer_start(self);
-   }
-
-   return result;
-}
-
-static result_t get_status(const sts30_dis_temp_sensor_interface_t *const interface, status_t *status)
-{
-   RETURN_ERR_IF_INTERFACE_NULL(interface, STS30_DIS_TEMP_SENSOR_ERROR_NULL_POINTER);
-   RETURN_ERR_IF_TRUE(!interface->parent->_initialized, STS30_DIS_TEMP_SENSOR_ERROR_NOT_INITIALIZED);
-   RETURN_ERR_IF_NULL(status, STS30_DIS_TEMP_SENSOR_ERROR_NULL_POINTER);
-
-   sts30_dis_temp_sensor_driver_t *self = interface->parent;
-
-   *status = self->_current_status;
-
-   return RESULT_OK;
-}
-
-static result_t clear_status(const sts30_dis_temp_sensor_interface_t *const interface)
-{
-   RETURN_ERR_IF_INTERFACE_NULL(interface, STS30_DIS_TEMP_SENSOR_ERROR_NULL_POINTER);
-   RETURN_ERR_IF_TRUE(!interface->parent->_initialized, STS30_DIS_TEMP_SENSOR_ERROR_NOT_INITIALIZED);
-   RETURN_ERR_IF_STS30_NOT_READY(interface->parent, STS30_DIS_TEMP_SENSOR_ERROR_DELAY_NOT_MET);
-
-   sts30_dis_temp_sensor_driver_t *self = interface->parent;
-   result_t result = write_cmd(self, CMD_CLEAR_STATUS);
-
-   if(IS_OK(result))
-   {
-      self->_command_timer_elapsed = false;
-      self->_last_command_type = COMMAND_TYPE_OTHER;
-      self->_current_status.is_stale = true;
-
-      // Initiate command gap delay
-      result = command_timer_start(self);
+      // Not ready for next measurement yet - this is expected to happen often, so just clear error and continue
+      DEBUG_WARNING("STS30 not ready for heater command, likely due to measurement in progress.");
    }
 
    return result;
@@ -1001,38 +774,26 @@ result_t sts30_dis_temp_sensor_init(sts30_dis_temp_sensor_driver_t *const self,
    self->_initialized = false;
    self->interface.parent = self;
 
-   self->interface.clear_status = clear_status;
    self->interface.get_temperature = get_temperature;
    self->interface.set_heater = set_heater;
-   self->interface.start_periodic = start_periodic;
-   self->interface.start_single_shot = start_single_shot;
-   self->interface.stop_periodic = stop_periodic;
-   self->interface.start_status = start_status;
    self->interface.soft_reset = soft_reset;
    self->interface.temp_sensor_process = temp_sensor_process;
-   self->interface.get_status = get_status;
 
    self->_i2c_interface = i2c_interface;
    self->_system_time_interface = system_time_interface;
    self->_i2c_address = i2c_address;
+   self->_is_busy_measuring
+      = true; // start as busy to prevent operations until first measurement is done and we have a valid temp reading
+   self->_is_busy_command = false;
+   self->_command_num_retries = 0u;
+   self->_is_first_read = true;
    self->_reset_timer_elapsed = true;
    self->_command_timer_elapsed = true;
    self->_temp_meas_timer_elapsed = true;
    self->_ss_current_temp_decidegC = 0;
-   self->_p_current_temp_decidegC = 0;
+   self->_read_temp_num_retries = 0u;
    self->_ss_is_temp_measurement_stale = false;
-   self->_p_is_temp_measurement_stale = false;
-   self->_current_mode = GET_TEMP_MODE_SINGLE_SHOT;
-   self->_last_command_type = COMMAND_TYPE_OTHER;
    self->_last_temp_read_time_ms = 0u;
-   self->_current_status.status = 0u;
-   self->_current_status.is_stale = false;
-   self->_current_status.checksum_failed = false;
-   self->_current_status.command_not_processed = false;
-   self->_current_status.reset_detected = false;
-   self->_current_status.alert_tracking = false;
-   self->_current_status.heater_active = false;
-   self->_current_status.alert_pending = false;
 
    self->_reset_delay_timer.temp_timer_context.driver_instance = self->interface.parent;
    self->_command_delay_timer.temp_timer_context.driver_instance = self->interface.parent;

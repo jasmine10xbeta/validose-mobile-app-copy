@@ -78,7 +78,30 @@ typedef struct ring_manager_interface
     */
    result_t (*process)(const ring_manager_interface_t *const ifc, bool is_docked);
 
-   result_t (*update_proximity_thresholds)(const ring_manager_interface_t *const ifc, uint16_t on, uint16_t off);
+   /**
+    * @brief Set the cap detection poll period.
+    * @param ifc Pointer to the ring manager interface.
+    * @param poll_period_ms The new poll period in milliseconds.
+    * @return result_t Result of the operation.
+    */
+   result_t (*set_cap_detection_poll_period_ms)(const ring_manager_interface_t *const ifc, uint16_t poll_period_ms);
+
+   /**
+    * @brief Get the cap detection status.
+    * @param ifc Pointer to the ring manager interface.
+    * @param status Pointer to store the retrieved cap detection status.
+    * @return result_t Result of the operation.
+    */
+   result_t (*get_cap_detection_status)(const ring_manager_interface_t *const ifc, cap_detection_status_t *status);
+
+   /**
+    * @brief Send a cap detection configuration update to the ring.
+    *
+    * @param ifc Pointer to the ring manager interface.
+    * @param config The new cap detection configuration to be sent to the ring.
+    * @return result_t Result of the operation.
+    */
+   result_t (*send_cap_detection_config_update)(const ring_manager_interface_t *const ifc, cap_detection_cfg_t config);
 
 } ring_manager_interface_t;
 

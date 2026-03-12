@@ -20,7 +20,6 @@
 #include "common.h"
 #include "rtc_system_time_interface.h"
 
-#include "SEGGER_RTT.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
@@ -292,11 +291,6 @@ static result_t load_schedule(const dose_scheduler_interface_t *const interface,
    // Get current date
    result_t result = p_rtc_ifc->get_time_unix(p_rtc_ifc, &now_unix_seconds);
    UPDATE_ERR(result, DOSE_SCHEDULER_ERROR_INTERNAL);
-
-   SEGGER_RTT_SetTerminal(9);
-   SEGGER_RTT_printf(
-      0, "Loading dose schedule with start time %u (current time %u)\n", start_time_unix_seconds, now_unix_seconds);
-   SEGGER_RTT_SetTerminal(0);
 
    if(IS_OK(result))
    {

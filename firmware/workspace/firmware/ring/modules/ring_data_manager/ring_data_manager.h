@@ -48,6 +48,7 @@ typedef struct ring_data_manager
    imu_interface_t *_imu_ifc;                              /** < IMU interface */
    ring_battery_manager_interface_t *_battery_manager_ifc; /** < Battery manager interface */
    dose_detection_interface_t *_dose_detection_ifc;        /** < Dose detection interface */
+   cap_detection_interface_t *_cap_detection_ifc;          /** < Cap detection interface */
 
    ring_status_t _current_status;    /** < Current ring status structure */
    bool _is_docked;                  /** < Flag indicating if the ring is currently docked */
@@ -56,8 +57,6 @@ typedef struct ring_data_manager
    nfc_tag_eeprom_queue_interface_t *_dose_queue_ifc; /** < Dose data queue interface */
    queue_interface_t *_battery_queue_ifc;             /** < Battery data queue interface */
    queue_interface_t *_error_queue_ifc;               /** < Error data queue interface */
-   cap_detection_interface_t *_cap_detection_ifc;     /** < Cap detection interface */
-
 } ring_data_manager_t;
 
 /***********************************************************************************************************************
@@ -86,9 +85,9 @@ result_t init_ring_data_manager(ring_data_manager_t *const self,
                                 imu_interface_t *imu_ifc,
                                 ring_battery_manager_interface_t *battery_manager_ifc,
                                 dose_detection_interface_t *dose_detection_ifc,
+                                cap_detection_interface_t *cap_detection_ifc,
                                 nfc_tag_eeprom_queue_interface_t *dose_data_queue_ifc,
                                 queue_interface_t *battery_data_queue_ifc,
-                                queue_interface_t *error_data_queue_ifc,
-                                cap_detection_interface_t *cap_detection_ifc);
+                                queue_interface_t *error_data_queue_ifc);
 
 #endif // RING_DATA_MANAGER_H_

@@ -40,8 +40,6 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_RING_DATA_MANAGER;
 static result_t process(const ring_data_manager_interface_t *const ifc);
 static result_t update_battery_sample_rate(const ring_data_manager_interface_t *const ifc,
                                            uint16_t sample_rate_millihz);
-static result_t update_prox_data(const ring_data_manager_interface_t *const ifc, prox_data_t prox_data);
-
 static result_t get_status(const ring_data_manager_interface_t *const ifc, ring_status_t *const status);
 static result_t update_time(const ring_data_manager_interface_t *const ifc, uint64_t time_ms);
 
@@ -145,18 +143,6 @@ static result_t dose_event_handler(const ring_data_manager_interface_t *const if
       nfc_queue_status_t queue_status = {0};
       result = self->_dose_queue_ifc->nfc_put(self->_dose_queue_ifc, &dose_event, 1u, &queue_status);
 
-      SEGGER_RTT_SetTerminal(6);
-      SEGGER_RTT_printf(
-         0,
-         "Enqueued dose event. \nStart: %u\nDuration: %u\nTilt Count: %u\nCompleted in time: %u\n Event ID: %u-%u\n",
-         dose_event.start_timestamp_unix_s,
-         dose_event.duration_s,
-         dose_event.tilt_count,
-         dose_event.dose_completed_in_time,
-         dose_event.event_id.days_since_epoch,
-         dose_event.event_id.event_ctr);
-      SEGGER_RTT_SetTerminal(0);
-
       if(IS_OK(result))
       {
          // Queue is full.
@@ -223,30 +209,6 @@ static result_t update_battery_sample_rate(const ring_data_manager_interface_t *
    return result;
 }
 
-static result_t update_prox_data(const ring_data_manager_interface_t *const ifc, prox_data_t prox_data)
-{
-   RETURN_ERR_IF_UNINITIALIZED(ifc, RING_DATA_MANAGER_ERROR_NOT_INITIALIZED);
-
-   result_t result = RESULT_OK;
-   ring_data_manager_t *self = ifc->parent;
-
-   // Store proximity data in FDS
-   result = self->_fds_manager_ifc->store_uint64_t(
-      self->_fds_manager_ifc, RECORD_ID_PROXIMITY_CAP_ON, (uint64_t)prox_data.cap_on);
-   IF_OK_RUN_AND_UPDATE(result,
-                        self->_fds_manager_ifc->store_uint64_t(
-                           self->_fds_manager_ifc, RECORD_ID_PROXIMITY_CAP_OFF, (uint64_t)prox_data.cap_off));
-
-   // Update the values in the proximity sensor
-   proximity_thresholds_t thresholds = {0};
-   thresholds.high = prox_data.cap_on;
-   thresholds.low = prox_data.cap_off;
-
-   self->_cap_detection_ifc->set_prox_sensor_thresholds(self->_cap_detection_ifc, thresholds);
-
-   return result;
-}
-
 static result_t get_status(const ring_data_manager_interface_t *const ifc, ring_status_t *const status)
 {
    RETURN_ERR_IF_UNINITIALIZED(ifc, RING_DATA_MANAGER_ERROR_NOT_INITIALIZED);
@@ -261,9 +223,6 @@ static result_t get_status(const ring_data_manager_interface_t *const ifc, ring_
    uint64_t uptime_ms = 0u;
    int16_t temperature_c = 0u;
    battery_status_t battery_status = {0};
-   proximity_thresholds_t prox = {0};
-   uint16_t current_prox = 0u;
-   CAP_STATE current_cap_state = CAP_STATE_UNKNOWN;
 
    IMU_STATE initial_imu_state = IMU_STATE_DORMANT;
    IF_OK_RUN_AND_UPDATE(result, self->_imu_ifc->get_state(self->_imu_ifc, &initial_imu_state));
@@ -274,10 +233,6 @@ static result_t get_status(const ring_data_manager_interface_t *const ifc, ring_
    IF_OK_RUN_AND_UPDATE(result, self->_imu_ifc->get_temperature_celsius(self->_imu_ifc, &temperature_c));
    IF_OK_RUN_AND_UPDATE(result, battery_ifc->get_battery_status(battery_ifc, &battery_status));
 
-   IF_OK_RUN_AND_UPDATE(result, self->_cap_detection_ifc->get_prox_sensor_thresholds(self->_cap_detection_ifc, &prox));
-   IF_OK_RUN_AND_UPDATE(
-      result, self->_cap_detection_ifc->get_cap_status(self->_cap_detection_ifc, &current_cap_state, &current_prox));
-
    // Update all relevant fields in the status structure
    if(IS_OK(result))
    {
@@ -285,10 +240,6 @@ static result_t get_status(const ring_data_manager_interface_t *const ifc, ring_
       self->_current_status.timestamp_unix_s = (uint32_t)(current_time_ms / COMMON_1K_CST);
       self->_current_status.battery_charge_status = (uint8_t)battery_status.battery_state;
       self->_current_status.temperature_celsius = temperature_c;
-
-      self->_current_status.cap_on = (uint16_t)prox.high;
-      self->_current_status.cap_off = (uint16_t)prox.low;
-      self->_current_status.current_prox = current_prox;
 
       // Hardware and firmware versions are set at initialization and do not need to be updated here
 
@@ -360,6 +311,61 @@ static result_t enqueue_error(const ring_data_manager_interface_t *const ifc, ra
    return result;
 }
 
+static result_t set_cap_detection_config(const ring_data_manager_interface_t *const ifc, cap_detection_cfg_t config)
+{
+   RETURN_ERR_IF_UNINITIALIZED(ifc, RING_DATA_MANAGER_ERROR_NOT_INITIALIZED);
+
+   ring_data_manager_t *self = ifc->parent;
+
+   result_t result = RESULT_OK;
+
+   // Store the new config in flash
+   result = self->_fds_manager_ifc->store_uint16_t(
+      self->_fds_manager_ifc, RECORD_ID_CAP_DETECTION_THRESHOLD, config.threshhold);
+   IF_OK_RUN_AND_UPDATE(result,
+                        self->_fds_manager_ifc->store_uint16_t(
+                           self->_fds_manager_ifc, RECORD_ID_CAP_DETECTION_HYSTERESIS, config.hysteresis));
+
+   // Only update the cap detection module if the flash storage was successful to ensure consistency between the two
+   IF_OK_RUN_AND_UPDATE(result,
+                        ifc->parent->_cap_detection_ifc->set_config(
+                           ifc->parent->_cap_detection_ifc, config.threshhold, config.hysteresis));
+
+   return result;
+}
+
+static result_t get_cap_detection_status(const ring_data_manager_interface_t *const interface,
+                                         cap_detection_status_t *status)
+{
+   RETURN_ERR_IF_UNINITIALIZED(interface, RING_DATA_MANAGER_ERROR_NOT_INITIALIZED);
+   RETURN_ERR_IF_NULL(status, RING_DATA_MANAGER_ERROR_NULL_PTR);
+
+   ring_data_manager_t *self = interface->parent;
+
+   result_t result = RESULT_OK;
+
+   CAP_STATE cap_state = CAP_STATE_UNKNOWN;
+   uint16_t prox_value = 0u;
+
+   // Get the current cap detection status from the cap detection module
+   result = self->_cap_detection_ifc->get_cap_status(self->_cap_detection_ifc, &cap_state, &prox_value);
+
+   // Get the current cap detection configuration from the cap detection module
+   uint16_t current_threshhold = 0u;
+   uint16_t current_hysteresis = 0u;
+
+   IF_OK_RUN_AND_UPDATE(
+      result, self->_cap_detection_ifc->get_config(self->_cap_detection_ifc, &current_threshhold, &current_hysteresis));
+
+   // Update the status structure with the retrieved values
+   status->is_cap_closed = (cap_state == CAP_STATE_CLOSED);
+   status->prox_value = prox_value;
+   status->config.threshhold = current_threshhold;
+   status->config.hysteresis = current_hysteresis;
+
+   return result;
+}
+
 /***********************************************************************************************************************
  * Global functions
  **********************************************************************************************************************/
@@ -370,10 +376,10 @@ result_t init_ring_data_manager(ring_data_manager_t *const self,
                                 imu_interface_t *imu_ifc,
                                 ring_battery_manager_interface_t *battery_manager_ifc,
                                 dose_detection_interface_t *dose_detection_ifc,
+                                cap_detection_interface_t *cap_detection_ifc,
                                 nfc_tag_eeprom_queue_interface_t *dose_data_queue_ifc,
                                 queue_interface_t *battery_data_queue_ifc,
-                                queue_interface_t *error_data_queue_ifc,
-                                cap_detection_interface_t *cap_detection_ifc)
+                                queue_interface_t *error_data_queue_ifc)
 {
    RETURN_ERR_IF_NULL(self, RING_DATA_MANAGER_ERROR_NULL_PTR);
    RETURN_ERR_IF_NULL(system_time_ifc, RING_DATA_MANAGER_ERROR_NULL_PTR);
@@ -382,6 +388,7 @@ result_t init_ring_data_manager(ring_data_manager_t *const self,
    RETURN_ERR_IF_NULL(imu_ifc, RING_DATA_MANAGER_ERROR_NULL_PTR);
    RETURN_ERR_IF_NULL(battery_manager_ifc, RING_DATA_MANAGER_ERROR_NULL_PTR);
    RETURN_ERR_IF_NULL(dose_detection_ifc, RING_DATA_MANAGER_ERROR_NULL_PTR);
+   RETURN_ERR_IF_NULL(cap_detection_ifc, RING_DATA_MANAGER_ERROR_NULL_PTR);
    RETURN_ERR_IF_NULL(dose_data_queue_ifc, RING_DATA_MANAGER_ERROR_NULL_PTR);
    RETURN_ERR_IF_NULL(battery_data_queue_ifc, RING_DATA_MANAGER_ERROR_NULL_PTR);
    RETURN_ERR_IF_NULL(error_data_queue_ifc, RING_DATA_MANAGER_ERROR_NULL_PTR);
@@ -395,7 +402,8 @@ result_t init_ring_data_manager(ring_data_manager_t *const self,
    self->interface.get_status = get_status;
    self->interface.update_time = update_time;
    self->interface.enqueue_error = enqueue_error;
-   self->interface.update_prox_data = update_prox_data;
+   self->interface.set_cap_detection_config = set_cap_detection_config;
+   self->interface.get_cap_detection_status = get_cap_detection_status;
 
    self->_systime_ifc = system_time_ifc;
    self->_systick_ifc = systick_time_ifc;

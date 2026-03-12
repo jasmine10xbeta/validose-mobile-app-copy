@@ -64,7 +64,6 @@ typedef struct dock_manager
 result_t dock_manager_init(dock_manager_t *const self,
                            const message_protocol_interface_t *msg_prot_ifc,
                            const ring_data_manager_interface_t *data_manager_ifc,
-                           const ring_sources_interface_t *source_manager_ifc,
-                           system_time_interface_t *systime);
+                           const ring_sources_interface_t *source_manager_ifc);
 
 #endif // DOCK_MANAGER_H_

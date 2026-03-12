@@ -73,14 +73,14 @@ typedef enum
 // Command IDs for tracking pending commands - In decreasing order of priority
 typedef enum
 {
-   CMD_ID_SET_PROX = 0,
-   CMD_ID_UPDATE_TIME,
+   CMD_ID_UPDATE_TIME = 0,
+   CMD_ID_REQ_CAP_DETECTION_STATUS_DATA,
    CMD_ID_UPDATE_BATTERY_SAMPLE_FREQ,
+   CMD_ID_UPDATE_CAP_DETECTION_CONFIG,
    CMD_ID_REQ_STATUS_UPDATE,
    CMD_ID_REQ_DOSE_EVENT_DATA,
    CMD_ID_REQ_RING_DEBUG_LOG_DATA,
    CMD_ID_REQ_RING_BATTERY_LEVEL_DATA,
-   CMD_ID_REQ_RING_DOCKED_STATUS_DATA,
    CMD_ID_MAX,
 } COMMAND_ID;
 
@@ -121,6 +121,9 @@ typedef struct ring_manager
    ring_status_t _stored_status;                                /**< Last status update stored */
    uint64_t _last_status_request_systick_ms;                    /**< Timestamp of the last status request */
    uint64_t _last_status_store_systick_ms;                      /**< Timestamp of the last status store */
+   cap_detection_status_t _last_cap_detection_status;           /**< Current cap detection status */
+   uint64_t _last_cap_detection_status_systick_ms; /**< Timestamp of the last cap detection status update */
+   uint64_t _cap_detection_poll_period_ms;         /**< Polling period to request cap detection status in ms */
 } ring_manager_t;
 
 /***********************************************************************************************************************

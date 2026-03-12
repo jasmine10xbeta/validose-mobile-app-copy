@@ -89,6 +89,10 @@ static result_t get_element_count(const ring_sources_interface_t *ifc, SOURCE_ID
          *element_count = 1u; // Status is always a single element
          break;
 
+      case SOURCE_ID_CAP_DETECTION_CFG:
+         *element_count = 1u; // Cap detection config is always a single element
+         break;
+
       case SOURCE_ID_MAX:
       default:
          DEBUG_ERROR("Invalid source ID");
@@ -134,6 +138,10 @@ static result_t clear_bytes(const ring_sources_interface_t *ifc, SOURCE_ID id, u
 
       case SOURCE_ID_STATUS:
          // Do nothing - Status source has no queue to clear
+         break;
+
+      case SOURCE_ID_CAP_DETECTION_CFG:
+         // Do nothing - Cap detection config source has no queue to clear
          break;
 
       case SOURCE_ID_MAX:
@@ -199,6 +207,10 @@ static result_t copy_bytes(
             result = self->_data_manager_ifc->get_status(self->_data_manager_ifc, (void *)dest);
             break;
 
+         case SOURCE_ID_CAP_DETECTION_CFG:
+            result = self->_data_manager_ifc->get_cap_detection_status(self->_data_manager_ifc, (void *)dest);
+            break;
+
          case SOURCE_ID_MAX:
          default:
             DEBUG_ERROR("Invalid source ID");
@@ -251,6 +263,7 @@ result_t ring_sources_init(ring_sources_t *const self,
    self->_source_element_size[SOURCE_ID_ERROR] = (uint16_t)error_source_element_size;
    self->_source_element_size[SOURCE_ID_DOSE] = (uint16_t)dose_source_element_size;
    self->_source_element_size[SOURCE_ID_STATUS] = (uint16_t)sizeof(ring_status_t);
+   self->_source_element_size[SOURCE_ID_CAP_DETECTION_CFG] = (uint16_t)sizeof(cap_detection_status_t);
 
    // Unmap interfaces if there was an error during initialization
    // This way interface checks will double as initialization checks

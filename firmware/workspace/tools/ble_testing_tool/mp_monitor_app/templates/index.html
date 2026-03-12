@@ -429,12 +429,20 @@
               <span id="ring_docked_state_badge" class="badge bg-secondary-lt text-secondary">Unknown</span>
             </div>
             <div class="row g-2">
-              <div class="col-12">
-                <div class="small text-secondary text-uppercase">Timestamp</div>
-                <div id="ring_docked_timestamp" class="font-monospace">-</div>
+              <div class="col-12 col-md-6">
+                <div class="small text-secondary text-uppercase">timestamp_unix_s</div>
+                <div id="ring_docked_timestamp_unix" class="font-monospace">-</div>
+              </div>
+              <div class="col-12 col-md-6">
+                <div class="small text-secondary text-uppercase">timestamp_utc</div>
+                <div id="ring_docked_timestamp_utc" class="font-monospace">-</div>
               </div>
               <div class="col-12">
-                <div class="small text-secondary text-uppercase">Medication NFC ID</div>
+                <div class="small text-secondary text-uppercase">Ring NFC ID</div>
+                <div id="ring_docked_ring_nfc_id" class="font-monospace text-break">-</div>
+              </div>
+              <div class="col-12">
+                <div class="small text-secondary text-uppercase">medication_nfc_id_hex</div>
                 <div id="ring_docked_med_nfc_id" class="font-monospace text-break">-</div>
               </div>
             </div>
@@ -493,15 +501,16 @@
               <table class="table table-sm table-vcenter mb-0">
                 <thead>
                   <tr>
-                    <th class="text-nowrap">Timestamp</th>
-                    <th class="text-nowrap">Weight</th>
-                    <th class="text-nowrap">Difference</th>
-                    <th class="text-nowrap">Std Dev</th>
+                    <th class="text-nowrap">weight_mg</th>
+                    <th class="text-nowrap">total_dispensed_mg</th>
+                    <th class="text-nowrap">std_dev</th>
+                    <th class="text-nowrap">temperature_deg_c_div10</th>
+                    <th class="text-nowrap">timestamp_unix_s</th>
                   </tr>
                 </thead>
                 <tbody id="weight_measurement_rows">
                   <tr>
-                    <td colspan="4" class="text-secondary">No weight measurements yet.</td>
+                    <td colspan="5" class="text-secondary">No weight measurements yet.</td>
                   </tr>
                 </tbody>
               </table>
@@ -518,7 +527,8 @@
               <div class="card-subtitle">Live stream (newest rows appended at top).</div>
             </div>
             <div class="card-actions d-flex gap-2">
-              <button class="btn btn-outline-primary btn-sm" id="export_csv"><i class="ti ti-file-export me-1"></i>Export CSV</button>
+              <button class="btn btn-outline-primary btn-sm" id="export_csv"><i class="ti ti-file-export me-1"></i>Export Incoming CSV</button>
+              <button class="btn btn-outline-primary btn-sm" id="export_all_csv"><i class="ti ti-files me-1"></i>Export All CSVs</button>
               <button class="btn btn-outline-secondary btn-sm" id="clear"><i class="ti ti-trash me-1"></i>Clear table</button>
             </div>
           </div>
@@ -601,7 +611,9 @@
     const ringDockedStatusEl = document.getElementById("ring_docked_status");
     const ringDockedPointsBadgeEl = document.getElementById("ring_docked_points_badge");
     const ringDockedStateBadgeEl = document.getElementById("ring_docked_state_badge");
-    const ringDockedTimestampEl = document.getElementById("ring_docked_timestamp");
+    const ringDockedTimestampUnixEl = document.getElementById("ring_docked_timestamp_unix");
+    const ringDockedTimestampUtcEl = document.getElementById("ring_docked_timestamp_utc");
+    const ringDockedRingNfcIdEl = document.getElementById("ring_docked_ring_nfc_id");
     const ringDockedMedNfcIdEl = document.getElementById("ring_docked_med_nfc_id");
     const doseEventStatusEl = document.getElementById("dose_event_status");
     const doseEventCountBadgeEl = document.getElementById("dose_event_count_badge");
@@ -614,6 +626,7 @@
     const dashboardCardContainers = [dashboardLeftColEl, dashboardRightColEl].filter((el) => el !== null);
     const alertsContainerEl = document.getElementById("alerts_container");
     const exportCsvBtn = document.getElementById("export_csv");
+    const exportAllCsvBtn = document.getElementById("export_all_csv");
     const dosePopulateDefaultBtn = document.getElementById("dose_populate_default");
     const doseUpdateBtn = document.getElementById("dose_update");
     const doseRequestBtn = document.getElementById("dose_request");
@@ -661,7 +674,10 @@
     });
 
     exportCsvBtn.addEventListener("click", () => {
-      exportMessagesCsv();
+      void exportMessagesCsv();
+    });
+    exportAllCsvBtn.addEventListener("click", () => {
+      void exportAllBufferedCsvs();
     });
 
     function readStoredTheme() {
@@ -1580,7 +1596,9 @@
       if (ringDockedStatusPoints.length === 0) {
         ringDockedStateBadgeEl.textContent = "Unknown";
         ringDockedStateBadgeEl.className = "badge bg-secondary-lt text-secondary";
-        ringDockedTimestampEl.textContent = "-";
+        ringDockedTimestampUnixEl.textContent = "-";
+        ringDockedTimestampUtcEl.textContent = "-";
+        ringDockedRingNfcIdEl.textContent = "-";
         ringDockedMedNfcIdEl.textContent = "-";
         setRingDockedStatusMessage("Waiting for ring docked status updates...");
         return;
@@ -1595,9 +1613,12 @@
       } else {
         ringDockedStateBadgeEl.className = "badge bg-secondary-lt text-secondary";
       }
-      ringDockedTimestampEl.textContent = last.timestamp_utc;
+      const timestampUtc = last.timestamp_utc || formatUnixUtc(last.timestamp_unix_s);
+      ringDockedTimestampUnixEl.textContent = `${last.timestamp_unix_s}`;
+      ringDockedTimestampUtcEl.textContent = timestampUtc;
+      ringDockedRingNfcIdEl.textContent = last.ring_nfc_id_hex || "-";
       ringDockedMedNfcIdEl.textContent = last.medication_nfc_id_hex || "-";
-      setRingDockedStatusMessage(`Latest: ${last.docked_status_name} at ${last.timestamp_utc}`);
+      setRingDockedStatusMessage(`Latest: ${last.docked_status_name} at ${timestampUtc}`);
     }
 
     function setRingDockedStatusPoints(points) {
@@ -1825,9 +1846,9 @@
       }
 
       const normalizedWeightMg = Math.trunc(weightMg);
-      const normalizedTotalDispensedMg = Math.max(0, Math.trunc(totalDispensedMg));
-      const normalizedStdDev = Math.max(0, Math.trunc(stdDev));
-      const normalizedTimestampUnixS = Math.max(0, Math.trunc(timestampUnixS));
+      const normalizedTotalDispensedMg = Math.trunc(totalDispensedMg);
+      const normalizedStdDev = Math.trunc(stdDev);
+      const normalizedTimestampUnixS = Math.trunc(timestampUnixS);
       const normalizedTemperatureDegCDiv10 = Number.isFinite(temperatureDegCDiv10)
         ? Math.trunc(temperatureDegCDiv10)
         : null;
@@ -1860,7 +1881,7 @@
       if (weightMeasurements.length === 0) {
         weightMeasurementRowsEl.innerHTML = `
           <tr>
-            <td colspan="4" class="text-secondary">No weight measurements yet.</td>
+            <td colspan="5" class="text-secondary">No weight measurements yet.</td>
           </tr>
         `;
         return;
@@ -1873,12 +1894,15 @@
         const newestBadge = isNewest
           ? '<span class="badge bg-azure-lt text-azure ms-2">Newest</span>'
           : "";
+        const temperatureDegCDiv10 =
+          event.temperature_deg_c_div10 === null ? "-" : `${event.temperature_deg_c_div10}`;
         return `
           <tr${rowClass}>
-            <td class="text-nowrap">${escapeHtml(event.timestamp_utc)}${newestBadge}</td>
-            <td class="text-nowrap">${escapeHtml(`${event.weight_mg} mg`)}</td>
-            <td class="text-nowrap">${escapeHtml(`${event.total_dispensed_mg} mg`)}</td>
-            <td class="text-nowrap">${event.std_dev}</td>
+            <td class="text-nowrap">${escapeHtml(`${event.weight_mg}`)}</td>
+            <td class="text-nowrap">${escapeHtml(`${event.total_dispensed_mg}`)}</td>
+            <td class="text-nowrap">${escapeHtml(`${event.std_dev}`)}</td>
+            <td class="text-nowrap">${escapeHtml(temperatureDegCDiv10)}</td>
+            <td class="text-nowrap">${escapeHtml(`${event.timestamp_unix_s}`)}${newestBadge}</td>
           </tr>
         `;
       }).join("");
@@ -1899,7 +1923,9 @@
       }
 
       const latest = weightMeasurements[weightMeasurements.length - 1];
-      setWeightMeasurementStatus(`Latest: ${latest.weight_mg} mg at ${latest.timestamp_utc}`);
+      setWeightMeasurementStatus(
+        `Latest: weight_mg=${latest.weight_mg}, timestamp_unix_s=${latest.timestamp_unix_s}`
+      );
     }
 
     function addWeightMeasurement(event, announceAsNew = false) {
@@ -1923,7 +1949,7 @@
 
       if (announceAsNew && isNewEvent) {
         setWeightMeasurementStatus(
-          `New dock weight measurement received: ${normalized.weight_mg} mg at ${normalized.timestamp_utc}`,
+          `New dock weight measurement: weight_mg=${normalized.weight_mg}, timestamp_unix_s=${normalized.timestamp_unix_s}`,
           false,
           true
         );
@@ -1932,7 +1958,9 @@
 
       const latest = weightMeasurements[weightMeasurements.length - 1];
       if (latest) {
-        setWeightMeasurementStatus(`Latest: ${latest.weight_mg} mg at ${latest.timestamp_utc}`);
+        setWeightMeasurementStatus(
+          `Latest: weight_mg=${latest.weight_mg}, timestamp_unix_s=${latest.timestamp_unix_s}`
+        );
       } else {
         setWeightMeasurementStatus("Waiting for dock weight measurements...");
       }
@@ -2507,54 +2535,261 @@
 
     function csvEscape(value) {
       const s = String(value ?? "");
-      return `"${s.replace(/"/g, "\"\"")}"`;
+      const escaped = s.replace(/"/g, "\"\"");
+      if (/[",\r\n]/.test(escaped)) {
+        return `"${escaped}"`;
+      }
+      return escaped;
     }
 
-    function exportMessagesCsv() {
-      if (tableMessages.length === 0) {
-        showAlert("No messages to export.", "info");
-        return;
+    function csvCellValue(value) {
+      if (value === null || value === undefined) {
+        return "";
+      }
+      if (typeof value === "object") {
+        try {
+          return JSON.stringify(value);
+        } catch (error) {
+          return String(value);
+        }
+      }
+      return String(value);
+    }
+
+    function buildCsvContent(header, rows) {
+      const normalizedHeader = Array.isArray(header) ? header : [];
+      const headerLen = normalizedHeader.length;
+      const lines = [normalizedHeader.map((value) => csvEscape(csvCellValue(value))).join(",")];
+
+      for (const row of rows) {
+        const normalizedRow = Array.isArray(row) ? row.slice(0, headerLen) : [];
+        while (normalizedRow.length < headerLen) {
+          normalizedRow.push("");
+        }
+        lines.push(normalizedRow.map((value) => csvEscape(csvCellValue(value))).join(","));
       }
 
-      const header = [
-        "id",
-        "received_at_utc",
-        "session_id",
-        "type",
-        "type_name",
-        "ppi",
-        "ppi_name",
-        "payload_len",
-        "payload_hex",
-      ];
-      const lines = [header.map(csvEscape).join(",")];
-      for (const msg of tableMessages) {
-        const row = [
-          msg.id,
-          msg.received_at_utc,
-          msg.session_id || currentSessionId || "",
-          msg.type,
-          msg.type_name,
-          msg.ppi,
-          msg.ppi_name,
-          msg.payload_len,
-          msg.payload_hex || "",
-        ];
-        lines.push(row.map(csvEscape).join(","));
-      }
+      return `${lines.join("\r\n")}\r\n`;
+    }
 
-      const csvContent = `${lines.join("\n")}\n`;
-      const blob = new Blob([`\uFEFF${csvContent}`], { type: "text/csv;charset=utf-8;" });
+    function downloadCsv(filenamePrefix, header, rows, timestamp) {
+      const csvContent = buildCsvContent(header, rows);
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
       const link = document.createElement("a");
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       link.href = URL.createObjectURL(blob);
-      link.download = `incoming_messages_${timestamp}.csv`;
+      link.download = `${filenamePrefix}_${timestamp}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(link.href);
+    }
 
-      showAlert(`Exported ${tableMessages.length} messages to CSV.`, "success");
+    async function fetchExportSnapshot() {
+      const response = await fetch("/api/export_snapshot");
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return await response.json();
+    }
+
+    function asArray(value) {
+      return Array.isArray(value) ? value : [];
+    }
+
+    function buildCsvExports(snapshot) {
+      const sessionId = snapshot.session_id || currentSessionId || "";
+      const messages = asArray(snapshot.messages);
+      const temperaturePoints = asArray(snapshot.temperature_points);
+      const dockBatteryLevelPoints = asArray(snapshot.dock_battery_level_points);
+      const ringBatteryLevelPoints = asArray(snapshot.ring_battery_level_points);
+      const ringDockedStatusPoints = asArray(snapshot.ring_docked_status_points);
+      const doseEventsData = asArray(snapshot.dose_events);
+      const weightMeasurementsData = asArray(snapshot.weight_measurements);
+
+      return [
+        {
+          key: "incoming_messages",
+          label: "incoming messages",
+          filenamePrefix: "incoming_messages",
+          header: [
+            "id",
+            "received_at_utc",
+            "session_id",
+            "type",
+            "type_name",
+            "ppi",
+            "ppi_name",
+            "payload_len",
+            "payload_hex",
+          ],
+          rows: messages.map((msg) => [
+            msg.id,
+            msg.received_at_utc,
+            msg.session_id || sessionId,
+            msg.type,
+            msg.type_name,
+            msg.ppi,
+            msg.ppi_name,
+            msg.payload_len,
+            msg.payload_hex || "",
+          ]),
+        },
+        {
+          key: "temperature_points",
+          label: "temperature points",
+          filenamePrefix: "temperature_points",
+          header: ["session_id", "timestamp_unix_s", "timestamp_utc", "temperature_deg_c"],
+          rows: temperaturePoints.map((point) => [
+            sessionId,
+            point.timestamp_unix_s,
+            point.timestamp_utc,
+            point.temperature_deg_c,
+          ]),
+        },
+        {
+          key: "dock_battery_level_points",
+          label: "dock battery level points",
+          filenamePrefix: "dock_battery_level_points",
+          header: ["session_id", "timestamp_unix_s", "timestamp_utc", "battery_level"],
+          rows: dockBatteryLevelPoints.map((point) => [
+            sessionId,
+            point.timestamp_unix_s,
+            point.timestamp_utc,
+            point.battery_level,
+          ]),
+        },
+        {
+          key: "ring_battery_level_points",
+          label: "ring battery level points",
+          filenamePrefix: "ring_battery_level_points",
+          header: ["session_id", "timestamp_unix_s", "timestamp_utc", "battery_level"],
+          rows: ringBatteryLevelPoints.map((point) => [
+            sessionId,
+            point.timestamp_unix_s,
+            point.timestamp_utc,
+            point.battery_level,
+          ]),
+        },
+        {
+          key: "ring_docked_status_points",
+          label: "ring docked status points",
+          filenamePrefix: "ring_docked_status_points",
+          header: [
+            "session_id",
+            "timestamp_unix_s",
+            "timestamp_utc",
+            "docked_status",
+            "docked_status_name",
+            "is_docked",
+            "ring_nfc_id_hex",
+            "medication_nfc_id_hex",
+          ],
+          rows: ringDockedStatusPoints.map((point) => [
+            sessionId,
+            point.timestamp_unix_s,
+            point.timestamp_utc,
+            point.docked_status,
+            point.docked_status_name,
+            point.is_docked,
+            point.ring_nfc_id_hex,
+            point.medication_nfc_id_hex,
+          ]),
+        },
+        {
+          key: "dose_events",
+          label: "dose events",
+          filenamePrefix: "dose_events",
+          header: [
+            "session_id",
+            "event_id_days_since_epoch",
+            "event_id_event_ctr",
+            "event_id_label",
+            "start_timestamp_unix_s",
+            "start_timestamp_utc",
+            "duration_s",
+            "dose_completed_in_time",
+            "dose_completed_in_time_bool",
+            "tilt_count",
+          ],
+          rows: doseEventsData.map((event) => [
+            sessionId,
+            event.event_id_days_since_epoch,
+            event.event_id_event_ctr,
+            event.event_id_label,
+            event.start_timestamp_unix_s,
+            event.start_timestamp_utc,
+            event.duration_s,
+            event.dose_completed_in_time,
+            event.dose_completed_in_time_bool,
+            event.tilt_count,
+          ]),
+        },
+        {
+          key: "weight_measurements",
+          label: "weight measurements",
+          filenamePrefix: "weight_measurements",
+          header: [
+            "session_id",
+            "timestamp_unix_s",
+            "timestamp_utc",
+            "weight_mg",
+            "total_dispensed_mg",
+            "std_dev",
+            "temperature_deg_c_div10",
+            "temperature_deg_c",
+          ],
+          rows: weightMeasurementsData.map((event) => [
+            sessionId,
+            event.timestamp_unix_s,
+            event.timestamp_utc,
+            event.weight_mg,
+            event.total_dispensed_mg,
+            event.std_dev,
+            event.temperature_deg_c_div10,
+            event.temperature_deg_c,
+          ]),
+        },
+      ];
+    }
+
+    async function exportMessagesCsv() {
+      try {
+        const snapshot = await fetchExportSnapshot();
+        const exports = buildCsvExports(snapshot);
+        const messagesExport = exports.find((dataset) => dataset.key === "incoming_messages");
+        if (!messagesExport || messagesExport.rows.length === 0) {
+          showAlert("No incoming messages to export.", "info");
+          return;
+        }
+
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        downloadCsv(messagesExport.filenamePrefix, messagesExport.header, messagesExport.rows, timestamp);
+        showAlert(`Exported ${messagesExport.rows.length} incoming messages to CSV.`, "success");
+      } catch (error) {
+        showAlert(`Incoming messages export failed: ${error.message}`, "danger");
+      }
+    }
+
+    async function exportAllBufferedCsvs() {
+      try {
+        const snapshot = await fetchExportSnapshot();
+        const exports = buildCsvExports(snapshot);
+        const nonEmptyExports = exports.filter((dataset) => dataset.rows.length > 0);
+        if (nonEmptyExports.length === 0) {
+          showAlert("No buffered backend data to export.", "info");
+          return;
+        }
+
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        for (const dataset of nonEmptyExports) {
+          downloadCsv(dataset.filenamePrefix, dataset.header, dataset.rows, timestamp);
+        }
+
+        const summary = nonEmptyExports.map((dataset) => `${dataset.label}: ${dataset.rows.length}`).join(", ");
+        showAlert(`Exported CSVs (${summary}).`, "success", 7000);
+      } catch (error) {
+        showAlert(`Export all CSVs failed: ${error.message}`, "danger");
+      }
     }
 
     function updateIncomingPaneSize() {

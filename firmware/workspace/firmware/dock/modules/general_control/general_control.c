@@ -114,22 +114,20 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_GENERAL_CONTROL_DOCK;
 #define GRAVITY_EARTH                  (9.80665f)
 #define INIT_SYSTICK_PERIOD_MS         (1u) // Initial systick period during initialization.
 #define SYSTICK_BLE_PAIRING_TIMEOUT_MS (1000u * 60u)
-#define TEMPERATURE_UPDATE_INTERVAL_MS (1000u * 60u) // NOTE: Should be multiples of 1000ms
+#define TEMPERATURE_UPDATE_INTERVAL_MS (1000u * 60u * 5u) // NOTE: Should be multiples of 1000ms
 STATIC_ASSERT(TEMPERATURE_UPDATE_INTERVAL_MS % 1000u == 0,
               "TEMPERATURE_UPDATE_INTERVAL_MS must be a multiple of 1000ms");
-#define TEMPERATURE_OVER_THRESHOLD_REPORT_INTERVAL_MS  (1000u * 60u * 10u)
-#define BLE_PARAM_REPORT_INTERVAL_MS                   (1000u)
-#define CHECK_RING_STATUS_INTERVAL_MS                  (1000u * 1u * 4u)
-#define NOTIFICATION_QUEUE_LEN                         (20u) // Max number of notifications in the queue.
-#define INVALID_DOSE_SCHEDULE_REMINDER_INTERVAL_MS     (1000u * 60u * 5u)
-#define DOSE_DUE_REMINDER_INTERVAL_MS                  (1000u * 60u * 5u)
-#define DOSE_WINDOW_TIMEOUT_MS                         (1000u * 60u * 180u)
-#define BATTERY_LEVEL_MIN_REPORT_INTERVAL_MS           (1000u * 60u * 1u)
-#define INVALID_DOSE_INFO_ERR_REPORTING_INTERVAL_MS    (1000u * 60u)
-#define INVALID_DOSE_INFO_BLE_REQUEST_INTERVAL_MS      (1000u * 10u)
-#define APP_BASESLINING_FEEDBACK_REPORTING_INTERVAL_MS (1000u * 1u)
-#define APP_CALIBRATION_FEEDBACK_REPORTING_INTERVAL_MS (1000u * 1u)
-#define DOCK_STATUS_REPORTING_INTERVAL_MS              (1000u * 60u * 5u)
+#define TEMPERATURE_OVER_THRESHOLD_REPORT_INTERVAL_MS (1000u * 60u * 10u)
+#define BLE_PARAM_REPORT_INTERVAL_MS                  (1000u)
+#define CHECK_RING_STATUS_INTERVAL_MS                 (1000u * 1u * 4u)
+#define NOTIFICATION_QUEUE_LEN                        (20u) // Max number of notifications in the queue.
+#define INVALID_DOSE_SCHEDULE_REMINDER_INTERVAL_MS    (1000u * 60u * 5u)
+#define DOSE_DUE_REMINDER_INTERVAL_MS                 (1000u * 60u * 5u)
+#define DOSE_WINDOW_TIMEOUT_MS                        (1000u * 60u * 180u)
+#define BATTERY_LEVEL_MIN_REPORT_INTERVAL_MS          (1000u * 60u * 5u)
+#define INVALID_DOSE_INFO_ERR_REPORTING_INTERVAL_MS   (1000u * 60u)
+#define INVALID_DOSE_INFO_BLE_REQUEST_INTERVAL_MS     (1000u * 10u)
+#define DOCK_STATUS_REPORTING_INTERVAL_MS             (1000u * 60u * 5u)
 #define BATTERY_STATUS_ERROR_LOG_RATE_LIMIT_MS                                                                         \
    (1000u * 60u * 5u) // Rate limit for logging unrecognized battery states to prevent log spamming
 
@@ -155,14 +153,24 @@ STATIC_ASSERT(TEMPERATURE_UPDATE_INTERVAL_MS % 1000u == 0,
 #define RING_BATTERY_FULL_MV                 (4150u) // mV
 #define RING_MAX_TIME_DIFF_THRESHOLD_SECONDS (60)    // Max time difference between the ring and dock
 // NFC power saving
-#define NFC_LOWPOWER_POLL_INTERVAL_MS (1000u * 1u)  // Off time between low-power poll windows
-#define NFC_LOWPOWER_POLL_ON_TIME_MS  (10000u * 1u) // Duration to keep NFC on while polling for activity
+#define NFC_LOWPOWER_POLL_INTERVAL_MS (1000u * 20u) // Off time between low-power poll windows
+#define NFC_LOWPOWER_POLL_ON_TIME_MS  (1000u)       // Duration to keep NFC on while polling for activity
 #define NFC_LOWPOWER_ACTIVE_HOLD_MS   (1000u * 2u)  // Hold time after last activity before powering down
 
 // Todo: tune this to be as low as possibe and still reliably read the medication tag UID
 #define NFC_MEDICATION_UID_TIMEOUT_MS  (1000u)
 #define NFC_MEDICATION_UID_POLL_MS     (20u)
 #define NFC_MEDICATION_UID_MAX_RETRIES (3u)
+// Require consecutive sampled absences before committing present -> not present.
+#define NFC_RING_PRESENCE_FALLING_CONFIRM_SAMPLES (4u)
+// Only count one "absent" sample per this interval to avoid debouncing on repeated stale reads.
+#define NFC_RING_ABSENCE_DEBOUNCE_MIN_INTERVAL_MS (250u) // 500u
+// Revalidation uses the same cadence as normal debounce, but poll entry primes the timer so startup transients are
+// not counted immediately after wake.
+#define NFC_RING_ABSENCE_REVALIDATE_MIN_INTERVAL_MS (NFC_RING_ABSENCE_DEBOUNCE_MIN_INTERVAL_MS)
+// Minimum on-time while validating a previously-present ring after waking from low-power OFF.
+#define NFC_RING_PRESENCE_REVALIDATE_ON_TIME_MS                                                                        \
+   (NFC_RING_ABSENCE_REVALIDATE_MIN_INTERVAL_MS * (NFC_RING_PRESENCE_FALLING_CONFIRM_SAMPLES + 1u))
 
 /**
  * Minimum time for received unix time (used for validating incoming time). This timestamp was recorded during
@@ -222,6 +230,28 @@ typedef enum
    NFC_POWER_STATE_LOWPOWER_ACTIVE,
    NFC_POWER_STATE_MAX
 } NFC_POWER_STATE;
+
+typedef struct
+{
+   NFC_POWER_STATE nfc_state;
+   uint64_t poll_start_ms;
+   uint64_t next_poll_ms;
+   uint64_t last_activity_ms;
+   bool ring_presence_valid;
+   bool last_ring_present;
+   uint8_t last_good_ring_uid[NFC_TAG_MAX_UID_SIZE];
+   uint8_t ring_absence_sample_count;
+   uint64_t ring_absence_last_count_ms;
+   bool ring_battery_full;
+   bool medication_read_pending;
+   bool medication_read_in_progress;
+   uint8_t medication_read_retry_count;
+   uint64_t medication_read_start_ms;
+   uint64_t medication_next_poll_ms;
+   uint8_t last_good_medication_uid[NFC_TAG_MAX_UID_SIZE];
+   bool medication_uid_stale;
+   status_update_t prev_ring_status;
+} nfc_runtime_state_t;
 
 /***********************************************************************************************************************
  * Static function declarations
@@ -449,7 +479,6 @@ static result_t parse_dose_schedule(const uint8_t *p_data, uint16_t length, dose
 result_t debug_uart_tx_handler(const uint8_t *p_data, size_t length);
 void debug_uart_rx_handler(const uint8_t *p_data, size_t length);
 result_t debug_data_manager_tx_handler(const uint8_t *p_data, size_t length);
-static void implement_test_loop(void);
 
 /***********************************************************************************************************************
  * Variables
@@ -532,9 +561,9 @@ static weight_sensor_t m_weight_sensor = {0};
 
 // Moving average for temperature measurements
 static int16_t m_temperature_ma_buffer[MOVING_AVERAGE_TEMPERATURE_WINDOW_SIZE];
-static int32_t m_temperature_ma_sum = 0;  // running sum of samples
-static uint16_t m_temperature_ma_idx = 0; // ring-buffer write index
-static uint16_t m_temperature_ma_cnt = 0; // #samples collected (<= MOVING_AVERAGE_TEMPERATURE_WINDOW_SIZE)
+static int32_t m_temperature_ma_sum = 0;   // running sum of samples
+static uint16_t m_temperature_ma_idx = 0u; // ring-buffer write index
+static uint16_t m_temperature_ma_cnt = 0u; // #samples collected (<= MOVING_AVERAGE_TEMPERATURE_WINDOW_SIZE)
 static uint16_t m_temperature_ma_len = MOVING_AVERAGE_TEMPERATURE_WINDOW_SIZE;
 
 static notification_module_t m_hmi;
@@ -611,8 +640,8 @@ result_t debug_data_manager_tx_handler(const uint8_t *p_data, size_t length)
    result_t result = debug_map_unencoded_log(&log, p_data, length);
    (void)result;
 
-   m_dock_data_manager.interface.enqueue(
-      &m_dock_data_manager.interface, DATA_ID_DOCK_DEBUG_LOG, &log, sizeof(raw_debug_log_t), 1u);
+   // m_dock_data_manager.interface.enqueue(
+   //    &m_dock_data_manager.interface, DATA_ID_DOCK_DEBUG_LOG, &log, sizeof(raw_debug_log_t), 1u);
    return RESULT_OK;
 }
 
@@ -632,7 +661,7 @@ static void button_event_handler(nrf_drv_gpiote_pin_t pin,
 
    DEBUG_TRACE("Button press event detected");
 
-   for(uint8_t button_number = 0; button_number < BUTTONS_COUNT; button_number++)
+   for(uint8_t button_number = 0u; button_number < BUTTONS_COUNT; button_number++)
    {
       // Todo: This needs to change. Cannot access module private member _buttons directly.
       if(pin == m_button._buttons[button_number].pin)
@@ -761,7 +790,7 @@ static result_t init_buttons(void)
 
    if(IS_OK(result))
    {
-      for(uint8_t button_number = 0; (button_number < BUTTONS_COUNT); button_number++)
+      for(uint8_t button_number = 0u; (button_number < BUTTONS_COUNT); button_number++)
       {
          // Configure GPIO interrupts
          nrf_drv_gpiote_in_config_t config = GPIOTE_CONFIG_IN_SENSE_TOGGLE(true);
@@ -914,7 +943,7 @@ static result_t debug_log_init(void)
       IF_OK_RUN_AND_UPDATE(result, debug_register_endpoint(&data_manager_endpoint));
       // This ensures that only ERROR level logs are sent to the dock data manager.
       IF_OK_RUN_AND_UPDATE(
-         result, debug_set_all_unit_debug_level_for_endpoint(DEBUG_LEVEL_CRITICAL, DEBUG_ENDPOINT_IDX_DATA_MANAGER));
+         result, debug_set_all_unit_debug_level_for_endpoint(DEBUG_LEVEL_ERROR, DEBUG_ENDPOINT_IDX_DATA_MANAGER));
    }
 
    return result;
@@ -1015,10 +1044,10 @@ static void moving_average_set_length(uint16_t len)
    // Handle special case: disable averaging
    if(0 == len)
    {
-      m_temperature_ma_len = 0;
-      m_temperature_ma_cnt = 0;
+      m_temperature_ma_len = 0u;
+      m_temperature_ma_cnt = 0u;
       m_temperature_ma_sum = 0;
-      m_temperature_ma_idx = 0;
+      m_temperature_ma_idx = 0u;
    }
    else if(len >= m_temperature_ma_cnt)
    {
@@ -1031,9 +1060,9 @@ static void moving_average_set_length(uint16_t len)
       /* window is shrinking */
       uint16_t prev_window = m_temperature_ma_len;
       int32_t new_sum = 0;
-      uint16_t oldest_pos = 0; // will hold index of oldest kept
+      uint16_t oldest_pos = 0u; // will hold index of oldest kept
 
-      for(uint16_t idx = 0; idx < len; idx++)
+      for(uint16_t idx = 0u; idx < len; idx++)
       {
          int16_t pos = (int16_t)(m_temperature_ma_idx - 1u - idx);
          if(pos < 0)
@@ -1057,7 +1086,7 @@ static void moving_average_set_length(uint16_t len)
    else if(m_temperature_ma_idx >= m_temperature_ma_len)
    {
       // If the new window is smaller than the previous index, reset pointer
-      m_temperature_ma_idx = 0;
+      m_temperature_ma_idx = 0u;
    }
 }
 
@@ -1087,7 +1116,7 @@ static int16_t moving_average_add(int16_t sample)
    m_temperature_ma_idx++;
    if(m_temperature_ma_idx >= m_temperature_ma_len) // wrap inside active window
    {
-      m_temperature_ma_idx = 0;
+      m_temperature_ma_idx = 0u;
    }
 
    return (int16_t)(m_temperature_ma_sum / m_temperature_ma_cnt);
@@ -1221,40 +1250,26 @@ static void handle_sm_baselining_state(bool is_ring_present,
    // Update feedback report
    baselining_feedback_t feedback = {.avg_weight_mg = weight_data.weight_mg,
                                      .current_state = (uint8_t)m_baseline_sm.current_state,
-                                     .is_ring_present = is_ring_present,
+                                     .is_ring_present = m_baseline_sm_inputs.is_ring_present,
                                      .medication_nfc_id = {0},
                                      .motion_state = (uint8_t)motion_state,
                                      .std_dev = weight_data.stddev_mg};
    memcpy(feedback.medication_nfc_id, new_medication_nfc_id, sizeof(feedback.medication_nfc_id));
-
-   // Periodically report baselining status
-   static uint64_t prev_report_time_ms = 0;
-   uint64_t current_ms = 0;
-   result = m_systick.interface.get_time_ms(&m_systick.interface, &current_ms);
-   ON_ERR_DEBUG_ERROR(result, "Failed to get systick. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
-
-   if(IS_OK(result) && (current_ms - prev_report_time_ms >= APP_BASESLINING_FEEDBACK_REPORTING_INTERVAL_MS))
-   {
-      prev_report_time_ms = current_ms;
-      report_baselining_feedback(&feedback);
-   }
 
    switch(m_baseline_sm.current_state)
    {
       case BASELINING_STATE_WAIT_FOR_RING_REMOVAL:
          if(m_baseline_sm_outputs.changed)
          {
-            // First time running this state: let App know the baselining process has started.
-            tx_msg.type = (uint8_t)PPI_TYPE_RE;
-            tx_msg.ppi = (uint8_t)PPI_AD_START_BASELINING;
-            tx_msg.payload[0] = (uint8_t) true;
-            tx_msg.pkt_payload_len = sizeof(uint8_t);
-            result = m_queue_app_manger_tx_ifx->enqueue(m_queue_app_manger_tx_ifx, &tx_msg);
-            ON_ERR_DEBUG_ERROR(
-               result, "Failed to enqueue msg. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
+            report_baselining_feedback(&feedback);
          }
          break;
       case BASELINING_STATE_SET_DOCK_WEIGHT:
+         if(m_baseline_sm_outputs.changed)
+         {
+            report_baselining_feedback(&feedback);
+         }
+
          if(is_stable && !is_ring_present)
          {
             bool is_tare_successful = false;
@@ -1279,6 +1294,11 @@ static void handle_sm_baselining_state(bool is_ring_present,
          }
          break;
       case BASELINING_STATE_WAIT_FOR_RING:
+         if(m_baseline_sm_outputs.changed)
+         {
+            report_baselining_feedback(&feedback);
+         }
+
          // Wait for new medication UID.
          if(is_ring_present && !medication_uid_stale
             && (0 != memcmp(medication_uid, invalid_medication_uid, medication_uid_size)))
@@ -1291,6 +1311,11 @@ static void handle_sm_baselining_state(bool is_ring_present,
          }
          break;
       case BASELINING_STATE_SET_RING_DOCK_WEIGHT:
+         if(m_baseline_sm_outputs.changed)
+         {
+            report_baselining_feedback(&feedback);
+         }
+
          if(is_stable && is_ring_present)
          {
             bool is_baseline_successful = false;
@@ -1446,7 +1471,7 @@ static void report_baselining_feedback(const baselining_feedback_t *feedback)
 {
    mp_packet_payload_t tx_msg = {0};
    tx_msg.type = (uint8_t)PPI_TYPE_PUSH;
-   tx_msg.ppi = (uint8_t)PPI_AD_START_BASELINING;
+   tx_msg.ppi = (uint8_t)PPI_AD_BASELINING_FEEDBACK;
    tx_msg.pkt_payload_len = BASELINING_FEEDBACK_T_SIZE_BYTES;
 
    uint32_t avg_weight_mg_u32 = (uint32_t)feedback->avg_weight_mg;
@@ -1517,8 +1542,8 @@ static void report_calibration_data(const weight_stack_calibration_record_t *rec
    tx_msg.ppi = (uint8_t)PPI_AD_CALIBRATION_DATA;
    tx_msg.pkt_payload_len = sizeof(weight_stack_calibration_record_t);
 
-   size_t offset = 0;
-   uint32_t val = 0;
+   size_t offset = 0u;
+   uint32_t val = 0u;
 
    val = (uint32_t)record->zero_offset;
    tx_msg.payload[offset++] = (uint8_t)(val & 0xFFu);
@@ -1545,7 +1570,6 @@ static void report_calibration_data(const weight_stack_calibration_record_t *rec
 static void handle_sm_calibration_state(bool is_ring_present, uint32_t rx_calibration_weight_mg, bool is_weight_present)
 {
    result_t result = RESULT_OK;
-   mp_packet_payload_t tx_msg = {0};
    MOTION_STATE motion_state = MOTION_STATE_UNSTABLE;
 
    static uint8_t weight_calibration_storage_retries_left = 0u;
@@ -1603,32 +1627,12 @@ static void handle_sm_calibration_state(bool is_ring_present, uint32_t rx_calibr
                                       .motion_state = (uint8_t)motion_state,
                                       .std_dev = weight_data.stddev_mg};
 
-   // Periodically report baselining status
-   static uint64_t prev_report_time_ms = 0;
-   uint64_t current_ms = 0;
-   result = m_systick.interface.get_time_ms(&m_systick.interface, &current_ms);
-   ON_ERR_DEBUG_ERROR(result, "Failed to get systick. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
-
-   if(IS_OK(result) && (current_ms - prev_report_time_ms >= APP_CALIBRATION_FEEDBACK_REPORTING_INTERVAL_MS))
-   {
-      prev_report_time_ms = current_ms;
-      report_calibration_feedback(&feedback);
-   }
-
    switch(m_calibrate_sm.current_state)
    {
       case CALIBRATION_STATE_WAIT_FOR_RING_REMOVAL:
          if(m_calibrate_sm_outputs.changed)
          {
-            // First time running this state: let App know the calibration process has started.
-            tx_msg.type = (uint8_t)PPI_TYPE_RE;
-            tx_msg.ppi = (uint8_t)PPI_AD_START_CALIBRATION;
-            tx_msg.payload[0] = (uint8_t) true;
-            tx_msg.pkt_payload_len = sizeof(uint8_t);
-            result = m_queue_app_manger_tx_ifx->enqueue(m_queue_app_manger_tx_ifx, &tx_msg);
-            ON_ERR_DEBUG_ERROR(
-               result, "Failed to enqueue msg. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
-
+            report_calibration_feedback(&feedback);
             // Clear calibration record
             new_calibration_record.calibration_factor = 0;
             new_calibration_record.full_assembly_weight_mg = 0u;
@@ -1636,6 +1640,11 @@ static void handle_sm_calibration_state(bool is_ring_present, uint32_t rx_calibr
          }
          break;
       case CALIBRATION_STATE_SET_DOCK_WEIGHT:
+         if(m_calibrate_sm_outputs.changed)
+         {
+            report_calibration_feedback(&feedback);
+         }
+
          if(is_stable && !is_ring_present)
          {
             bool is_tare_successful = false;
@@ -1660,6 +1669,10 @@ static void handle_sm_calibration_state(bool is_ring_present, uint32_t rx_calibr
          }
          break;
       case CALIBRATION_STATE_WAIT_FOR_CALIBRATION_WEIGHT:
+         if(m_calibrate_sm_outputs.changed)
+         {
+            report_calibration_feedback(&feedback);
+         }
          // Wait for calibration weight to be added
          if(is_weight_present && !is_ring_present)
          {
@@ -1667,6 +1680,11 @@ static void handle_sm_calibration_state(bool is_ring_present, uint32_t rx_calibr
          }
          break;
       case CALIBRATION_STATE_CALIBRATING:
+         if(m_calibrate_sm_outputs.changed)
+         {
+            report_calibration_feedback(&feedback);
+         }
+
          if(is_stable && !is_ring_present)
          {
             bool is_calibration_successful = false;
@@ -1778,8 +1796,8 @@ static void handle_sm_calibration_state(bool is_ring_present, uint32_t rx_calibr
 static void handle_sm_pairing_state()
 {
    result_t result = RESULT_OK;
-   static uint64_t pairing_state_start_time_ms = 0;
-   uint64_t current_systick_time_ms = 0;
+   static uint64_t pairing_state_start_time_ms = 0u;
+   uint64_t current_systick_time_ms = 0u;
 
    // Set LED to indicate pairing mode is active
    result = m_hmi.interface.set_notification_event(&m_hmi.interface, NOTIFICATION_EVENT_BLE_PAIRING);
@@ -1868,8 +1886,8 @@ static void handle_sm_pairing_state()
 // Active dose window state.
 static void handle_sm_active_state(void)
 {
-   uint64_t current_time_ms = 0;
-   static uint64_t prev_time_ms = 0;
+   uint64_t current_time_ms = 0u;
+   static uint64_t prev_time_ms = 0u;
    result_t result = m_systick.interface.get_time_ms(&m_systick.interface, &current_time_ms);
    ON_ERR_DEBUG_ERROR(result, "Failed to get systick. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
 
@@ -1916,8 +1934,8 @@ static void handle_sm_invalid_dose_info_state(void)
          result, "Failed to set notification event. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
    }
 
-   uint64_t current_time_ms = 0;
-   static uint64_t prev_error_time_ms = 0;
+   uint64_t current_time_ms = 0u;
+   static uint64_t prev_error_time_ms = 0u;
    result = m_systick.interface.get_time_ms(&m_systick.interface, &current_time_ms);
    ON_ERR_DEBUG_ERROR(result, "Failed to get systick. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
 
@@ -1938,7 +1956,7 @@ static void handle_sm_invalid_dose_info_state(void)
       mp_packet_payload_t tx_msg = {0};
       tx_msg.type = (uint8_t)PPI_TYPE_RQ;
       tx_msg.ppi = (uint8_t)PPI_AD_DOSE_SCHEDULE;
-      tx_msg.pkt_payload_len = 0; // No payload needed for this request
+      tx_msg.pkt_payload_len = 0u; // No payload needed for this request
 
       result = m_queue_app_manager_tx.interface.enqueue(&m_queue_app_manager_tx.interface, &tx_msg);
       ON_ERR_DEBUG_ERROR(
@@ -2036,9 +2054,9 @@ static const char *nfc_power_state_to_str(NFC_POWER_STATE state)
 static void handle_battery_hmi_notifications(battery_status_t battery_status)
 {
    result_t result = RESULT_OK;
-   static uint64_t prev_reported_battery_status_error_time_ms = 0;
+   static uint64_t prev_reported_battery_status_error_time_ms = 0u;
 
-   uint64_t current_time_ms = 0;
+   uint64_t current_time_ms = 0u;
 
    result = m_systick.interface.get_time_ms(&m_systick.interface, &current_time_ms);
    ON_ERR_DEBUG_ERROR(
@@ -2128,11 +2146,12 @@ static void handle_battery_hmi_notifications(battery_status_t battery_status)
          {
             prev_reported_battery_status_error_time_ms = current_time_ms;
             // Unrecognized battery state, log error and clear other HMI battery notifications to be safe
-            // result = m_hmi.interface.set_notification_event(&m_hmi.interface, NOTIFICATION_EVENT_ERROR);
-            // ON_ERR_DEBUG_ERROR(result,
-            //                    "Failed to update HMI notification. Unit %d, Error: %d",
-            //                    GET_ERR_UNIT(result),
-            //                    GET_ERR_CODE(result));
+            DEBUG_ERROR("Unrecognized battery state: %d", battery_status.battery_state);
+            result = m_hmi.interface.set_notification_event(&m_hmi.interface, NOTIFICATION_EVENT_ERROR);
+            ON_ERR_DEBUG_ERROR(result,
+                               "Failed to update HMI notification. Unit %d, Error: %d",
+                               GET_ERR_UNIT(result),
+                               GET_ERR_CODE(result));
             result = m_hmi.interface.clear_notification_event(&m_hmi.interface, NOTIFICATION_EVENT_BAT_MANAGER_BAT_LOW);
             ON_ERR_DEBUG_ERROR(result,
                                "Failed to update HMI notification. Unit %d, Error: %d",
@@ -2198,12 +2217,11 @@ static void handle_battery(battery_status_t *battery_status)
    // Handle battery related HMI notifications and report battery status to data manager
    // Only report battery level in increments of @p BATTERY_LEVEL_INCREMENT percent, rounding down.
    static uint8_t prev_reported_battery_level = 0u;
-   (void)prev_reported_battery_level;
    uint8_t new_battery_level
       = BATTERY_LEVEL_INCREMENT * (battery.battery_level / BATTERY_LEVEL_INCREMENT); // Discard remainder.
 
-   uint64_t current_time_ms = 0;
-   static uint64_t prev_reported_battery_level_time_ms = 0;
+   uint64_t current_time_ms = 0u;
+   static uint64_t prev_reported_battery_level_time_ms = 0u;
    if(IS_OK(result))
    {
       result = m_systick.interface.get_time_ms(&m_systick.interface, &current_time_ms);
@@ -2213,13 +2231,15 @@ static void handle_battery(battery_status_t *battery_status)
 
    // Rate limit and only report battery level changes of at least BATTERY_LEVEL_INCREMENT percent to save bandwidth,
    // and only if there are no errors in getting battery status or time.
-   if((current_time_ms - prev_reported_battery_level_time_ms > BATTERY_LEVEL_MIN_REPORT_INTERVAL_MS) && IS_OK(result))
+   if((new_battery_level != prev_reported_battery_level)
+      && (current_time_ms - prev_reported_battery_level_time_ms > BATTERY_LEVEL_MIN_REPORT_INTERVAL_MS)
+      && IS_OK(result))
    {
       // Note: Setting the updated time immediately instead of after success of enqueuing the data automatically rate
       // limits potential errors from flooding the error handling.
       prev_reported_battery_level_time_ms = current_time_ms;
       // Report new battery status to data manager
-      uint32_t current_unix_time_s = 0;
+      uint32_t current_unix_time_s = 0u;
       result = m_rtc.interface.get_time_unix(&m_rtc.interface, &current_unix_time_s);
       ON_ERR_DEBUG_ERROR(
          result, "Failed to get unix time. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
@@ -2255,8 +2275,8 @@ static void handle_battery(battery_status_t *battery_status)
 
 static void handle_temperature_reading(void)
 {
-   static uint64_t prev_reported_temperature_time = 0;
-   uint64_t current_systic_time_ms = 0;
+   static uint64_t prev_reported_temperature_time = 0u;
+   uint64_t current_systic_time_ms = 0u;
    int16_t temperature_celsius = 0;
    result_t result = m_systick.interface.get_time_ms(&m_systick.interface, &current_systic_time_ms);
    ON_ERR_DEBUG_ERROR(
@@ -2341,11 +2361,11 @@ static void handle_temperature_reading(void)
                         avg_temp_celsius);
 
             // Set HMI error notification
-            // result = m_hmi.interface.set_notification_event(&m_hmi.interface, NOTIFICATION_EVENT_ERROR);
-            // ON_ERR_DEBUG_ERROR(result,
-            //                    "Failed to set HMI error notification. Unit %d, Error: %d",
-            //                    GET_ERR_UNIT(result),
-            //                    GET_ERR_CODE(result));
+            result = m_hmi.interface.set_notification_event(&m_hmi.interface, NOTIFICATION_EVENT_ERROR);
+            ON_ERR_DEBUG_ERROR(result,
+                               "Failed to set HMI error notification. Unit %d, Error: %d",
+                               GET_ERR_UNIT(result),
+                               GET_ERR_CODE(result));
 
             last_overtemp_report_time_ms = current_systic_time_ms;
          }
@@ -2356,7 +2376,7 @@ static void handle_temperature_reading(void)
    // 3. Periodically report dock temp to the data manager.
    if(is_temp_value_valid && IS_OK(result))
    {
-      uint32_t current_unix_time = 0;
+      uint32_t current_unix_time = 0u;
       result = m_rtc.interface.get_time_unix(&m_rtc.interface, &current_unix_time);
       ON_ERR_DEBUG_ERROR(
          result, "Failed to get RTC unix time. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
@@ -2399,25 +2419,6 @@ static void handle_button(bool *is_pairing_gesture_detected)
       DEBUG_INFO("Pairing gesture detected.");
    }
 }
-
-typedef struct
-{
-   NFC_POWER_STATE nfc_state;
-   uint64_t poll_start_ms;
-   uint64_t next_poll_ms;
-   uint64_t last_activity_ms;
-   bool ring_presence_valid;
-   bool last_ring_present;
-   bool ring_battery_full;
-   bool medication_read_pending;
-   bool medication_read_in_progress;
-   uint8_t medication_read_retry_count;
-   uint64_t medication_read_start_ms;
-   uint64_t medication_next_poll_ms;
-   uint8_t last_good_medication_uid[NFC_TAG_MAX_UID_SIZE];
-   bool medication_uid_stale;
-   status_update_t prev_ring_status;
-} nfc_runtime_state_t;
 
 /**
  * @brief Invalidate cached ring-presence sample while preserving last value.
@@ -2502,6 +2503,12 @@ static result_t nfc_enter_lowpower_poll_window(nfc_runtime_state_t *state, uint6
    {
       state->nfc_state = NFC_POWER_STATE_LOWPOWER_POLL;
       state->poll_start_ms = now_ms;
+
+      // Keep the first absence sample at least one debounce interval after wake-up/reconfigure.
+      if(state->last_ring_present && !state->ring_presence_valid)
+      {
+         state->ring_absence_last_count_ms = now_ms;
+      }
    }
 
    return result;
@@ -2515,14 +2522,21 @@ static result_t nfc_enter_lowpower_poll_window(nfc_runtime_state_t *state, uint6
  * transitioned from "not present or unknown" to "present", the medication-read
  * trigger flag is set.
  *
+ * The ring UID cache is refreshed only on a true presence rising edge
+ * (not present -> present) to avoid unnecessary NFC transactions.
+ *
+ * Falling edges (present -> not present) are confirmed with consecutive sampled
+ * "absent" results before committing removal.
+ *
  * @param[in,out] state Pointer to NFC runtime state.
+ * @param[in] now_ms Current systick time in milliseconds.
  * @param[out] trigger_medication_read Set true on ring-presence rising edge.
  *
  * @return result_t
  * @retval RESULT_OK Presence was sampled and cache updated.
  * @retval Any propagated NFC driver error from presence check.
  */
-static result_t nfc_update_ring_presence(nfc_runtime_state_t *state, bool *trigger_medication_read)
+static result_t nfc_update_ring_presence(nfc_runtime_state_t *state, uint64_t now_ms, bool *trigger_medication_read)
 {
    RETURN_ERR_IF_NULL(state, GC_ERROR_PTR_NULL);
    RETURN_ERR_IF_NULL(trigger_medication_read, GC_ERROR_PTR_NULL);
@@ -2534,15 +2548,77 @@ static result_t nfc_update_ring_presence(nfc_runtime_state_t *state, bool *trigg
 
    if(IS_OK(result))
    {
-      bool ring_rising_edge = (!state->ring_presence_valid || !state->last_ring_present) && is_ring_present_local;
-      if(ring_rising_edge)
+      if(is_ring_present_local)
       {
-         state->medication_read_retry_count = 0u;
-         *trigger_medication_read = true;
-      }
+         // Rising edge (false -> true):
+         // Commit immediately for responsiveness.
+         bool ring_rising_edge = !state->last_ring_present;
+         state->last_ring_present = true;
+         state->ring_presence_valid = true;
+         state->ring_absence_sample_count = 0u;
+         state->ring_absence_last_count_ms = 0u;
 
-      state->ring_presence_valid = true;
-      state->last_ring_present = is_ring_present_local;
+         if(ring_rising_edge)
+         {
+            // A confirmed ring placement is treated as a "new session" for medication UID acquisition.
+            state->medication_read_retry_count = 0u;
+            *trigger_medication_read = true;
+
+            uint8_t ring_uid_local[NFC_TAG_MAX_UID_SIZE] = {0};
+            uint8_t ring_uid_len = NFC_TAG_MAX_UID_SIZE;
+            static const uint8_t invalid_ring_uid[NFC_TAG_MAX_UID_SIZE] = {0};
+
+            // UID read is intentionally done only on confirmed rising edges to avoid repeated NFC transactions.
+            result_t uid_result = m_nfc.interface.get_tag_uid(&m_nfc.interface, ring_uid_local, &ring_uid_len);
+            ON_ERR_DEBUG_ERROR(uid_result,
+                               "Failed to get ring NFC-V UID. Unit %d, Error: %d",
+                               GET_ERR_UNIT(uid_result),
+                               GET_ERR_CODE(uid_result));
+
+            if(IS_OK(uid_result) && (ring_uid_len > 0u) && (ring_uid_len <= NFC_TAG_MAX_UID_SIZE)
+               && (0 != memcmp(ring_uid_local, invalid_ring_uid, ring_uid_len)))
+            {
+               // Store a full-width buffer with trailing zero padding for stable consumers.
+               memset(state->last_good_ring_uid, 0, NFC_TAG_MAX_UID_SIZE);
+               memcpy(state->last_good_ring_uid, ring_uid_local, ring_uid_len);
+            }
+         }
+      }
+      else
+      {
+         // Falling edge candidate (true -> false):
+         // Commit only after consecutive sampled absences while the reader is ON.
+         if(state->last_ring_present)
+         {
+            uint32_t absence_min_interval_ms = state->ring_presence_valid ? NFC_RING_ABSENCE_DEBOUNCE_MIN_INTERVAL_MS :
+                                                                            NFC_RING_ABSENCE_REVALIDATE_MIN_INTERVAL_MS;
+            bool can_count_absence = (0u == state->ring_absence_last_count_ms)
+                                     || (now_ms < state->ring_absence_last_count_ms)
+                                     || ((now_ms - state->ring_absence_last_count_ms) >= absence_min_interval_ms);
+            if(can_count_absence)
+            {
+               if(state->ring_absence_sample_count < UINT8_MAX)
+               {
+                  state->ring_absence_sample_count++;
+               }
+               state->ring_absence_last_count_ms = now_ms;
+            }
+
+            if(state->ring_absence_sample_count >= NFC_RING_PRESENCE_FALLING_CONFIRM_SAMPLES)
+            {
+               state->last_ring_present = false;
+               state->ring_presence_valid = true;
+               state->ring_absence_sample_count = 0u;
+               state->ring_absence_last_count_ms = 0u;
+            }
+         }
+         else
+         {
+            state->ring_presence_valid = true;
+            state->ring_absence_sample_count = 0u;
+            state->ring_absence_last_count_ms = 0u;
+         }
+      }
    }
 
    return result;
@@ -2785,7 +2861,7 @@ static result_t nfc_shutdown_to_lowpower_off(nfc_runtime_state_t *state, uint64_
  *
  * @param[out] is_ring_present Last known good Type-V ring presence state, preserved across intentional
  * power-down windows until a new valid Type-V sample is obtained.
- * @param[in] ring_uid Reserved for future ring UID reporting. Currently unused in this routine.
+ * @param[out] ring_uid Buffer updated with the latest ring Type-V UID, refreshed only on ring-presence rising edges.
  * @param[out] medication_uid Buffer updated with latest medication Type-A UID when available.
  * @param[out] medication_uid_stale True if the last medication UID read failed, false if the last read succeeded.
  * @param[in] battery_status Current dock battery/charger snapshot.
@@ -2806,10 +2882,8 @@ static void handle_nfc(bool *is_ring_present,
       return;
    }
 
-   (void)ring_uid;
-
    result_t result = RESULT_OK;
-   uint64_t now_ms = 0;
+   uint64_t now_ms = 0u;
    bool is_fresh_ring_status = false;
    bool trigger_medication_read = false;
    bool nfc_should_process = false; // True when the reader is on and m_nfc.interface.process() ran this loop.
@@ -2871,7 +2945,7 @@ static void handle_nfc(bool *is_ring_present,
 
       if(IS_OK(result) && !nfc_runtime.medication_read_in_progress)
       {
-         result = nfc_update_ring_presence(&nfc_runtime, &trigger_medication_read);
+         result = nfc_update_ring_presence(&nfc_runtime, now_ms, &trigger_medication_read);
       }
 
       if(IS_OK(result))
@@ -2977,7 +3051,7 @@ static void handle_nfc(bool *is_ring_present,
 
          if(IS_OK(result) && !nfc_runtime.medication_read_in_progress)
          {
-            result = nfc_update_ring_presence(&nfc_runtime, &trigger_medication_read);
+            result = nfc_update_ring_presence(&nfc_runtime, now_ms, &trigger_medication_read);
          }
 
          bool has_activity = false;
@@ -2996,8 +3070,15 @@ static void handle_nfc(bool *is_ring_present,
 
          if(IS_OK(result))
          {
+            uint32_t lowpower_poll_min_on_time_ms = NFC_LOWPOWER_POLL_ON_TIME_MS;
+            if((NFC_POWER_STATE_LOWPOWER_POLL == nfc_runtime.nfc_state) && nfc_runtime.last_ring_present
+               && !nfc_runtime.ring_presence_valid)
+            {
+               lowpower_poll_min_on_time_ms = NFC_RING_PRESENCE_REVALIDATE_ON_TIME_MS;
+            }
+
             if((NFC_POWER_STATE_LOWPOWER_POLL == nfc_runtime.nfc_state) && !has_activity
-               && (now_ms - nfc_runtime.poll_start_ms >= NFC_LOWPOWER_POLL_ON_TIME_MS))
+               && (now_ms - nfc_runtime.poll_start_ms >= lowpower_poll_min_on_time_ms))
             {
                request_lowpower_shutdown = true;
             }
@@ -3027,6 +3108,7 @@ static void handle_nfc(bool *is_ring_present,
       (void)nfc_shutdown_to_lowpower_off(&nfc_runtime, now_ms);
    }
 
+   memcpy(ring_uid, nfc_runtime.last_good_ring_uid, NFC_TAG_MAX_UID_SIZE);
    memcpy(medication_uid, nfc_runtime.last_good_medication_uid, NFC_TAG_MAX_UID_SIZE);
    *medication_uid_stale = nfc_runtime.medication_uid_stale;
    *is_ring_present = nfc_runtime.last_ring_present;
@@ -3061,8 +3143,8 @@ static result_t get_dock_status(dock_status_t *dock_status)
    RETURN_ERR_IF_NULL(dock_status, GC_ERROR_PTR_NULL);
 
    ship_mode_t current_ship_mode = {0};
-   uint32_t current_unix_time_s = 0;
-   uint64_t current_systic_time_ms = 0;
+   uint32_t current_unix_time_s = 0u;
+   uint64_t current_systic_time_ms = 0u;
    result_t result = RESULT_OK;
 
    // Get FICR->DEVICE_ID - 64 bit unique device identifier pre-programmed in factory and cannot be erased by the user.
@@ -3118,6 +3200,307 @@ static result_t get_dock_status(dock_status_t *dock_status)
 
    return result;
 }
+
+#ifdef DEBUG
+static void clear_app_manager_in_flight_tx_for_hil_seed(void)
+{
+   MSG_PROT_TX_PACKET_STATUS tx_status = MSG_PROT_TX_PACKET_STATUS_MAX;
+   result_t tx_status_result = m_msg_prot_ble.interface.get_tx_packet_status(&m_msg_prot_ble.interface, &tx_status);
+
+   if(IS_OK(tx_status_result))
+   {
+      DEBUG_INFO("[HIL seed] Pre-seed TX ownership: app_mgr_active=%u data_id=%u ppi=%u type=%u mp_tx_status=%u",
+                 (uint32_t)m_app_manager._current_tx_transaction.active,
+                 (uint32_t)m_app_manager._current_tx_transaction.data_id,
+                 (uint32_t)m_app_manager._current_tx_transaction.ppi,
+                 (uint32_t)m_app_manager._current_tx_transaction.type,
+                 (uint32_t)tx_status);
+   }
+   else
+   {
+      DEBUG_ERROR("[HIL seed] Failed to read message-protocol TX status. Unit %d, Error: %d",
+                  GET_ERR_UNIT(tx_status_result),
+                  GET_ERR_CODE(tx_status_result));
+   }
+
+   // Prevent stale completion callbacks from popping freshly seeded queue entries.
+   m_app_manager._current_tx_transaction.active = false;
+   m_app_manager._current_tx_transaction.data_id = DATA_ID_MAX;
+   m_app_manager._current_tx_transaction.ppi = PPI_AD_MAX;
+   m_app_manager._current_tx_transaction.type = PPI_TYPE_MAX;
+
+   DEBUG_INFO("[HIL seed] Cleared app-manager TX ownership before seeding.");
+}
+
+// This function clears ALL data queues in the dock data manager. It is intended for testing purposes only to ensure a
+// clean slate of data for test scenarios, and should be used with caution.
+static void dequeue_all_dock_push_data(void)
+{
+   result_t result = RESULT_OK;
+
+   for(size_t data_id = 0u; data_id < DATA_ID_MAX; data_id++)
+   {
+      size_t count = 0u;
+      result = m_dock_data_manager.interface.get_element_count(&(m_dock_data_manager.interface), data_id, &count);
+
+      if(IS_OK(result) && (count > 0u))
+      {
+         result = m_dock_data_manager.interface.pop(&(m_dock_data_manager.interface), data_id, count);
+
+         ON_ERR_DEBUG_ERROR(result,
+                            "Failed to pop existing data ID %d entries from dock data manager. Unit %d, Error: %d",
+                            (int)data_id,
+                            GET_ERR_UNIT(result),
+                            GET_ERR_CODE(result));
+      }
+   }
+
+   // Send response back to app manager indicating success of the dequeue operation so that tests can verify this before
+   // proceeding.
+   if(IS_OK(result))
+   {
+      // Construct response payload
+      mp_packet_payload_t tx_msg = {0};
+      tx_msg.type = PPI_TYPE_RE;
+      tx_msg.ppi = PPI_AD_DEVELOPMENT_CMD;
+      tx_msg.payload[0] = 1u; // Just indicates success
+      tx_msg.pkt_payload_len = 1u;
+      result = m_queue_app_manager_tx.interface.enqueue(&m_queue_app_manager_tx.interface, &tx_msg);
+      ON_ERR_DEBUG_ERROR(result,
+                         "Failed to enqueue dev cmd success response to app manager. Unit %d, Error: %d",
+                         GET_ERR_UNIT(result),
+                         GET_ERR_CODE(result));
+   }
+}
+
+static void enqueue_hil_test_dose_event(void)
+{
+   dose_event_t hil_test_dose_event = {.event_id = {.days_since_epoch = 12345u, .event_ctr = 20u},
+                                       .start_timestamp_unix_s = 1697049600u, // Oct 11, 2023 @ 12:00:00 PM UTC
+                                       .duration_s = 240u,                    // 4 minutes
+                                       .dose_completed_in_time = 1u,          // true
+                                       .tilt_count = 3u};
+
+   result_t result = m_dock_data_manager.interface.enqueue(
+      &m_dock_data_manager.interface, DATA_ID_DOSE_EVENT, &hil_test_dose_event, sizeof(dose_event_t), 1u);
+
+   ON_ERR_DEBUG_ERROR(result,
+                      "Failed to enqueue HIL test dose event message. Unit %d, Error: %d",
+                      GET_ERR_UNIT(result),
+                      GET_ERR_CODE(result));
+}
+
+static void enqueue_hil_test_ring_docked_status(void)
+{
+   ring_docked_status_t hil_test_ring_docked_status = {
+      .timestamp_unix_s = 1697049600u, // Oct 11, 2023 @ 12:00:00 PM UTC
+      .docked_status = DOCKED_STATUS_DOCKED,
+      .ring_nfc_id = {0xDEu, 0xADu, 0xBEu, 0xEFu, 0x00u, 0x01u, 0x02u, 0x03u, 0x04u, 0x05u},
+      .medication_nfc_id = {0xBAu, 0xADu, 0xF0u, 0x0Du, 0x00u, 0x01u, 0x02u, 0x03u, 0x04u, 0x05u},
+   };
+
+   result_t result = m_dock_data_manager.interface.enqueue(&m_dock_data_manager.interface,
+                                                           DATA_ID_RING_DOCKED_STATUS,
+                                                           &hil_test_ring_docked_status,
+                                                           sizeof(ring_docked_status_t),
+                                                           1u);
+
+   ON_ERR_DEBUG_ERROR(result,
+                      "Failed to enqueue HIL test ring docked status message. Unit %d, Error: %d",
+                      GET_ERR_UNIT(result),
+                      GET_ERR_CODE(result));
+}
+
+static void enqueue_hil_test_weight_measurement(void)
+{
+   dock_weight_measurement_t hil_test_weight_measurement = {
+      .weight_mg = 50000,              // 50 grams
+      .total_dispensed_mg = 10u,       // 10 mgrams
+      .std_dev = 100u,                 // Example standard deviation
+      .temperature_deg_c_div10 = 250,  // 25.0 degrees Celsius
+      .timestamp_unix_s = 1697049600u, // Oct 11, 2023 @ 12:00:00 PM UTC
+   };
+
+   result_t result = m_dock_data_manager.interface.enqueue(&m_dock_data_manager.interface,
+                                                           DATA_ID_WEIGHT_MEASUREMENT,
+                                                           &hil_test_weight_measurement,
+                                                           sizeof(dock_weight_measurement_t),
+                                                           1u);
+
+   ON_ERR_DEBUG_ERROR(result,
+                      "Failed to enqueue HIL test weight measurement message. Unit %d, Error: %d",
+                      GET_ERR_UNIT(result),
+                      GET_ERR_CODE(result));
+}
+
+static void enqueue_hil_test_temperature_log(void)
+{
+   temperature_log_t hil_test_temperature_log = {
+      .temperature_deg_c = 25,         // 25.0 degrees Celsius
+      .timestamp_unix_s = 1697049600u, // Oct 11, 2023 @ 12:00:00 PM UTC
+   };
+
+   result_t result = m_dock_data_manager.interface.enqueue(&m_dock_data_manager.interface,
+                                                           DATA_ID_TEMPERATURE_LOG,
+                                                           &hil_test_temperature_log,
+                                                           sizeof(temperature_log_t),
+                                                           1u);
+
+   ON_ERR_DEBUG_ERROR(result,
+                      "Failed to enqueue HIL test temperature log message. Unit %d, Error: %d",
+                      GET_ERR_UNIT(result),
+                      GET_ERR_CODE(result));
+}
+
+static void enqueue_hil_test_ring_battery_level(void)
+{
+   battery_level_t hil_test_ring_battery_level = {
+      .timestamp_unix_s = 1697049600u, // Oct 11, 2023 @ 12:00:00 PM UTC
+      .battery_level = 85u,            // 85% battery
+   };
+
+   result_t result = m_dock_data_manager.interface.enqueue(&m_dock_data_manager.interface,
+                                                           DATA_ID_RING_BATTERY_LEVEL,
+                                                           &hil_test_ring_battery_level,
+                                                           sizeof(battery_level_t),
+                                                           1u);
+
+   ON_ERR_DEBUG_ERROR(result,
+                      "Failed to enqueue HIL test ring battery level message. Unit %d, Error: %d",
+                      GET_ERR_UNIT(result),
+                      GET_ERR_CODE(result));
+}
+
+static void enqueue_hil_test_dock_battery_level(void)
+{
+   battery_level_t hil_test_dock_battery_level = {
+      .timestamp_unix_s = 1697049600u, // Oct 11, 2023 @ 12:00:00 PM UTC
+      .battery_level = 70u,            // 70% battery
+   };
+
+   result_t result = m_dock_data_manager.interface.enqueue(&m_dock_data_manager.interface,
+                                                           DATA_ID_DOCK_BATTERY_LEVEL,
+                                                           &hil_test_dock_battery_level,
+                                                           sizeof(battery_level_t),
+                                                           1u);
+
+   ON_ERR_DEBUG_ERROR(result,
+                      "Failed to enqueue HIL test dock battery level message. Unit %d, Error: %d",
+                      GET_ERR_UNIT(result),
+                      GET_ERR_CODE(result));
+}
+
+static void enqueue_hil_test_dock_charge_status(void)
+{
+   dock_charge_status_t hil_test_dock_charge_status = {
+      .timestamp_unix_s = 1772616072u,
+      .charge_status = (uint8_t)BATTERY_STATE_CHARGING, // Charge status of the dock battery. maps to BATTERY_STATE enum
+   };
+
+   result_t result = m_dock_data_manager.interface.enqueue(&m_dock_data_manager.interface,
+                                                           DATA_ID_DOCK_CHARGE_STATUS,
+                                                           &hil_test_dock_charge_status,
+                                                           sizeof(dock_charge_status_t),
+                                                           1u);
+
+   ON_ERR_DEBUG_ERROR(result,
+                      "Failed to enqueue HIL test dock charge status message. Unit %d, Error: %d",
+                      GET_ERR_UNIT(result),
+                      GET_ERR_CODE(result));
+}
+
+static void enqueue_hil_test_ring_status(void)
+{
+   ring_status_t hil_test_ring_status = {
+      .hardware_version = {.major = 1u, .minor = 0u, .patch = 1u},
+      .firmware_version = {.major = 1u, .minor = 0u, .patch = 1u},
+      .mac = {0xDEu, 0xADu, 0xBEu, 0xEFu, 0x00u, 0x01u, 0x02u, 0x03u, 0x04u, 0x05u},
+      .timestamp_unix_s = 1772616496u,
+      .ship_mode_exit_timestamp_unix = 1697049600u,
+      .battery_charge_status = (uint8_t)BATTERY_STATE_CHARGING,
+      .uptime_s = 3600u,
+      .temperature_celsius = 25,
+      .dose_fifo_used_percent = 50u,
+      .battery_fifo_used_percent = 30u,
+      .imu_fifo_used_percent = 20u,
+      .error_fifo_used_percent = 10u,
+      .dose_fifo_used_percent_watermark = 80u,
+      .battery_fifo_used_percent_watermark = 60u,
+      .imu_fifo_used_percent_watermark = 40u,
+      .error_fifo_used_percent_watermark = 20u,
+      .battery_sample_frequency_millihz = 1000u,
+   };
+
+   result_t result = m_dock_data_manager.interface.enqueue(
+      &m_dock_data_manager.interface, DATA_ID_RING_STATUS, &hil_test_ring_status, sizeof(ring_status_t), 1u);
+
+   ON_ERR_DEBUG_ERROR(result,
+                      "Failed to enqueue HIL test ring status message. Unit %d, Error: %d",
+                      GET_ERR_UNIT(result),
+                      GET_ERR_CODE(result));
+}
+
+static void enqueue_hil_test_dock_status(void)
+{
+   dock_status_t hil_test_dock_status = {
+      .firmware_version = {.major = 1u, .minor = 0u, .patch = 1u},
+      .hardware_version = {.major = 1u, .minor = 0u, .patch = 1u},
+      .mac = {0xDEu, 0xADu, 0xBEu, 0xEFu, 0x00u, 0x01u, 0x02u, 0x03u, 0x04u, 0x05u},
+      .ship_mode_exit_timestamp_unix = 1697049600u,
+      .timestamp_unix_s = 1772616496u,
+      .uptime_s = 3600u,
+   };
+
+   result_t result = m_dock_data_manager.interface.enqueue(
+      &m_dock_data_manager.interface, DATA_ID_DOCK_STATUS, &hil_test_dock_status, sizeof(dock_status_t), 1u);
+
+   ON_ERR_DEBUG_ERROR(result,
+                      "Failed to enqueue HIL test dock status message. Unit %d, Error: %d",
+                      GET_ERR_UNIT(result),
+                      GET_ERR_CODE(result));
+}
+
+static void enqueue_hil_test_dock_debug_log(void)
+{
+   raw_debug_log_t hil_test_dock_debug_log = {
+      .level = (uint8_t)DEBUG_LEVEL_INFO,
+      .timestamp = 1772616496u,
+      .module_id = (uint8_t)SW_UNIT_ID_GENERAL_CONTROL_DOCK,
+      .line = 3358u,
+      .arg_values = {0xDEADBEEFu, 0xCAFEBABEu, 0xFEEDFACEu, 0xBAADF00Du, 0x0D15EA5Eu, 0xC001D00Du},
+
+   };
+
+   result_t result = m_dock_data_manager.interface.enqueue(
+      &m_dock_data_manager.interface, DATA_ID_DOCK_DEBUG_LOG, &hil_test_dock_debug_log, sizeof(raw_debug_log_t), 1u);
+
+   ON_ERR_DEBUG_ERROR(result,
+                      "Failed to enqueue HIL test dock debug log message. Unit %d, Error: %d",
+                      GET_ERR_UNIT(result),
+                      GET_ERR_CODE(result));
+}
+
+static void enqueue_hil_test_ring_debug_log(void)
+{
+   raw_debug_log_t hil_test_ring_debug_log = {
+      .level = (uint8_t)DEBUG_LEVEL_INFO,
+      .timestamp = 1772616496u,
+      .module_id = (uint8_t)SW_UNIT_ID_GENERAL_CONTROL_RING,
+      .line = 3358u,
+      .arg_values = {0xDEADBEEFu, 0xCAFEBABEu, 0xFEEDFACEu, 0xBAADF00Du, 0x0D15EA5Eu, 0xC001D00Du},
+
+   };
+
+   result_t result = m_dock_data_manager.interface.enqueue(
+      &m_dock_data_manager.interface, DATA_ID_RING_DEBUG_LOG, &hil_test_ring_debug_log, sizeof(raw_debug_log_t), 1u);
+
+   ON_ERR_DEBUG_ERROR(result,
+                      "Failed to enqueue HIL test ring debug log message. Unit %d, Error: %d",
+                      GET_ERR_UNIT(result),
+                      GET_ERR_CODE(result));
+}
+#endif
+
 /**
  * @note This function is for testing only. It allows commands to be sent to the device to fasciliate testing.
  */
@@ -3136,10 +3519,37 @@ static void handle_testing_commands_from_app(APP2DOCK_COMMANDS command)
       case APP2DOCK_COMMANDS_ENABLE_DFU:
          // Nothing to do
          break;
+
+#ifdef DEBUG
+      case APP2DOCK_COMMANDS_RESET_DOCK:
+         NVIC_SystemReset();
+         break;
+
+      case APP2DOCK_COMMANDS_POPULATE_DOCK_PUSH_DATA:
+      {
+         DEBUG_INFO("Populating dock with push data for testing.");
+         clear_app_manager_in_flight_tx_for_hil_seed();
+         (void)dequeue_all_dock_push_data();
+         (void)enqueue_hil_test_dose_event();
+         (void)enqueue_hil_test_ring_docked_status();
+         (void)enqueue_hil_test_weight_measurement();
+         (void)enqueue_hil_test_temperature_log();
+         (void)enqueue_hil_test_ring_battery_level();
+         (void)enqueue_hil_test_dock_battery_level();
+         (void)enqueue_hil_test_dock_charge_status();
+         (void)enqueue_hil_test_ring_status();
+         (void)enqueue_hil_test_dock_status();
+         (void)enqueue_hil_test_dock_debug_log();
+         (void)enqueue_hil_test_ring_debug_log();
+         break;
+      }
+#endif
+
       case APP2DOCK_COMMANDS_MAX:
          break;
 
       default:
+         DEBUG_ERROR("Received unknown command from app: %d", command);
          break;
    }
 }
@@ -3243,6 +3653,18 @@ static void process_incoming_app_messages(uint32_t *rx_calibration_weight_mg, bo
                   // Handle baselining request
                   if(start_baselining_request)
                   {
+                     // let App know the baselining process has started.
+                     mp_packet_payload_t tx_msg = {0};
+                     tx_msg.type = (uint8_t)PPI_TYPE_RE;
+                     tx_msg.ppi = (uint8_t)PPI_AD_START_BASELINING;
+                     tx_msg.payload[0] = (uint8_t)true;
+                     tx_msg.pkt_payload_len = sizeof(uint8_t);
+                     result = m_queue_app_manger_tx_ifx->enqueue(m_queue_app_manger_tx_ifx, &tx_msg);
+                     ON_ERR_DEBUG_ERROR(result,
+                                        "Failed to enqueue msg. Unit %d, Error: %d",
+                                        GET_ERR_UNIT(result),
+                                        GET_ERR_CODE(result));
+
                      // Start baselining flow
                      DEBUG_TRACE("Received baselining START request from App. Starting baselining flow.");
                      m_system_sm_inputs.is_baselining_active = true;
@@ -3262,6 +3684,7 @@ static void process_incoming_app_messages(uint32_t *rx_calibration_weight_mg, bo
                      // m_system_sm_inputs.is_baselining_active will be set to false in the baselining state once the
                      // baselining state machine signals that it has completed cleanup and is ready to exit the
                      // baselining state.
+
                      DEBUG_TRACE("Received baselining STOP request from App. Stopping baselining flow.");
                      m_baseline_sm_inputs.is_baselining_active = false;
 
@@ -3625,6 +4048,111 @@ static void process_incoming_app_messages(uint32_t *rx_calibration_weight_mg, bo
                }
             }
             ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+            else if((PPI_TYPE_PUSH == rx_msg.type) && (PPI_AD_CAP_DETECTION_SAMPLE_RATE == rx_msg.ppi))
+            {
+               UPDATE_ERR_IF_TRUE(result, sizeof(uint16_t) != rx_msg.pkt_payload_len, GC_ERROR_INVALID_PARAM);
+               ON_ERR_DEBUG_ERROR(result,
+                                  "Invalid payload length for cap detection sample rate message. Expected %d, got %d.",
+                                  sizeof(uint16_t),
+                                  rx_msg.pkt_payload_len);
+
+               if(IS_OK(result))
+               {
+                  // Parse payload
+                  uint16_t new_sample_period_ms
+                     = (uint16_t)((uint16_t)rx_msg.payload[0u] | ((uint16_t)rx_msg.payload[1u] << 8u));
+
+                  // Set new sample rate
+                  result = m_ring.interface.set_cap_detection_poll_period_ms(&m_ring.interface, new_sample_period_ms);
+                  ON_ERR_DEBUG_ERROR(result,
+                                     "Failed to set new cap detection sample rate. Unit %d, Error: %d",
+                                     GET_ERR_UNIT(result),
+                                     GET_ERR_CODE(result));
+               }
+            }
+            ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+            else if((PPI_TYPE_PUSH == rx_msg.type) && (PPI_AD_CAP_DETECTION_CONFIG == rx_msg.ppi))
+            {
+               UPDATE_ERR_IF_TRUE(
+                  result, sizeof(cap_detection_cfg_t) != rx_msg.pkt_payload_len, GC_ERROR_INVALID_PARAM);
+               ON_ERR_DEBUG_ERROR(result,
+                                  "Invalid payload length for cap detection config message. Expected %d, got %d.",
+                                  sizeof(cap_detection_cfg_t),
+                                  rx_msg.pkt_payload_len);
+
+               if(IS_OK(result))
+               {
+                  // Parse payload
+                  cap_detection_cfg_t new_config = {0};
+                  new_config.threshhold
+                     = (uint16_t)((uint16_t)rx_msg.payload[0u] | ((uint16_t)rx_msg.payload[1u] << 8u));
+                  new_config.hysteresis
+                     = (uint16_t)((uint16_t)rx_msg.payload[2u] | ((uint16_t)rx_msg.payload[3u] << 8u));
+
+                  // Set new config
+                  result = m_ring.interface.send_cap_detection_config_update(&m_ring.interface, new_config);
+                  ON_ERR_DEBUG_ERROR(result,
+                                     "Failed to set new cap detection config. Unit %d, Error: %d",
+                                     GET_ERR_UNIT(result),
+                                     GET_ERR_CODE(result));
+               }
+            }
+            ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+            else if((PPI_TYPE_RQ == rx_msg.type) && (PPI_AD_CAP_DETECTION_CONFIG == rx_msg.ppi))
+            {
+               UPDATE_ERR_IF_TRUE(result, 0u != rx_msg.pkt_payload_len, GC_ERROR_INVALID_PARAM);
+               ON_ERR_DEBUG_ERROR(result,
+                                  "Invalid payload length for cap detection config message. Expected %d, got %d.",
+                                  sizeof(uint32_t),
+                                  rx_msg.pkt_payload_len);
+
+               cap_detection_status_t status = {0};
+
+               if(IS_OK(result))
+               {
+                  // App is requesting current cap detection config and status.
+
+                  IF_OK_RUN_AND_UPDATE(result, m_ring.interface.get_cap_detection_status(&m_ring.interface, &status));
+                  ON_ERR_DEBUG_ERROR(result,
+                                     "Failed to request cap detection config from ring. Unit %d, Error: %d",
+                                     GET_ERR_UNIT(result),
+                                     GET_ERR_CODE(result));
+               }
+
+               if(IS_OK(result))
+               {
+                  mp_packet_payload_t tx_msg = {0};
+                  tx_msg.type = PPI_TYPE_RE;
+                  tx_msg.ppi = PPI_AD_CAP_DETECTION_CONFIG;
+                  size_t offset = 0u;
+                  tx_msg.payload[offset++] = (uint8_t)((status.config.threshhold >> 0u) & 0xFFu);
+                  tx_msg.payload[offset++] = (uint8_t)((status.config.threshhold >> 8u) & 0xFFu);
+                  tx_msg.payload[offset++] = (uint8_t)((status.config.hysteresis >> 0u) & 0xFFu);
+                  tx_msg.payload[offset++] = (uint8_t)((status.config.hysteresis >> 8u) & 0xFFu);
+                  tx_msg.payload[offset++] = (uint8_t)((status.prox_value >> 0u) & 0xFFu);
+                  tx_msg.payload[offset++] = (uint8_t)((status.prox_value >> 8u) & 0xFFu);
+                  tx_msg.payload[offset++] = (uint8_t)((status.is_cap_closed >> 0u) & 0xFFu);
+                  tx_msg.payload[offset++] = (uint8_t)((status.timestamp_unix_s >> 0u) & 0xFFu);
+                  tx_msg.payload[offset++] = (uint8_t)((status.timestamp_unix_s >> 8u) & 0xFFu);
+                  tx_msg.payload[offset++] = (uint8_t)((status.timestamp_unix_s >> 16u) & 0xFFu);
+                  tx_msg.payload[offset++] = (uint8_t)((status.timestamp_unix_s >> 24u) & 0xFFu);
+                  tx_msg.payload[offset++] = (uint8_t)((status.poll_period_ms >> 0u) & 0xFFu);
+                  tx_msg.payload[offset++] = (uint8_t)((status.poll_period_ms >> 8u) & 0xFFu);
+                  tx_msg.payload[offset++] = (uint8_t)((status.poll_period_ms >> 16u) & 0xFFu);
+                  tx_msg.payload[offset++] = (uint8_t)((status.poll_period_ms >> 24u) & 0xFFu);
+                  tx_msg.pkt_payload_len = (uint16_t)offset;
+
+                  // Send response message
+                  IF_OK_RUN_AND_UPDATE(
+                     result, m_queue_app_manager_tx.interface.enqueue(&m_queue_app_manager_tx.interface, &tx_msg));
+                  ON_ERR_DEBUG_ERROR(
+                     result,
+                     "Failed to enqueue cap detection config response message to app manager. Unit %d, Error: %d",
+                     GET_ERR_UNIT(result),
+                     GET_ERR_CODE(result));
+               }
+            }
+            ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
             else if((PPI_TYPE_RQ == rx_msg.type) && (PPI_AD_START_CALIBRATION == rx_msg.ppi))
             {
                // Parse message payload
@@ -3642,6 +4170,18 @@ static void process_incoming_app_messages(uint32_t *rx_calibration_weight_mg, bo
                   // Handle start calibration request
                   if(start_calibration_request)
                   {
+                     // let App know the calibration process has started.
+                     mp_packet_payload_t tx_msg = {0};
+                     tx_msg.type = (uint8_t)PPI_TYPE_RE;
+                     tx_msg.ppi = (uint8_t)PPI_AD_START_CALIBRATION;
+                     tx_msg.payload[0] = (uint8_t)true;
+                     tx_msg.pkt_payload_len = sizeof(uint8_t);
+                     result = m_queue_app_manger_tx_ifx->enqueue(m_queue_app_manger_tx_ifx, &tx_msg);
+                     ON_ERR_DEBUG_ERROR(result,
+                                        "Failed to enqueue msg. Unit %d, Error: %d",
+                                        GET_ERR_UNIT(result),
+                                        GET_ERR_CODE(result));
+
                      // Start calibration flow
                      DEBUG_TRACE("Received calibration START request from App. Starting calibration flow.");
                      m_system_sm_inputs.is_calibration_active = true;
@@ -3663,6 +4203,7 @@ static void process_incoming_app_messages(uint32_t *rx_calibration_weight_mg, bo
                      // m_system_sm_inputs.is_calibration_active will be set to false in the calibration state once the
                      // calibration state machine signals that it has completed cleanup and is ready to exit the
                      // calibration state.
+
                      DEBUG_TRACE("Received calibration STOP request from App. Stopping calibration flow.");
                      m_calibrate_sm_inputs.is_calibration_active = false;
 
@@ -3698,8 +4239,8 @@ static void process_incoming_app_messages(uint32_t *rx_calibration_weight_mg, bo
                   tx_msg.ppi = (uint8_t)PPI_AD_CALIBRATION_DATA;
                   tx_msg.pkt_payload_len = sizeof(weight_stack_calibration_record_t);
 
-                  size_t offset = 0;
-                  uint32_t val = 0;
+                  size_t offset = 0u;
+                  uint32_t val = 0u;
 
                   val = (uint32_t)record.zero_offset;
                   tx_msg.payload[offset++] = (uint8_t)(val & 0xFFu);
@@ -3818,10 +4359,9 @@ static void handle_ring_off_for_too_long(bool is_ring_present)
       if(notify && (now_ms - last_notification_time_ms > RING_REMOVAL_NOTIFICATION_REPEAT_INTERVAL_MS) && IS_OK(result))
       {
          // Todo: consider making this event a unique one in stead of a generic error
-         // result = m_hmi.interface.set_notification_event(&m_hmi.interface, NOTIFICATION_EVENT_ERROR);
-         // ON_ERR_DEBUG_ERROR(
-         //    result, "Failed to set HMI notification. Unit %d, Error: %d", GET_ERR_UNIT(result),
-         //    GET_ERR_CODE(result));
+         result = m_hmi.interface.set_notification_event(&m_hmi.interface, NOTIFICATION_EVENT_ERROR);
+         ON_ERR_DEBUG_ERROR(
+            result, "Failed to set HMI notification. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
          if(IS_OK(result))
          {
             last_notification_time_ms = now_ms;
@@ -3858,19 +4398,12 @@ static void handle_medication_change_notification(uint8_t *medication_uid, uint8
       ON_ERR_DEBUG_ERROR(
          result, "Failed to get medication NFC UID. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
 
-      // Testing only
-      // Testing @todo @testing: Hardcode medication ID to match for testing and demo
-      memcpy(prev_medication_uid, medication_uid, NFC_TAG_MAX_UID_SIZE);
-      // @Todo remove.
-      // Testing end
-
       if(IS_OK(result) && (0 != memcmp(medication_uid, prev_medication_uid, NFC_TAG_MAX_UID_SIZE)))
       {
          DEBUG_ERROR("Medication change detected!");
-         // result = m_hmi.interface.set_notification_event(&m_hmi.interface, NOTIFICATION_EVENT_ERROR);
-         // ON_ERR_DEBUG_ERROR(
-         //    result, "Failed to set HMI notification. Unit %d, Error: %d", GET_ERR_UNIT(result),
-         //    GET_ERR_CODE(result));
+         result = m_hmi.interface.set_notification_event(&m_hmi.interface, NOTIFICATION_EVENT_ERROR);
+         ON_ERR_DEBUG_ERROR(
+            result, "Failed to set HMI notification. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
       }
    }
 }
@@ -3881,12 +4414,12 @@ static void enter_ship_mode(void)
 #ifndef DEBUG_DISABLE_UART
    if(NULL != m_debug_uart_driver_interface)
    {
-      size_t pending_tx_count = 0;
+      size_t pending_tx_count = 0u;
 
       (void)m_debug_uart_driver_interface->parent->_tx_queue->get_count(
          m_debug_uart_driver_interface->parent->_tx_queue, &pending_tx_count);
 
-      for(size_t idx = 0; idx < pending_tx_count; idx++)
+      for(size_t idx = 0u; idx < pending_tx_count; idx++)
       {
          nrf_delay_ms(LOG_FLUSH_LOOP_DELAY_MS);
          (void)m_debug_uart_driver_interface->process(&m_debug_uart_driver.interface);
@@ -3896,7 +4429,7 @@ static void enter_ship_mode(void)
 #endif
 
    // Todo: do any cleanup necessary before shutting down
-   uint32_t unix_timestamp_s = 0;
+   uint32_t unix_timestamp_s = 0u;
    ship_mode_t ship = {0};
    result_t result = m_rtc.interface.get_time_unix(&m_rtc.interface, &unix_timestamp_s);
    if(IS_OK(result))
@@ -3989,7 +4522,7 @@ static void handle_dose_size_detection(bool *valid_weight_data, dock_weight_meas
    if(new_data_available)
    {
       // Gather rest of data for dock_weight_measurement_t
-      uint32_t unix_time_s = 0;
+      uint32_t unix_time_s = 0u;
       result = m_rtc.interface.get_time_unix(&m_rtc.interface, &unix_time_s);
       ON_ERR_DEBUG_ERROR(
          result, "Failed to get unix time. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
@@ -4000,7 +4533,7 @@ static void handle_dose_size_detection(bool *valid_weight_data, dock_weight_meas
          local_weight_data.timestamp_unix_s = unix_time_s; // Get timestamp
 
          bool is_stale = false;
-         result = m_temp_sensor.interface.get_temperature(&m_temp_sensor.interface, true, &temp_decidegc, &is_stale);
+         result = m_temp_sensor.interface.get_temperature(&m_temp_sensor.interface, &temp_decidegc, &is_stale);
          ON_ERR_DEBUG_ERROR(
             result, "Failed to get temperature. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
       }
@@ -4042,16 +4575,14 @@ static void handle_dose_size_detection(bool *valid_weight_data, dock_weight_meas
    }
 }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-function"
 static void implement_control_loop(void)
 {
    result_t result = RESULT_OK;
    static battery_status_t battery_status = {0};
    static status_update_t ring_status = {0};
    static ring_docked_status_t ring_docked_status = {0};
-   static uint32_t rx_calibration_weight = 0; // Calibration weight size received for the calibration procedure
-   static bool is_weight_present = false;     // Used during weight calibration process
+   static uint32_t rx_calibration_weight = 0u; // Calibration weight size received for the calibration procedure
+   static bool is_weight_present = false;      // Used during weight calibration process
 
    update_ble_state();
 
@@ -4124,70 +4655,6 @@ static void implement_control_loop(void)
    bool is_weight_valid = false;
    dock_weight_measurement_t weight_data = {0};
    handle_dose_size_detection(&is_weight_valid, &weight_data);
-
-   // Testing -start
-   static uint64_t prev_print = 0;
-   uint64_t now_ms = 0;
-   (void)m_systick.interface.get_time_ms(&m_systick.interface, &now_ms);
-   if(now_ms - prev_print > 5000u)
-   {
-      prev_print = now_ms;
-      bool stable = false;
-      bool is_stale = true;
-      weight_data_t weight_data = {0};
-      (void)m_weight_sensor.interface.get_is_stable(&m_weight_sensor.interface, &stable);
-      (void)m_weight_sensor.interface.read_weight_data(&m_weight_sensor.interface, &weight_data, &is_stale);
-      SEGGER_RTT_SetTerminal(3);
-      SEGGER_RTT_printf(0, "stable: %d  \n", stable);
-      SEGGER_RTT_printf(0, "is_stale: %d  \n", is_stale);
-      SEGGER_RTT_printf(0, "stddev_mg: %d  \n", weight_data.stddev_mg);
-      SEGGER_RTT_printf(0, "weight_mg: %d  \n", weight_data.weight_mg);
-
-      dock_weight_measurement_t demo_weight_data = {0};
-      static int32_t prev_weight_mg = 0;
-      if(stable && is_ring_present)
-      {
-         // DEMO ONLY STORAGE OF WEIGHT DATA. THIS IS NOT PRODUCTION CODE!
-         SEGGER_RTT_printf(0, "Stored \n");
-         demo_weight_data.std_dev = weight_data.stddev_mg;
-         demo_weight_data.temperature_deg_c_div10 = weight_data.temp_deciC;
-         demo_weight_data.weight_mg = weight_data.weight_mg;
-         int32_t weight_delta_mg = prev_weight_mg - weight_data.weight_mg;
-         demo_weight_data.total_dispensed_mg = (weight_delta_mg > 0) ? (uint32_t)weight_delta_mg : 0u;
-         prev_weight_mg = weight_data.weight_mg;
-
-         uint32_t unix_time_s = 0u;
-         result = m_rtc.interface.get_time_unix(&m_rtc.interface, &unix_time_s);
-         demo_weight_data.timestamp_unix_s = (IS_OK(result)) ? unix_time_s : 0u;
-
-         result = m_dock_data_manager.interface.enqueue(&m_dock_data_manager.interface,
-                                                        DATA_ID_WEIGHT_MEASUREMENT,
-                                                        &demo_weight_data,
-                                                        sizeof(demo_weight_data),
-                                                        1u);
-         ON_ERR_DEBUG_ERROR(
-            result, "Failed to store weight data. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
-      }
-
-      SEGGER_RTT_SetTerminal(0);
-   }
-   // Testing -end
-
-   // static uint64_t last_proximity_update = 0u;
-   // if(is_ring_present && (now_ms - last_proximity_update > 5000u))
-   // {
-   //    last_proximity_update = now_ms;
-   //    // Update proximity data in data manager at a regular interval while the ring is present. This
-
-   //    SEGGER_RTT_SetTerminal(10);
-   //    SEGGER_RTT_printf(0, "Updating proximity thresholds. \n");
-   //    SEGGER_RTT_SetTerminal(0);
-
-   //    uint16_t on = 5001;
-   //    uint16_t off = 4501;
-
-   //    m_ring.interface.update_proximity_thresholds(&m_ring.interface, on, off);
-   // }
 
    process_incoming_app_messages(&rx_calibration_weight, &is_weight_present);
 
@@ -4304,23 +4771,30 @@ static void implement_control_loop(void)
    }
 
    // Handle weight related tasks
-   // result = m_temp_sensor.interface.temp_sensor_process(&m_temp_sensor.interface, TEMP_READ_FREQ_MS);
-   // ON_ERR_DEBUG_ERROR(
-   //    result, "Failed to process temperature sensor. Unit %d, Error: %d", GET_ERR_UNIT(result),
-   //    GET_ERR_CODE(result));
+   result = m_temp_sensor.interface.temp_sensor_process(&m_temp_sensor.interface, TEMP_READ_FREQ_MS);
+   ON_ERR_DEBUG_ERROR(
+      result, "Failed to process temperature sensor. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
    result = m_weight_sensor.interface.process(&m_weight_sensor.interface, is_ring_present);
    ON_ERR_DEBUG_ERROR(
       result, "Failed to process weight sensor. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
+
+   static bool has_logged_dsd_error = false; // Used to prevent log flooding in case of persistent DSD errors
    result = m_dsd.interface.process(&m_dsd.interface, is_ring_present);
    if((GET_ERR_CODE(result) == DOSE_SIZE_DETECTION_ERROR_NOT_BASELINED
        || GET_ERR_CODE(result) == DOSE_SIZE_DETECTION_ERROR_SCALE_NOT_CALIBRATED)
       && GET_ERR_UNIT(result) == SW_UNIT_ID_DOSE_SIZE_DETECTION)
    {
+      if(!has_logged_dsd_error)
+      {
+         DEBUG_ERROR("Dose size detection either not baselined or scale not calibrated. Code: %d, Unit: %d",
+                     GET_ERR_CODE(result),
+                     GET_ERR_UNIT(result));
+         has_logged_dsd_error = true;
+      }
       CLEAR_ERR(result);
    }
    ON_ERR_DEBUG_ERROR(result, "Failed to process DSD. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
 }
-#pragma GCC diagnostic pop
 
 /***********************************************************************************************************************
  * Global function definitions
@@ -4329,7 +4803,7 @@ static void implement_control_loop(void)
 result_t general_control_run(void)
 {
    result_t result = RESULT_OK;
-   static uint64_t prev_main_loop_timestamp_ms = 0;
+   static uint64_t prev_main_loop_timestamp_ms = 0u;
    DEBUG_INFO("Starting main control loop");
 
    // Main application loop
@@ -4348,7 +4822,7 @@ result_t general_control_run(void)
          m_systick_period_ms = m_system_sm_outputs.current_state_systick_period_ms;
       }
 
-      uint64_t current_systick_time_ms = 0;
+      uint64_t current_systick_time_ms = 0u;
       result = m_systick.interface.get_time_ms(&m_systick.interface, &current_systick_time_ms);
       BREAK_ON_ERR(result);
 
@@ -4356,7 +4830,6 @@ result_t general_control_run(void)
       {
          prev_main_loop_timestamp_ms = current_systick_time_ms;
          implement_control_loop();
-         // implement_test_loop();
       }
 
       feed_watchdog();
@@ -4364,34 +4837,6 @@ result_t general_control_run(void)
    }
 
    return result;
-}
-
-static void __attribute__((unused)) nfc_charge_ring(void)
-{
-   DEBUG_INFO("Starting NFC ring charge sandbox");
-
-   uint8_t level = 10u;
-
-   m_i2c_driver_b.interface.i2c_bus_scan(&m_i2c_driver_b.interface);
-
-   result_t result = nfc_driver_init(&m_nfc, &m_i2c_driver_b.interface, &m_systick.interface);
-   if(IS_ERR(result))
-   {
-      DEBUG_ERROR("nfc init failed. Code %d", GET_ERR_CODE(result));
-   }
-
-   result = m_nfc.interface.set_output_power(&m_nfc.interface, level);
-
-   while(true)
-   {
-      nrf_delay_ms(100u);
-      nrf_gpio_pin_clear(LED_GREEN);
-      nrf_delay_ms(100u);
-      nrf_gpio_pin_set(LED_GREEN);
-
-      feed_watchdog();
-      idle_state_handle();
-   }
 }
 
 result_t general_control_init(void)
@@ -4503,7 +4948,7 @@ result_t general_control_init(void)
       result = m_dock_data_manager.interface.get_ship_mode_data(&m_dock_data_manager.interface, &ship);
    }
 
-   uint32_t unix_time_s = 0;
+   uint32_t unix_time_s = 0u;
    if(IS_OK(result) && ship.is_sleeping)
    {
       result = m_rtc.interface.get_time_unix(&m_rtc.interface, &unix_time_s);
@@ -4592,7 +5037,7 @@ result_t general_control_init(void)
       result = m_dock_data_manager.interface.get_dose_schedule_record(&m_dock_data_manager.interface, &schedule_record);
    }
 
-   // Testing only - Start
+   // Testing only - Start: TODO - Remove when we enable NVM storage during testing
    // Hard code a dose schedule
    schedule_record.start_date_unix_seconds = 948240000 - 1;
    schedule_record.dose_schedule.dose_days_bitfield = 0x01; // Mondays only
@@ -4695,8 +5140,6 @@ result_t general_control_init(void)
 
    IF_OK_RUN_AND_UPDATE(result, nfc_driver_init(&m_nfc, &m_i2c_driver_b.interface, &m_systick.interface));
 
-   // nfc_charge_ring();
-
    IF_OK_RUN_AND_UPDATE(
       result,
       message_protocol_init(&m_msg_prot_nfc, &m_systick.interface, &m_nfc.data_ifc, true, 50u, NULL, NULL, NULL, NULL));
@@ -4717,154 +5160,3 @@ result_t general_control_init(void)
 
    return result;
 }
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-function"
-
-void print_status(ring_status_t status)
-{
-   SEGGER_RTT_printf(0, "Ring Data Manager Status:\n");
-   SEGGER_RTT_printf(0, "  Battery charge status: %lu\n", status.battery_charge_status);
-
-   SEGGER_RTT_printf(0,
-                     "  Firmware version: %lu.%lu.%lu\n",
-                     status.firmware_version.major,
-                     status.firmware_version.minor,
-                     status.firmware_version.patch);
-   SEGGER_RTT_printf(0,
-                     "  Hardware version: %lu.%lu.%lu\n",
-                     status.hardware_version.major,
-                     status.hardware_version.minor,
-                     status.hardware_version.patch);
-
-   SEGGER_RTT_printf(0, "  Dose fifo count: %lu\n", status.dose_fifo_used_percent);
-   SEGGER_RTT_printf(0, "  Battery data fifo count: %lu\n", status.battery_fifo_used_percent);
-   SEGGER_RTT_printf(0, "  Error fifo count: %lu\n", status.error_fifo_used_percent);
-
-   SEGGER_RTT_printf(0, "  Dose fifo watermark: %d\n", status.dose_fifo_used_percent_watermark);
-   SEGGER_RTT_printf(0, "  Battery fifo watermark: %d\n", status.battery_fifo_used_percent_watermark);
-   SEGGER_RTT_printf(0, "  Error fifo watermark: %d\n", status.error_fifo_used_percent_watermark);
-
-   SEGGER_RTT_printf(0, "  Battery charge status: %d\n", status.battery_charge_status);
-   SEGGER_RTT_printf(0, "  Battery sample frequency (mHz): %lu\n", status.battery_sample_frequency_millihz);
-
-   SEGGER_RTT_printf(0, "  Temperature (C): %d\n", status.temperature_celsius);
-   SEGGER_RTT_printf(0, "  Ship mode exit time (unix s): %lu\n", status.ship_mode_exit_timestamp_unix);
-}
-
-static void implement_test_loop(void)
-{
-   result_t result = RESULT_OK;
-
-   uint32_t dev_id0 = NRF_FICR->DEVICEID[0];
-   uint32_t dev_id1 = NRF_FICR->DEVICEID[1];
-
-   uint64_t current_systick_ms = 0;
-   result = m_systick.interface.get_time_ms(&m_systick.interface, &current_systick_ms);
-   ON_ERR_DEBUG_ERROR(result, "Failed to get systick time for control loop!");
-
-   bool is_ring_present = false;
-   result = m_nfc.interface.is_ring_present(&m_nfc.interface, &is_ring_present);
-   ON_ERR_DEBUG_ERROR(result, "Failed to get ring presence status for control loop!");
-
-   result = m_nfc.interface.process(&m_nfc.interface, true);
-   ON_ERR_DEBUG_ERROR(result, "Failed to process NFC events in control loop!");
-
-   uint32_t current_time_ms = 0;
-   result = m_rtc.interface.get_time_unix(&m_rtc.interface, &current_time_ms);
-   ON_ERR_DEBUG_ERROR(result, "Failed to get RTC time for control loop!");
-
-   result = m_ring.interface.process(&m_ring.interface, true);
-   ON_ERR_DEBUG_ERROR(result, "Failed to process NFC events in control loop!");
-   result = m_msg_prot_nfc.interface.process(&m_msg_prot_nfc.interface);
-   ON_ERR_DEBUG_ERROR(result, "Failed to process NFC message protocol events in control loop!");
-
-   size_t ring_battery_level_count = 0;
-   m_dock_data_manager.interface.get_element_count(
-      &m_dock_data_manager.interface, DATA_ID_RING_BATTERY_LEVEL, &ring_battery_level_count);
-
-   size_t ring_status_count = 0;
-   m_dock_data_manager.interface.get_element_count(
-      &m_dock_data_manager.interface, DATA_ID_RING_STATUS, &ring_status_count);
-
-   ring_status_t status = {0};
-   result = m_dock_data_manager.interface.dequeue(
-      &m_dock_data_manager.interface, DATA_ID_RING_STATUS, &status, sizeof(ring_status_t), 1u);
-
-   if(IS_OK(result))
-   {
-      SEGGER_RTT_SetTerminal(2);
-      print_status(status);
-      SEGGER_RTT_SetTerminal(0);
-   }
-
-   raw_debug_log_t ring_error = {0};
-   result = m_dock_data_manager.interface.dequeue(
-      &m_dock_data_manager.interface, DATA_ID_RING_DEBUG_LOG, &ring_error, sizeof(raw_debug_log_t), 1u);
-
-   if(IS_OK(result))
-   {
-      SEGGER_RTT_SetTerminal(3);
-      SEGGER_RTT_printf(0,
-                        "Ring error log | Line: %d, Module ID: %d, Timestamp: %lu\n",
-                        ring_error.line,
-                        ring_error.module_id,
-                        ring_error.timestamp);
-      SEGGER_RTT_SetTerminal(0);
-   }
-
-   ring_battery_data_t battery_data = {0};
-   result = m_dock_data_manager.interface.dequeue(
-      &m_dock_data_manager.interface, DATA_ID_RING_BATTERY_LEVEL, &battery_data, sizeof(ring_battery_data_t), 1u);
-   if(IS_OK(result))
-   {
-      SEGGER_RTT_SetTerminal(4);
-
-      SEGGER_RTT_printf(0,
-                        "Ring battery data | Level: %u%%, Timestamp: %u\n",
-                        battery_data.charge_percent,
-                        battery_data.timestamp_unix_s);
-      SEGGER_RTT_SetTerminal(0);
-   }
-
-   dose_event_t dose_event = {0};
-   result = m_dock_data_manager.interface.dequeue(
-      &m_dock_data_manager.interface, DATA_ID_DOSE_EVENT, &dose_event, sizeof(dose_event_t), 1u);
-   if(IS_OK(result))
-   {
-      SEGGER_RTT_SetTerminal(5);
-      SEGGER_RTT_printf(0,
-                        "Dose event data:\nEvent ID Days: %d, Event Count: %d, Timestamp: %lu\n, Duration: %lu s, "
-                        "Completed in time: %d, Tilt count: %d\n",
-                        dose_event.event_id.days_since_epoch,
-                        dose_event.event_id.event_ctr,
-                        dose_event.start_timestamp_unix_s,
-                        dose_event.duration_s,
-                        dose_event.dose_completed_in_time,
-                        dose_event.tilt_count);
-      SEGGER_RTT_SetTerminal(0);
-   }
-
-   static uint64_t last_status_report_ms = 0;
-   if((current_systick_ms - last_status_report_ms > 1000u))
-   {
-      last_status_report_ms = current_systick_ms;
-
-      SEGGER_RTT_SetTerminal(1);
-      SEGGER_RTT_printf(0, "\033[2J\033[;H");
-      SEGGER_RTT_printf(0, "---------------------------\n");
-      SEGGER_RTT_printf(0, "-- DOCK VIEW OF RING STATUS --\n");
-      SEGGER_RTT_printf(0, "---------------------------\n");
-      SEGGER_RTT_printf(0, "ID: 0x%08lx", dev_id1);
-      SEGGER_RTT_printf(0, "%08lx\n", dev_id0);
-      SEGGER_RTT_printf(0, "Time: %us\n", current_time_ms);
-      SEGGER_RTT_printf(0, "Systick: %lums\n", current_systick_ms);
-      SEGGER_RTT_printf(0, "Ring battery level count: %d\n", ring_battery_level_count);
-      SEGGER_RTT_printf(0, "Ring status count: %d\n", ring_status_count);
-      is_ring_present ? SEGGER_RTT_printf(0, "Ring is present\n") : SEGGER_RTT_printf(0, "Ring is NOT present\n");
-      SEGGER_RTT_SetTerminal(0);
-
-      print_status(status);
-   }
-}
-#pragma GCC diagnostic pop

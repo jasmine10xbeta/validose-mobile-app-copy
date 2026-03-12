@@ -538,20 +538,22 @@ static result_t
 
       p_self->_is_weight_data_stale = false;
 
+      // Testing only: Todo: remove before production release - Start
       static uint64_t last_debug_time_ms = 0;
       if(current_time_ms - last_debug_time_ms >= 1000)
       { // 1 second rate limit
-         // DEBUG_DEBUG(
-         //    "[ws] Sampled weight: %d mg (stddev: %u mg, raw ADC: %d, ADC stddev: %u), temp: %d deciC, ring: %s",
-         //    weight_mg,
-         //    stddev_mg,
-         //    adc_value,
-         //    adc_stddev,
-         //    temp_deciC,
-         //    is_ring_present);
+         DEBUG_DEBUG(
+            "[ws] Sampled weight: %d mg (stddev: %u mg, raw ADC: %d, ADC stddev: %u), temp: %d deciC, ring: %s",
+            weight_mg,
+            stddev_mg,
+            adc_value,
+            adc_stddev,
+            temp_deciC,
+            is_ring_present);
          last_debug_time_ms = current_time_ms;
       }
    }
+   // Testing only - end
 
    return result;
 }
@@ -576,11 +578,7 @@ static result_t process(const weight_sensor_interface_t *interface, bool is_ring
 
    result_t result = p_systick_ifc->get_time_ms(p_systick_ifc, &current_time_ms);
 
-   IF_OK_RUN_AND_UPDATE(result,
-                        p_temp_sensor_ifc->get_temperature(p_temp_sensor_ifc,
-                                                           true, // single shot mode
-                                                           &temp_deciC,
-                                                           &is_temp_stale));
+   IF_OK_RUN_AND_UPDATE(result, p_temp_sensor_ifc->get_temperature(p_temp_sensor_ifc, &temp_deciC, &is_temp_stale));
 
    IF_OK_RUN_AND_UPDATE(result, update_sampling_state(p_self, is_ring_present));
 

@@ -18,6 +18,7 @@
 #include "queue.h"
 #include "result.h"
 #include "ring_sources.h"
+#include <stdio.h>
 
 /***********************************************************************************************************************
  * Definitions

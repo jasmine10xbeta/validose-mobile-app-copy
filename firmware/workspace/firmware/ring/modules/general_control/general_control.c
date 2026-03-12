@@ -10,7 +10,6 @@
  * @ingroup gc_module
  * @brief
  *
- * @todo: General reactor of the general controller module: VOD-1672
  */
 
 /***********************************************************************************************************************
@@ -348,9 +347,13 @@ result_t debug_uart_tx_handler(const uint8_t *p_data, size_t length)
 
 result_t debug_nfc_tx_handler(const uint8_t *p_data, size_t length)
 {
-   raw_debug_log_t log = {0};
-   (void)debug_map_unencoded_log(&log, p_data, length);
-   return m_data_manager.interface.enqueue_error(&m_data_manager.interface, &log);
+   (void)p_data;
+   (void)length;
+   return RESULT_OK;
+
+   // raw_debug_log_t log = {0};
+   // (void)debug_map_unencoded_log(&log, p_data, length);
+   // return m_data_manager.interface.enqueue_error(&m_data_manager.interface, &log);
 }
 
 void debug_uart_rx_handler(const uint8_t *p_data, size_t length)
@@ -732,8 +735,8 @@ static void handle_ble_pairing(void)
    }
 
    result_t result = RESULT_OK;
-   static uint64_t pairing_state_start_time_ms = 0;
-   uint64_t current_systick_time_ms = 0;
+   static uint64_t pairing_state_start_time_ms = 0u;
+   uint64_t current_systick_time_ms = 0u;
    static bool is_pairing_starting = true;
 
    nrf_gpio_pin_set(LED_BLUE); // Set LED to indicate pairing mode is active
@@ -816,23 +819,18 @@ static void implement_control_loop(void)
 {
    result_t result = RESULT_OK;
 
-   uint64_t current_time_ms = 0;
-   result = m_rtc.interface.get_time_ms(&m_rtc.interface, &current_time_ms);
-   ON_ERR_DEBUG_ERROR(result, "Failed to get RTC time.");
-   uint32_t current_time_s = (uint32_t)(current_time_ms / 1000u);
-
-   uint64_t current_systick_ms = 0;
+   uint64_t current_systick_ms = 0u;
    result = m_systick.interface.get_time_ms(&m_systick.interface, &current_systick_ms);
    ON_ERR_DEBUG_ERROR(result, "Failed to get systick time.");
-   uint32_t current_systick_s = (uint32_t)(current_systick_ms / 1000u);
+   uint32_t current_systick_s = (uint32_t)(current_systick_ms / COMMON_1K_CST);
 
    // Statuses that require I2C reads are rate limited
    // Static to keep the previous value if the data is stale.
    static battery_status_t battery = {0};
    static IMU_STATE imu_state = IMU_STATE_UNINITIALIZED;
    static CAP_STATE cap_state = CAP_STATE_UNKNOWN;
-   static uint16_t prox_val = 0;
-   static uint8_t dose_queue_element_count = 0;
+   static uint16_t prox_val = 0u;
+   static uint8_t dose_queue_element_count = 0u;
 
    // Process functions
    result = m_data_manager.interface.process(&m_data_manager.interface);
@@ -841,7 +839,7 @@ static void implement_control_loop(void)
    result = m_dock_manager.interface.process(&m_dock_manager.interface, true);
    ON_ERR_DEBUG_ERROR(result, "Failed to process dock manager!");
 
-   static uint64_t last_rate_limited_status_query = 0;
+   static uint64_t last_rate_limited_status_query = 0u;
    if(current_systick_ms - last_rate_limited_status_query > 500u)
    {
       last_rate_limited_status_query = current_systick_ms;
@@ -862,7 +860,7 @@ static void implement_control_loop(void)
       result = m_dose_queue.interface.nfc_get_element_count(&m_dose_queue.interface, &dose_queue_element_count);
       ON_ERR_DEBUG_ERROR(result, "Failed to get dose queue element count!");
    }
-   static uint64_t prev_blink_ms = 0;
+   static uint64_t prev_blink_ms = 0u;
 
    if(battery.charger_connected)
    {
@@ -879,7 +877,7 @@ static void implement_control_loop(void)
       nrf_gpio_pin_clear(LED_GREEN);
    }
 
-   static uint64_t last_status_report_ms = 0;
+   static uint64_t last_status_report_ms = 0u;
    if((current_systick_ms - last_status_report_ms > 1000u))
    {
       last_status_report_ms = current_systick_ms;
@@ -887,15 +885,14 @@ static void implement_control_loop(void)
       ring_status_t ring_status = {0};
       m_data_manager.interface.get_status(&m_data_manager.interface, &ring_status);
 
-      proximity_thresholds_t threshholds = {0};
-      m_cap_detect.interface.get_prox_sensor_thresholds(&m_cap_detect.interface, &threshholds);
+      uint16_t cap_detection_threshold = 0u;
+      uint16_t cap_detection_hysteresis = 0u;
+
+      m_cap_detect.interface.get_config(&m_cap_detect.interface, &cap_detection_threshold, &cap_detection_hysteresis);
 
       SEGGER_RTT_SetTerminal(1);
       SEGGER_RTT_printf(0, "\033[2J\033[;H");
-      SEGGER_RTT_printf(0, "---------------------------\n");
       SEGGER_RTT_printf(0, "-- CAP AND CHARGE STATUS --\n");
-      SEGGER_RTT_printf(0, "---------------------------\n");
-      SEGGER_RTT_printf(0, "Time: %us\n", current_time_s);
       SEGGER_RTT_printf(0, "Systick: %us\n", current_systick_s);
 
       battery.charger_connected ? SEGGER_RTT_printf(0, "Charger: Connected\n") :
@@ -917,53 +914,44 @@ static void implement_control_loop(void)
       imu_state == IMU_STATE_ACTIVE ? SEGGER_RTT_printf(0, "IMU state: ACTIVE\n") :
                                       SEGGER_RTT_printf(0, "IMU state: DORMANT\n");
 
-      SEGGER_RTT_printf(0, "----------------------------\n");
-      SEGGER_RTT_SetTerminal(0);
+      // SEGGER_RTT_SetTerminal(2);
+      // SEGGER_RTT_printf(0, "\033[2J\033[;H");
+      // SEGGER_RTT_printf(0, "------- RING STATUS -------\n");
+      // SEGGER_RTT_printf(0, "Systick: %lums\n", current_systick_ms);
+      // SEGGER_RTT_printf(0, "Dose fifo elements: %u\n", dose_queue_element_count);
+      // SEGGER_RTT_printf(0, "Dose fifo used: %u%%\n", ring_status.dose_fifo_used_percent);
+      // SEGGER_RTT_printf(0, "Dose fifo watermark: %u%%\n", ring_status.dose_fifo_used_percent_watermark);
+      // SEGGER_RTT_printf(0, "Battery fifo elements: %u\n", m_data_manager._battery_queue_ifc->parent->_element_count);
+      // SEGGER_RTT_printf(0, "Battery fifo used: %u%%\n", ring_status.battery_fifo_used_percent);
+      // SEGGER_RTT_printf(0, "Battery fifo watermark: %u%%\n", ring_status.battery_fifo_used_percent_watermark);
+      // SEGGER_RTT_printf(0, "Error fifo used: %u%%\n", ring_status.error_fifo_used_percent);
+      // SEGGER_RTT_printf(0, "Error fifo watermark: %u%%\n", ring_status.error_fifo_used_percent_watermark);
+      // SEGGER_RTT_printf(0, "Battery sample frequency: %u milliHz\n", ring_status.battery_sample_frequency_millihz);
 
-      SEGGER_RTT_SetTerminal(2);
-      SEGGER_RTT_printf(0, "\033[2J\033[;H");
-      SEGGER_RTT_printf(0, "---------------------------\n");
-      SEGGER_RTT_printf(0, "------- RING STATUS -------\n");
-      SEGGER_RTT_printf(0, "---------------------------\n");
-      SEGGER_RTT_printf(0, "Time: %lums\n", current_time_ms);
-      SEGGER_RTT_printf(0, "Systick: %lums\n", current_systick_ms);
-      SEGGER_RTT_printf(0, "Dose fifo elements: %u\n", dose_queue_element_count);
-      SEGGER_RTT_printf(0, "Dose fifo used: %u%%\n", ring_status.dose_fifo_used_percent);
-      SEGGER_RTT_printf(0, "Dose fifo watermark: %u%%\n", ring_status.dose_fifo_used_percent_watermark);
-      SEGGER_RTT_printf(0, "Battery fifo elements: %u\n", m_data_manager._battery_queue_ifc->parent->_element_count);
-      SEGGER_RTT_printf(0, "Battery fifo used: %u%%\n", ring_status.battery_fifo_used_percent);
-      SEGGER_RTT_printf(0, "Battery fifo watermark: %u%%\n", ring_status.battery_fifo_used_percent_watermark);
-      SEGGER_RTT_printf(0, "Error fifo used: %u%%\n", ring_status.error_fifo_used_percent);
-      SEGGER_RTT_printf(0, "Error fifo watermark: %u%%\n", ring_status.error_fifo_used_percent_watermark);
-      SEGGER_RTT_printf(0, "Battery sample frequency: %u milliHz\n", ring_status.battery_sample_frequency_millihz);
-
-      ring_status.battery_charge_status == BATTERY_STATE_CHARGING ?
-         SEGGER_RTT_printf(0, "Battery charge status: Charging\n") :
-         1;
-      ring_status.battery_charge_status == BATTERY_STATE_CHARGING_COMPLETED ?
-         SEGGER_RTT_printf(0, "Battery charge status: Charge Complete\n") :
-         1;
-      ring_status.battery_charge_status == BATTERY_STATE_SOC_GOOD ?
-         SEGGER_RTT_printf(0, "Battery charge status: SOC Good\n") :
-         1;
-      ring_status.battery_charge_status == BATTERY_STATE_SOC_LOW ?
-         SEGGER_RTT_printf(0, "Battery charge status: SOC Low\n") :
-         1;
-      SEGGER_RTT_SetTerminal(0);
+      // ring_status.battery_charge_status == BATTERY_STATE_CHARGING ?
+      //    SEGGER_RTT_printf(0, "Battery charge status: Charging\n") :
+      //    1;
+      // ring_status.battery_charge_status == BATTERY_STATE_CHARGING_COMPLETED ?
+      //    SEGGER_RTT_printf(0, "Battery charge status: Charge Complete\n") :
+      //    1;
+      // ring_status.battery_charge_status == BATTERY_STATE_SOC_GOOD ?
+      //    SEGGER_RTT_printf(0, "Battery charge status: SOC Good\n") :
+      //    1;
+      // ring_status.battery_charge_status == BATTERY_STATE_SOC_LOW ?
+      //    SEGGER_RTT_printf(0, "Battery charge status: SOC Low\n") :
+      //    1;
 
       SEGGER_RTT_SetTerminal(3);
       SEGGER_RTT_printf(0, "\033[2J\033[;H");
-      SEGGER_RTT_printf(0, "---------------------------\n");
       SEGGER_RTT_printf(0, "----- DOSE DETECTION ------\n");
-      SEGGER_RTT_printf(0, "---------------------------\n");
-      SEGGER_RTT_printf(0, "Time: %ums\n", current_time_s);
       SEGGER_RTT_printf(0, "Systick: %ums\n", current_systick_s);
       SEGGER_RTT_printf(0, "Doses detected: %d\n", m_dose_detect._dose_event_queue._element_count);
       cap_state == CAP_STATE_CLOSED ? SEGGER_RTT_printf(0, "Cap state: CLOSED\n") : 1;
       cap_state == CAP_STATE_OPEN ? SEGGER_RTT_printf(0, "Cap state: OPEN\n") : 1;
       cap_state == CAP_STATE_UNKNOWN ? SEGGER_RTT_printf(0, "Cap state: UNKNOWN\n") : 1;
       SEGGER_RTT_printf(0, "Prox value: %u\n", prox_val);
-      SEGGER_RTT_printf(0, "Proximity thresholds\nHigh: %u\nLow: %u\n", threshholds.high, threshholds.low);
+      SEGGER_RTT_printf(
+         0, "Cap detection Config\nThreshold: %u\nHysteresis: %u\n", cap_detection_threshold, cap_detection_hysteresis);
 
       SEGGER_RTT_SetTerminal(0);
    }
@@ -976,7 +964,7 @@ static void implement_control_loop(void)
 result_t general_control_run(void)
 {
    result_t result = RESULT_OK;
-   static uint64_t prev_main_loop_timestamp_ms = 0;
+   static uint64_t prev_main_loop_timestamp_ms = 0u;
    DEBUG_INFO("Starting main control loop");
 
    // Main application loop
@@ -996,7 +984,7 @@ result_t general_control_run(void)
 
       m_flag.is_in_low_power_mode = !m_flag.is_cap_removed;
 
-      uint64_t current_systick_time_ms = 0;
+      uint64_t current_systick_time_ms = 0u;
       result = m_systick.interface.get_time_ms(&m_systick.interface, &current_systick_time_ms);
       RETURN_ON_ERR(result);
 
@@ -1068,12 +1056,30 @@ result_t general_control_init(void)
    IF_OK_RUN_AND_UPDATE(result, ble_control_get_bonded_status(&m_flag.ble_bonded));
    IF_OK_RUN_AND_UPDATE(result, tmd2635_driver_init(&m_prox, &m_prox_cfg, &m_i2c_driver_0.interface));
    IF_OK_RUN_AND_UPDATE(result, tilt_detection_init(&m_tilt_detect, &m_systick.interface, &m_imu.interface));
-   IF_OK_RUN_AND_UPDATE(result, cap_detection_init(&m_cap_detect, &(m_prox.interface)));
+   IF_OK_RUN_AND_UPDATE(result, fds_manager_init(&m_fds_manager));
 
+   uint16_t stored_threshold = 0u;
+   uint16_t stored_hysteresis = 0u;
+
+#define TEST_HARDCODE_CAP_DETECTION_CONFIG
+#ifdef TEST_HARDCODE_CAP_DETECTION_CONFIG
+   stored_threshold = 11000u;
+   stored_hysteresis = 1000u;
+#else
+
+   IF_OK_RUN_AND_UPDATE(result,
+                        m_fds_manager.interface.retrieve_uint16_t(
+                           &m_fds_manager.interface, RECORD_ID_CAP_DETECTION_THRESHOLD, &stored_threshold));
+   IF_OK_RUN_AND_UPDATE(result,
+                        m_fds_manager.interface.retrieve_uint16_t(
+                           &m_fds_manager.interface, RECORD_ID_CAP_DETECTION_HYSTERESIS, &stored_hysteresis));
+#endif
+
+   IF_OK_RUN_AND_UPDATE(result,
+                        cap_detection_init(&m_cap_detect, &(m_prox.interface), stored_threshold, stored_hysteresis));
    IF_OK_RUN_AND_UPDATE(
       result, dose_detection_init(&m_dose_detect, &m_rtc.interface, &m_cap_detect.interface, &m_tilt_detect.interface));
    IF_OK_RUN_AND_UPDATE(result, st25dv_driver_init(&m_nfc, &m_i2c_driver_1.interface, NFC_GPO, &m_systick.interface));
-   IF_OK_RUN_AND_UPDATE(result, fds_manager_init(&m_fds_manager));
 
    IF_OK_RUN_AND_UPDATE(
       result,
@@ -1098,34 +1104,16 @@ result_t general_control_init(void)
                                                &m_imu.interface,
                                                &m_battery.interface,
                                                &m_dose_detect.interface,
+                                               &m_cap_detect.interface,
                                                &m_dose_queue.interface,
                                                &battery_queue.interface,
-                                               &error_queue.interface,
-                                               &m_cap_detect.interface));
+                                               &error_queue.interface));
 
-   // Default to once every 30 seconds - fds manager has protection against overwriting duplicate entries to preserve
-   // write endurance
+   // Default polling the battery level once every 30 seconds.
+   // The call to update the sample rate every boot is not a problem for write endurance because the FDS manager will
+   // not overwrite the entry if the value is the same as the existing value.
    uint16_t battery_sample_rate_ms = 30u;
    m_data_manager.interface.update_battery_sample_rate(&m_data_manager.interface, battery_sample_rate_ms);
-
-   // Retrieve the stored proximity values and set them
-   proximity_thresholds_t prox_thresholds = {0};
-   uint64_t prox_high = 0;
-   uint64_t prox_low = 0;
-
-   m_fds_manager.interface.retrieve_uint64_t(&m_fds_manager.interface, RECORD_ID_PROXIMITY_CAP_ON, &prox_high);
-   m_fds_manager.interface.retrieve_uint64_t(&m_fds_manager.interface, RECORD_ID_PROXIMITY_CAP_OFF, &prox_low);
-
-   prox_thresholds.high = (uint16_t)prox_high;
-   prox_thresholds.low = (uint16_t)prox_low;
-
-   SEGGER_RTT_SetTerminal(10);
-   SEGGER_RTT_printf(
-      0, "Setting retrieved proximity thresholds. High: %u, Low: %u\n", prox_thresholds.high, prox_thresholds.low);
-   SEGGER_RTT_SetTerminal(0);
-
-   IF_OK_RUN_AND_UPDATE(result,
-                        m_cap_detect.interface.set_prox_sensor_thresholds(&m_cap_detect.interface, prox_thresholds));
 
    IF_OK_RUN_AND_UPDATE(result,
                         ring_sources_init(&m_ring_sources,
@@ -1139,20 +1127,11 @@ result_t general_control_init(void)
       message_protocol_init(
          &m_message_protocol, &m_systick.interface, &m_nfc.data_ifc, false, 50u, NULL, NULL, NULL, NULL));
 
-   IF_OK_RUN_AND_UPDATE(result,
-                        dock_manager_init(&m_dock_manager,
-                                          &m_message_protocol.interface,
-                                          &m_data_manager.interface,
-                                          &m_ring_sources.interface,
-                                          &m_systick.interface));
+   IF_OK_RUN_AND_UPDATE(
+      result,
+      dock_manager_init(
+         &m_dock_manager, &m_message_protocol.interface, &m_data_manager.interface, &m_ring_sources.interface));
 
-   while(IS_ERR(result))
-   {
-      nrf_delay_ms(1000);
-      feed_watchdog();
-      idle_state_handle();
-      DEBUG_INFO("general_control_init not completed. UNIT: %d REASON: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
-   }
    DEBUG_INFO("general_control_init completed.");
 
    return result;

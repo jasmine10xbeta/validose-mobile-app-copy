@@ -23,60 +23,14 @@
 /***********************************************************************************************************************
  * Definitions
  **********************************************************************************************************************/
-#define CRC_BUFFER_SIZE (2u)
-
+#define CRC_BUFFER_SIZE (2u) // CRC is calculated over 2 bytes of data for temperature and status reads
+#define MAX_NUM_TEMP_READ_RETRIES                                                                                      \
+   (10u) // Max number of retries for reading temperature if ANACK is received before giving up and logging an error
+#define MAX_NUM_COMMAND_RETRIES                                                                                        \
+   (10u) // Max number of retries for sending a command if ANACK is received before giving up and logging an error
 /***********************************************************************************************************************
  * Types
  **********************************************************************************************************************/
-/**
- * @brief Status register bits for the STS30 temperature sensor.
- *
- * @enum STS30_STATUS_REG_BITS
- * @var STS30_STATUS_REG_BITS_CHECKSUM_FAILED Checksum failed status bit.
- * @var STS30_STATUS_REG_BITS_CMD_NOT_PROCESSED Command not processed status bit.
- * @var STS30_STATUS_REG_BITS_RESET_DETECTED Reset detected status bit.
- * @var STS30_STATUS_REG_BITS_ALERT_TRACKING Alert tracking status bit.
- * @var STS30_STATUS_REG_BITS_HEATER_ACTIVE Heater active status bit.
- * @var STS30_STATUS_REG_BITS_ALERT_PENDING Alert pending status bit.
- */
-typedef enum
-{
-   STS30_STATUS_REG_BITS_CHECKSUM_FAILED = 0,
-   STS30_STATUS_REG_BITS_CMD_NOT_PROCESSED = 1,
-   STS30_STATUS_REG_BITS_RESET_DETECTED = 4,
-   STS30_STATUS_REG_BITS_ALERT_TRACKING = 10,
-   STS30_STATUS_REG_BITS_HEATER_ACTIVE = 13,
-   STS30_STATUS_REG_BITS_ALERT_PENDING = 15
-} STS30_STATUS_REG_BITS;
-
-/**
- * @brief Temperature measurement modes for the STS30 sensor.
- *
- * @enum GET_TEMP_MODE
- * @var GET_TEMP_MODE_SINGLE_SHOT Single shot temperature measurement mode.
- * @var GET_TEMP_MODE_PERIODIC Periodic temperature measurement mode.
- */
-typedef enum
-{
-   GET_TEMP_MODE_SINGLE_SHOT = 0,
-   GET_TEMP_MODE_PERIODIC
-} GET_TEMP_MODE;
-
-/**
- * @brief Command types for the STS30 sensor driver.
- *
- * @enum COMMAND_TYPE
- * @var COMMAND_TYPE_GET_TEMP Command to get temperature.
- * @var COMMAND_TYPE_GET_STATUS Command to get status.
- * @var COMMAND_TYPE_OTHER Other command type.
- */
-typedef enum
-{
-   COMMAND_TYPE_GET_TEMP = 0,
-   COMMAND_TYPE_GET_STATUS,
-   COMMAND_TYPE_OTHER
-} COMMAND_TYPE;
-
 // Forward declarations of the structs since they're interdependent.
 typedef struct timer_context timer_context_t;
 typedef struct temp_timer temp_timer_t;
@@ -122,11 +76,6 @@ struct temp_timer
  * @param _temp_tmeas_delay_timer Temperature Measurement Delay Timer
  * @param _ss_current_temp_decidegC Single-Shot Current Temperature in deci-degrees Celsius
  * @param _ss_is_temp_measurement_stale Single-Shot Temperature Measurement Stale Flag
- * @param _p_current_temp_decidegC Periodic Current Temperature in deci-degrees Celsius
- * @param _p_is_temp_measurement_stale Periodic Temperature Measurement Stale Flag
- * @param _current_status Current Status Value
- * @param _current_mode Current Temperature Measurement Mode
- * @param _last_command_type Last Command Type Issued
  * @param _i2c_interface I2C Driver Interface
  * @param _system_time_interface System Time Interface
  */
@@ -142,6 +91,8 @@ struct sts30_dis_temp_sensor_driver
 
    bool _reset_timer_elapsed;
    bool _command_timer_elapsed;
+   uint8_t _read_temp_num_retries;
+   uint8_t _command_num_retries;
    bool _temp_meas_timer_elapsed;
 
    // For timer handling and context
@@ -150,16 +101,11 @@ struct sts30_dis_temp_sensor_driver
    temp_timer_t _reset_delay_timer;
    temp_timer_t _temp_tmeas_delay_timer;
    // Single shot mode
+   bool _is_busy_measuring; // indicates if a measurement command has been sent and we're waiting for it to complete
+   bool _is_busy_command;   // indicates if we're waiting for a command gap to elapse before allowing another command
+   bool _is_first_read;     // indicates if we've done the first read yet (to handle initial conditions on startup)
    int16_t _ss_current_temp_decidegC;
    bool _ss_is_temp_measurement_stale;
-   // Periodic mode
-   int16_t _p_current_temp_decidegC;
-   bool _p_is_temp_measurement_stale;
-   // Get status mode
-   status_t _current_status;
-   // Mode
-   GET_TEMP_MODE _current_mode;
-   COMMAND_TYPE _last_command_type;
 };
 
 /***********************************************************************************************************************

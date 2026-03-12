@@ -30,7 +30,7 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_DOCK_MANAGER;
 /***********************************************************************************************************************
  * Types
  **********************************************************************************************************************/
-static system_time_interface_t *systime_ifc = {0};
+
 /***********************************************************************************************************************
  * Static function declarations
  **********************************************************************************************************************/
@@ -58,125 +58,24 @@ static bool get_is_tx_not_in_progress(MSG_PROT_TX_PACKET_STATUS status)
           (MSG_PROT_TX_PACKET_STATUS_ABANDONED == status);
 }
 
-static result_t dispatch_by_ppi(const dock_manager_interface_t *interface, mp_packet_payload_t *rx_packet)
+static result_t dispatch_push_ppi(const dock_manager_interface_t *interface, mp_packet_payload_t *rx_packet)
 {
    RETURN_ERR_IF_INTERFACE_NULL(interface, DOCK_MANAGER_ERROR_NULL_INTERFACE_PTR);
    RETURN_ERR_IF_NULL(rx_packet, DOCK_MANAGER_ERROR_NULL_PTR);
-
-   // Should not receive response packets
-   RETURN_ERR_IF_TRUE(PPI_TYPE_RE == rx_packet->type, DOCK_MANAGER_ERROR_INCORRECT_RX_PACKET_TYPE);
-   RETURN_ERR_IF_TRUE(PPI_TYPE_MAX <= rx_packet->type, DOCK_MANAGER_ERROR_INVALID_RX_PACKET_TYPE);
+   RETURN_ERR_IF_TRUE(PPI_TYPE_PUSH != rx_packet->type, DOCK_MANAGER_ERROR_INCORRECT_RX_PACKET_TYPE);
 
    result_t result = RESULT_OK;
+
    dock_manager_t *self = interface->parent;
 
    uint64_t time = 0;
    uint16_t battery_sample_hz = 0;
-   prox_data_t prox_data = {0};
-
-   static uint64_t last_PPI_rx_systime = 0;
-   static uint64_t average = 0;
-   uint64_t current_systick_ms = 0;
-   uint64_t delta = 0;
-
-   systime_ifc->get_time_ms(systime_ifc, &current_systick_ms);
-
-   delta = current_systick_ms - last_PPI_rx_systime;
-
-   average = (average * 19 + delta) / 20;
-
-   SEGGER_RTT_SetTerminal(6);
-   SEGGER_RTT_printf(0, "Elapsed time since last PPI RX: %u ms (average: %u ms)\n", (uint32_t)delta, (uint32_t)average);
-   SEGGER_RTT_SetTerminal(0);
-
-   last_PPI_rx_systime = current_systick_ms;
+   cap_detection_cfg_t cap_detection_cfg = {0};
 
    // Dispatch based on PPI
    switch(rx_packet->ppi)
    {
-      case PPI_RD_STATUS:
-
-         SEGGER_RTT_SetTerminal(5);
-         SEGGER_RTT_printf(0, "Received STATUS REQ from dock\n");
-         SEGGER_RTT_SetTerminal(0);
-
-         self->_requested.ppi = PPI_RD_STATUS;
-         self->_requested.type = PPI_TYPE_RE;
-         self->_requested.source_id = SOURCE_ID_STATUS;
-         self->_requested.total_bytes = sizeof(ring_status_t);
-         self->_requested.active = true;
-
-         break;
-
-      case PPI_RD_DOSE_DATA:
-
-         SEGGER_RTT_SetTerminal(5);
-         SEGGER_RTT_printf(0, "Received DOSE DATA REQ from dock\n");
-
-         if(rx_packet->pkt_payload_len != sizeof(uint16_t))
-         {
-            DEBUG_ERROR("Invalid DOSE DATA REQ length");
-            SET_ERR(result, DOCK_MANAGER_ERROR_INVALID_RX_PACKET_LEN);
-            break;
-         }
-         self->_requested.ppi = PPI_RD_DOSE_DATA;
-         self->_requested.type = PPI_TYPE_RE;
-         self->_requested.source_id = SOURCE_ID_DOSE;
-         self->_requested.total_bytes = sizeof(dose_data_t);
-         self->_requested.active = true;
-
-         SEGGER_RTT_SetTerminal(0);
-
-         break;
-
-      case PPI_RD_ERROR_DATA:
-
-         SEGGER_RTT_SetTerminal(5);
-         SEGGER_RTT_printf(0, "Received ERROR DATA REQ from dock\n");
-
-         if(rx_packet->pkt_payload_len != sizeof(uint16_t))
-         {
-            DEBUG_ERROR("Invalid ERROR DATA REQ length");
-            SET_ERR(result, DOCK_MANAGER_ERROR_INVALID_RX_PACKET_LEN);
-            break;
-         }
-         self->_requested.ppi = PPI_RD_ERROR_DATA;
-         self->_requested.type = PPI_TYPE_RE;
-         self->_requested.source_id = SOURCE_ID_ERROR;
-         self->_requested.total_bytes = sizeof(raw_debug_log_t);
-         self->_requested.active = true;
-
-         SEGGER_RTT_SetTerminal(0);
-
-         break;
-
-      case PPI_RD_BATTERY_DATA:
-
-         SEGGER_RTT_SetTerminal(5);
-         SEGGER_RTT_printf(0, "Received BATTERY DATA REQ from dock\n");
-
-         if(rx_packet->pkt_payload_len != sizeof(uint16_t))
-         {
-            DEBUG_ERROR("Invalid BATTERY DATA REQ length");
-            SET_ERR(result, DOCK_MANAGER_ERROR_INVALID_RX_PACKET_LEN);
-            break;
-         }
-         self->_requested.ppi = PPI_RD_BATTERY_DATA;
-         self->_requested.type = PPI_TYPE_RE;
-         self->_requested.source_id = SOURCE_ID_BATTERY;
-         self->_requested.total_bytes = sizeof(ring_battery_data_t);
-         // memcpy(&self->_requested.total_bytes, rx_packet->payload, rx_packet->pkt_payload_len);
-         self->_requested.active = true;
-
-         SEGGER_RTT_SetTerminal(0);
-
-         break;
-
       case PPI_RD_TIME:
-
-         SEGGER_RTT_SetTerminal(5);
-         SEGGER_RTT_printf(0, "Received TIME SET from dock\n");
-         SEGGER_RTT_SetTerminal(0);
 
          if(rx_packet->pkt_payload_len != sizeof(uint32_t))
          {
@@ -191,10 +90,6 @@ static result_t dispatch_by_ppi(const dock_manager_interface_t *interface, mp_pa
 
       case PPI_RD_BATTERY_SAMPLE_RATE:
 
-         SEGGER_RTT_SetTerminal(5);
-         SEGGER_RTT_printf(0, "Received BATTERY SAMPLE RATE SET from dock\n");
-         SEGGER_RTT_SetTerminal(0);
-
          if(rx_packet->pkt_payload_len != sizeof(uint16_t))
          {
             DEBUG_ERROR("Invalid BATTERY SAMPLE RATE SET length");
@@ -206,22 +101,131 @@ static result_t dispatch_by_ppi(const dock_manager_interface_t *interface, mp_pa
          result = self->_data_manager_ifc->update_battery_sample_rate(self->_data_manager_ifc, battery_sample_hz);
          break;
 
-      case PPI_RD_PROX_DATA:
+      case PPI_RD_CAP_DETECTION_CONFIG:
 
-         SEGGER_RTT_SetTerminal(5);
-         SEGGER_RTT_printf(0, "Received PROX DATA SET from dock\n");
-         SEGGER_RTT_SetTerminal(0);
-
-         if(rx_packet->pkt_payload_len != sizeof(prox_data_t))
+         if(rx_packet->pkt_payload_len != sizeof(cap_detection_cfg_t))
          {
-            DEBUG_ERROR("Invalid PROX DATA SET length");
+            DEBUG_ERROR("Invalid CAP DETECTION CONFIG SET length");
+            SET_ERR(result, DOCK_MANAGER_ERROR_INVALID_RX_PACKET_LEN);
+            break;
+         }
+         memcpy(&cap_detection_cfg, rx_packet->payload, rx_packet->pkt_payload_len);
+         result = self->_data_manager_ifc->set_cap_detection_config(self->_data_manager_ifc, cap_detection_cfg);
+
+         break;
+
+      case PPI_RD_BLE_ADVERTISE:
+         // Do nothing for now.
+         break;
+
+      case PPI_RD_STATUS:
+      case PPI_RD_DOSE_DATA:
+      case PPI_RD_ERROR_DATA:
+      case PPI_RD_BATTERY_DATA:
+         DEBUG_ERROR("Received innappropriate PPI for push packet type");
+         SET_ERR(result, DOCK_MANAGER_ERROR_INCORRECT_RX_PACKET_TYPE);
+         break;
+
+      default:
+         DEBUG_ERROR("Invalid PPI received in dock manager");
+         SET_ERR(result, DOCK_MANAGER_ERROR_UNKNOWN_PPI_FOR_RX);
+         break;
+   }
+   return result;
+}
+
+static result_t dispatch_req_ppi(const dock_manager_interface_t *interface, mp_packet_payload_t *rx_packet)
+{
+   RETURN_ERR_IF_INTERFACE_NULL(interface, DOCK_MANAGER_ERROR_NULL_INTERFACE_PTR);
+   RETURN_ERR_IF_NULL(rx_packet, DOCK_MANAGER_ERROR_NULL_PTR);
+   RETURN_ERR_IF_TRUE(PPI_TYPE_RQ != rx_packet->type, DOCK_MANAGER_ERROR_INCORRECT_RX_PACKET_TYPE);
+
+   result_t result = RESULT_OK;
+
+   dock_manager_t *self = interface->parent;
+
+   // Dispatch based on PPI
+   switch(rx_packet->ppi)
+   {
+      case PPI_RD_STATUS:
+         self->_requested.ppi = PPI_RD_STATUS;
+         self->_requested.type = PPI_TYPE_RE;
+         self->_requested.source_id = SOURCE_ID_STATUS;
+         self->_requested.total_bytes = sizeof(ring_status_t);
+         self->_requested.active = true;
+
+         break;
+
+      case PPI_RD_DOSE_DATA:
+
+         if(rx_packet->pkt_payload_len != sizeof(uint16_t))
+         {
+            DEBUG_ERROR("Invalid DOSE DATA REQ length");
+            SET_ERR(result, DOCK_MANAGER_ERROR_INVALID_RX_PACKET_LEN);
+            break;
+         }
+         self->_requested.ppi = PPI_RD_DOSE_DATA;
+         self->_requested.type = PPI_TYPE_RE;
+         self->_requested.source_id = SOURCE_ID_DOSE;
+         self->_requested.total_bytes = sizeof(dose_data_t);
+         self->_requested.active = true;
+
+         break;
+
+      case PPI_RD_ERROR_DATA:
+
+         if(rx_packet->pkt_payload_len != sizeof(uint16_t))
+         {
+            DEBUG_ERROR("Invalid ERROR DATA REQ length");
+            SET_ERR(result, DOCK_MANAGER_ERROR_INVALID_RX_PACKET_LEN);
+            break;
+         }
+         self->_requested.ppi = PPI_RD_ERROR_DATA;
+         self->_requested.type = PPI_TYPE_RE;
+         self->_requested.source_id = SOURCE_ID_ERROR;
+         self->_requested.total_bytes = sizeof(raw_debug_log_t);
+         self->_requested.active = true;
+
+         break;
+
+      case PPI_RD_BATTERY_DATA:
+
+         if(rx_packet->pkt_payload_len != sizeof(uint16_t))
+         {
+            DEBUG_ERROR("Invalid BATTERY DATA REQ length");
+            SET_ERR(result, DOCK_MANAGER_ERROR_INVALID_RX_PACKET_LEN);
+            break;
+         }
+         self->_requested.ppi = PPI_RD_BATTERY_DATA;
+         self->_requested.type = PPI_TYPE_RE;
+         self->_requested.source_id = SOURCE_ID_BATTERY;
+         self->_requested.total_bytes = sizeof(ring_battery_data_t);
+         self->_requested.active = true;
+
+         break;
+
+      case PPI_RD_CAP_DETECTION_CONFIG:
+
+         if(rx_packet->pkt_payload_len != 0)
+         {
+            DEBUG_ERROR("Invalid CAP DETECTION CONFIG REQ length");
             SET_ERR(result, DOCK_MANAGER_ERROR_INVALID_RX_PACKET_LEN);
             break;
          }
 
-         memcpy(&prox_data, rx_packet->payload, rx_packet->pkt_payload_len);
-         self->_data_manager_ifc->update_prox_data(self->_data_manager_ifc, prox_data);
+         self->_requested.ppi = PPI_RD_CAP_DETECTION_CONFIG;
+         self->_requested.type = PPI_TYPE_RE;
+         self->_requested.source_id = SOURCE_ID_CAP_DETECTION_CFG;
+         self->_requested.total_bytes = sizeof(cap_detection_status_t);
+         self->_requested.active = true;
 
+         break;
+
+      case PPI_RD_TIME:
+      case PPI_RD_BATTERY_SAMPLE_RATE:
+      case PPI_RD_BLE_ADVERTISE:
+         DEBUG_ERROR("Received innappropriate PPI for req packet type");
+         SET_ERR(result, DOCK_MANAGER_ERROR_INCORRECT_RX_PACKET_TYPE);
          break;
 
       default:
@@ -231,13 +235,43 @@ static result_t dispatch_by_ppi(const dock_manager_interface_t *interface, mp_pa
    }
 
    // Check that requested bytes do not exceed max payload length
-   if(self->_requested.total_bytes > (MESSAGE_PROTOCOL_MAX_PAYLOAD_LEN) && IS_OK(result))
+   if((self->_requested.total_bytes > MESSAGE_PROTOCOL_MAX_PAYLOAD_LEN) && IS_OK(result))
    {
       self->_requested.active = false;
       DEBUG_ERROR("Requested bytes exceed max payload length");
       SET_ERR(result, DOCK_MANAGER_ERROR_REQUESTED_BYTES_EXCEED_MAX_PAYLOAD);
    }
 
+   return result;
+}
+
+static result_t dispatch_by_ppi(const dock_manager_interface_t *interface, mp_packet_payload_t *rx_packet)
+{
+   RETURN_ERR_IF_INTERFACE_NULL(interface, DOCK_MANAGER_ERROR_NULL_INTERFACE_PTR);
+   RETURN_ERR_IF_NULL(rx_packet, DOCK_MANAGER_ERROR_NULL_PTR);
+
+   result_t result = RESULT_OK;
+
+   switch(rx_packet->type)
+   {
+      case PPI_TYPE_PUSH:
+         result = dispatch_push_ppi(interface, rx_packet);
+         break;
+
+      case PPI_TYPE_RQ:
+         result = dispatch_req_ppi(interface, rx_packet);
+         break;
+
+      case PPI_TYPE_RE:
+         DEBUG_ERROR("Received unexpected response packet");
+         SET_ERR(result, DOCK_MANAGER_ERROR_INCORRECT_RX_PACKET_TYPE);
+         break;
+
+      default:
+         DEBUG_ERROR("Invalid packet type received in dock manager");
+         SET_ERR(result, DOCK_MANAGER_ERROR_INVALID_RX_PACKET_TYPE);
+         break;
+   }
    return result;
 }
 
@@ -372,15 +406,12 @@ static result_t process(const dock_manager_interface_t *interface, bool is_docke
 result_t dock_manager_init(dock_manager_t *const self,
                            const message_protocol_interface_t *msg_prot_ifc,
                            const ring_data_manager_interface_t *data_manager_ifc,
-                           const ring_sources_interface_t *source_manager_ifc,
-                           system_time_interface_t *systime)
+                           const ring_sources_interface_t *source_manager_ifc)
 {
    RETURN_ERR_IF_NULL(self, DOCK_MANAGER_ERROR_NULL_PTR);
    RETURN_ERR_IF_NULL(msg_prot_ifc, DOCK_MANAGER_ERROR_NULL_PTR);
    RETURN_ERR_IF_NULL(data_manager_ifc, DOCK_MANAGER_ERROR_NULL_PTR);
    RETURN_ERR_IF_NULL(source_manager_ifc, DOCK_MANAGER_ERROR_NULL_PTR);
-
-   systime_ifc = systime;
 
    // Assign parents
    self->interface.parent = self;
@@ -405,8 +436,9 @@ result_t dock_manager_init(dock_manager_t *const self,
    self->_requested.source_id = SOURCE_ID_BATTERY;
    self->_requested.total_bytes = 0u;
 
-   // No initialization flag necessary as the only failures that can occur are before the interface parent is assigned.
-   // A NULL parent pointer indicates uninitialized and will be caught by by standard interface checks in guard clauses.
+   // No initialization flag necessary as the only failures that can occur are before the interface parent is
+   // assigned. A NULL parent pointer indicates uninitialized and will be caught by by standard interface checks in
+   // guard clauses.
 
    return RESULT_OK;
 }

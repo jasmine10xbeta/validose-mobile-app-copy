@@ -33,6 +33,8 @@ typedef enum
    TEST_PPI_MAX = 3u
 } TEST_PPI; // Test-only PPI enum to keep unit tests decoupled from application PPIs.
 
+static const uint32_t ACK_TIMEOUT_MS = 50u;
+
 /***********************************************************************************************************************
  * Test utilities
  **********************************************************************************************************************/
@@ -501,7 +503,7 @@ protected:
       stale_mailbox_clear();
 
       ASSERT_TRUE(
-         IS_OK(message_protocol_init(&m_mp_a, &m_time.interface, &m_link_a.interface, true, NULL, NULL, NULL, NULL)));
+         IS_OK(message_protocol_init(&m_mp_a, &m_time.interface, &m_link_a.interface, true,ACK_TIMEOUT_MS, NULL, NULL, NULL, NULL)));
       // Prime the instance so it can query link layer MTU and set its internal max payload length.
       prime_process(&m_mp_a.interface);
    }
@@ -543,15 +545,15 @@ TEST_F(message_protocol_suite, init_null_checks)
    // Edge case: NULL arguments should return MSG_PROT_ERROR_NULL_PTR.
    result_t result = RESULT_OK;
 
-   result = message_protocol_init(NULL, &m_time.interface, &m_link_a.interface, true, NULL, NULL, NULL, NULL);
+   result = message_protocol_init(NULL, &m_time.interface, &m_link_a.interface, true,ACK_TIMEOUT_MS, NULL, NULL, NULL, NULL);
    ASSERT_EQ(SW_UNIT_ID_MESSAGE_PROTOCOL, GET_ERR_UNIT(result));
    ASSERT_EQ(MSG_PROT_ERROR_NULL_PTR, GET_ERR_CODE(result));
 
-   result = message_protocol_init(&m_mp_a, NULL, &m_link_a.interface, true, NULL, NULL, NULL, NULL);
+   result = message_protocol_init(&m_mp_a, NULL, &m_link_a.interface, true,ACK_TIMEOUT_MS, NULL, NULL, NULL, NULL);
    ASSERT_EQ(SW_UNIT_ID_MESSAGE_PROTOCOL, GET_ERR_UNIT(result));
    ASSERT_EQ(MSG_PROT_ERROR_NULL_PTR, GET_ERR_CODE(result));
 
-   result = message_protocol_init(&m_mp_a, &m_time.interface, NULL, true, NULL, NULL, NULL, NULL);
+   result = message_protocol_init(&m_mp_a, &m_time.interface, NULL, true,ACK_TIMEOUT_MS, NULL, NULL, NULL, NULL);
    ASSERT_EQ(SW_UNIT_ID_MESSAGE_PROTOCOL, GET_ERR_UNIT(result));
    ASSERT_EQ(MSG_PROT_ERROR_NULL_PTR, GET_ERR_CODE(result));
 }
@@ -633,7 +635,7 @@ TEST_F(message_protocol_suite, send_allows_zero_length_payload)
 {
    // Edge case: zero-length payloads should be accepted and transmitted.
    ASSERT_TRUE(
-      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false, NULL, NULL, NULL, NULL)));
+      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false,ACK_TIMEOUT_MS, NULL, NULL, NULL, NULL)));
 
    prime_process(&m_mp_b.interface);
 
@@ -686,9 +688,9 @@ TEST_F(message_protocol_suite, get_max_payload_length_returns_clamped_value)
 TEST_F(message_protocol_suite, master_to_slave_data_exchange_happy_path)
 {
    ASSERT_TRUE(IS_OK(message_protocol_init(
-      &m_mp_a, &m_time.interface, &m_link_a.interface, true, NULL, NULL, NULL, generate_session_id_master)));
+      &m_mp_a, &m_time.interface, &m_link_a.interface, true,ACK_TIMEOUT_MS, NULL, NULL, NULL, generate_session_id_master)));
    ASSERT_TRUE(
-      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false, NULL, NULL, NULL, NULL)));
+      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false,ACK_TIMEOUT_MS, NULL, NULL, NULL, NULL)));
 
    (void)m_mp_a.interface.process(&m_mp_a.interface);
    (void)m_mp_b.interface.process(&m_mp_b.interface);
@@ -726,7 +728,7 @@ TEST_F(message_protocol_suite, ack_with_wrong_id_does_not_complete)
 {
    // Edge case: ACK with a mismatched packet counter should not complete the TX.
    ASSERT_TRUE(IS_OK(message_protocol_init(
-      &m_mp_a, &m_time.interface, &m_link_a.interface, true, NULL, NULL, NULL, generate_session_id_master)));
+      &m_mp_a, &m_time.interface, &m_link_a.interface, true,ACK_TIMEOUT_MS, NULL, NULL, NULL, generate_session_id_master)));
 
    prime_process(&m_mp_a.interface);
    m_mp_a._current_session_id = 0x3333u;
@@ -763,9 +765,9 @@ TEST_F(message_protocol_suite, nack_triggers_immediate_resend_and_eventual_ack)
 {
    // Edge case: when RX is busy, the receiver must NAK and the sender must resend.
    ASSERT_TRUE(IS_OK(message_protocol_init(
-      &m_mp_a, &m_time.interface, &m_link_a.interface, true, NULL, NULL, NULL, generate_session_id_master)));
+      &m_mp_a, &m_time.interface, &m_link_a.interface, true,ACK_TIMEOUT_MS, NULL, NULL, NULL, generate_session_id_master)));
    ASSERT_TRUE(
-      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false, NULL, NULL, NULL, NULL)));
+      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false,ACK_TIMEOUT_MS, NULL, NULL, NULL, NULL)));
 
    prime_process(&m_mp_a.interface);
    prime_process(&m_mp_b.interface);
@@ -803,7 +805,7 @@ TEST_F(message_protocol_suite, timeout_after_retries_abandons_packet)
 {
    // Edge case: no ACKs received should exhaust retries and abandon the TX packet.
    ASSERT_TRUE(IS_OK(message_protocol_init(
-      &m_mp_a, &m_time.interface, &m_link_a.interface, true, NULL, NULL, NULL, generate_session_id_master)));
+      &m_mp_a, &m_time.interface, &m_link_a.interface, true,ACK_TIMEOUT_MS, NULL, NULL, NULL, generate_session_id_master)));
 
    prime_process(&m_mp_a.interface);
    m_mp_a._current_session_id = 0x1234u;
@@ -839,9 +841,9 @@ TEST_F(message_protocol_suite, corrupted_frame_is_ignored)
 {
    // Edge case: corrupted CRC is ignored, then retry triggers NAK (busy RX), then resend is accepted.
    ASSERT_TRUE(IS_OK(message_protocol_init(
-      &m_mp_a, &m_time.interface, &m_link_a.interface, true, NULL, NULL, NULL, generate_session_id_master)));
+      &m_mp_a, &m_time.interface, &m_link_a.interface, true,ACK_TIMEOUT_MS, NULL, NULL, NULL, generate_session_id_master)));
    ASSERT_TRUE(
-      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false, NULL, NULL, NULL, NULL)));
+      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false,ACK_TIMEOUT_MS, NULL, NULL, NULL, NULL)));
 
    prime_process(&m_mp_a.interface);
    prime_process(&m_mp_b.interface);
@@ -899,7 +901,7 @@ TEST_F(message_protocol_suite, stale_data_packet_is_dropped)
    // Scenario: the link-layer mailbox keeps returning the same DATA bytes.
    // Expectation: MP accepts the DATA once (and ACKs once), then drops repeats.
    ASSERT_TRUE(IS_OK(message_protocol_init(
-      &m_mp_a, &m_time.interface, &m_link_a.interface, false, stale_link_get_packet, NULL, NULL, NULL)));
+      &m_mp_a, &m_time.interface, &m_link_a.interface, false, ACK_TIMEOUT_MS, stale_link_get_packet, NULL, NULL, NULL)));
 
    prime_process(&m_mp_a.interface);
    m_mp_a._current_session_id = 0x1111u;
@@ -962,7 +964,7 @@ TEST_F(message_protocol_suite, duplicate_stale_session_data_on_slave_resends_syn
    // Scenario: slave receives repeated stale-session DATA (same bytes) because master did not receive SYNC_MISMATCH.
    // Expectation: slave re-sends SYNC_MISMATCH for each duplicate stale-session DATA packet.
    ASSERT_TRUE(IS_OK(message_protocol_init(
-      &m_mp_a, &m_time.interface, &m_link_a.interface, false, stale_link_get_packet, NULL, NULL, NULL)));
+      &m_mp_a, &m_time.interface, &m_link_a.interface, false, ACK_TIMEOUT_MS, stale_link_get_packet, NULL, NULL, NULL)));
 
    prime_process(&m_mp_a.interface);
    m_mp_a._current_session_id = 0x1111u;
@@ -1019,7 +1021,7 @@ TEST_F(message_protocol_suite, mailbox_echoed_tx_packet_is_dropped)
                                            &m_time.interface,
                                            &m_link_a.interface,
                                            true,
-                                           mailbox_get_packet,
+                                           ACK_TIMEOUT_MS, mailbox_get_packet,
                                            mailbox_send_pkt_to_link_layer,
                                            NULL,
                                            NULL)));
@@ -1065,7 +1067,7 @@ TEST_F(message_protocol_suite, mailbox_echoed_ack_packet_is_dropped)
                                            &m_time.interface,
                                            &m_link_a.interface,
                                            true,
-                                           mailbox_get_packet,
+                                           ACK_TIMEOUT_MS, mailbox_get_packet,
                                            mailbox_send_pkt_to_link_layer,
                                            NULL,
                                            NULL)));
@@ -1126,7 +1128,7 @@ TEST_F(message_protocol_suite, mailbox_echoed_nak_packet_is_dropped)
                                            &m_time.interface,
                                            &m_link_a.interface,
                                            true,
-                                           mailbox_get_packet,
+                                           ACK_TIMEOUT_MS, mailbox_get_packet,
                                            mailbox_send_pkt_to_link_layer,
                                            NULL,
                                            NULL)));
@@ -1182,7 +1184,7 @@ TEST_F(message_protocol_suite, mailbox_echoed_sync_start_packet_is_dropped)
                                            &m_time.interface,
                                            &m_link_a.interface,
                                            true,
-                                           mailbox_get_packet,
+                                           ACK_TIMEOUT_MS, mailbox_get_packet,
                                            mailbox_send_pkt_to_link_layer,
                                            NULL,
                                            generate_session_id_master)));
@@ -1225,7 +1227,7 @@ TEST_F(message_protocol_suite, mailbox_echoed_sync_ack_packet_is_dropped)
                                            &m_time.interface,
                                            &m_link_a.interface,
                                            false,
-                                           mailbox_get_packet,
+                                           ACK_TIMEOUT_MS, mailbox_get_packet,
                                            mailbox_send_pkt_to_link_layer,
                                            NULL,
                                            NULL)));
@@ -1264,7 +1266,7 @@ TEST_F(message_protocol_suite, mailbox_echoed_sync_mismatch_packet_is_dropped)
                                            &m_time.interface,
                                            &m_link_a.interface,
                                            false,
-                                           mailbox_get_packet,
+                                           ACK_TIMEOUT_MS, mailbox_get_packet,
                                            mailbox_send_pkt_to_link_layer,
                                            NULL,
                                            NULL)));
@@ -1307,7 +1309,7 @@ TEST_F(message_protocol_suite, stale_ack_packet_does_not_trigger_multiple_sync_s
                                            &m_time.interface,
                                            &m_link_a.interface,
                                            true,
-                                           stale_link_get_packet,
+                                           ACK_TIMEOUT_MS, stale_link_get_packet,
                                            NULL,
                                            NULL,
                                            generate_session_id_master)));
@@ -1354,7 +1356,7 @@ TEST_F(message_protocol_suite, startup_stale_session_data_on_master_triggers_imm
                                            &m_time.interface,
                                            &m_link_a.interface,
                                            true,
-                                           stale_link_get_packet,
+                                           ACK_TIMEOUT_MS, stale_link_get_packet,
                                            NULL,
                                            NULL,
                                            generate_session_id_master)));
@@ -1405,7 +1407,7 @@ TEST_F(message_protocol_suite, stale_nak_packet_does_not_trigger_multiple_resend
    // Scenario: mailbox repeatedly returns a valid NAK for a pending TX.
    // Expectation: MP resends once on the first NAK, then drops duplicates.
    ASSERT_TRUE(IS_OK(message_protocol_init(
-      &m_mp_a, &m_time.interface, &m_link_a.interface, true, stale_link_get_packet, NULL, NULL, NULL)));
+      &m_mp_a, &m_time.interface, &m_link_a.interface, true, ACK_TIMEOUT_MS, stale_link_get_packet, NULL, NULL, NULL)));
 
    prime_process(&m_mp_a.interface);
    m_mp_a._current_session_id = 0x3333u;
@@ -1449,7 +1451,7 @@ TEST_F(message_protocol_suite, stale_sync_start_packet_is_dropped_after_first_ac
    // Scenario: mailbox repeatedly returns SYNC_START to a slave.
    // Expectation: MP replies with SYNC_ACK once, then drops duplicates.
    ASSERT_TRUE(IS_OK(message_protocol_init(
-      &m_mp_a, &m_time.interface, &m_link_a.interface, false, stale_link_get_packet, NULL, NULL, NULL)));
+      &m_mp_a, &m_time.interface, &m_link_a.interface, false, ACK_TIMEOUT_MS, stale_link_get_packet, NULL, NULL, NULL)));
 
    prime_process(&m_mp_a.interface);
 
@@ -1486,7 +1488,7 @@ TEST_F(message_protocol_suite, stale_sync_mismatch_packet_is_dropped)
                                            &m_time.interface,
                                            &m_link_a.interface,
                                            true,
-                                           stale_link_get_packet,
+                                           ACK_TIMEOUT_MS, stale_link_get_packet,
                                            NULL,
                                            NULL,
                                            generate_session_id_master)));
@@ -1531,7 +1533,7 @@ TEST_F(message_protocol_suite, stale_sync_ack_packet_is_dropped_without_resync)
                                            &m_time.interface,
                                            &m_link_a.interface,
                                            true,
-                                           stale_link_get_packet,
+                                           ACK_TIMEOUT_MS, stale_link_get_packet,
                                            NULL,
                                            NULL,
                                            generate_session_id_master)));
@@ -1582,9 +1584,9 @@ TEST_F(message_protocol_suite, master_slave_sync_on_session_mismatch)
 {
    // Edge case: session mismatch should trigger SYNC_MISMATCH -> SYNC_START -> SYNC_ACK.
    ASSERT_TRUE(IS_OK(message_protocol_init(
-      &m_mp_a, &m_time.interface, &m_link_a.interface, true, NULL, NULL, NULL, generate_session_id_master)));
+      &m_mp_a, &m_time.interface, &m_link_a.interface, true,ACK_TIMEOUT_MS, NULL, NULL, NULL, generate_session_id_master)));
    ASSERT_TRUE(
-      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false, NULL, NULL, NULL, NULL)));
+      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false,ACK_TIMEOUT_MS, NULL, NULL, NULL, NULL)));
 
    prime_process(&m_mp_a.interface);
    prime_process(&m_mp_b.interface);
@@ -1615,9 +1617,9 @@ TEST_F(message_protocol_suite, sync_start_while_tx_waiting_marks_tx_abandoned_no
    // Scenario: master has an in-flight DATA packet and receives a mismatched ACK that starts sync.
    // Expectation: reset_mp_state marks TX as ABANDONED so app layer does not treat it as COMPLETED.
    ASSERT_TRUE(IS_OK(message_protocol_init(
-      &m_mp_a, &m_time.interface, &m_link_a.interface, true, NULL, NULL, NULL, generate_session_id_master)));
+      &m_mp_a, &m_time.interface, &m_link_a.interface, true,ACK_TIMEOUT_MS, NULL, NULL, NULL, generate_session_id_master)));
    ASSERT_TRUE(
-      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false, NULL, NULL, NULL, NULL)));
+      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false,ACK_TIMEOUT_MS, NULL, NULL, NULL, NULL)));
 
    prime_process(&m_mp_a.interface);
    prime_process(&m_mp_b.interface);
@@ -1679,9 +1681,9 @@ TEST_F(message_protocol_suite, sync_steps_slave_detects_mismatch_first)
 {
    // Edge case: slave detects session mismatch first and responds with SYNC_MISMATCH before master initiates sync.
    ASSERT_TRUE(IS_OK(message_protocol_init(
-      &m_mp_a, &m_time.interface, &m_link_a.interface, true, NULL, NULL, NULL, generate_session_id_master)));
+      &m_mp_a, &m_time.interface, &m_link_a.interface, true,ACK_TIMEOUT_MS, NULL, NULL, NULL, generate_session_id_master)));
    ASSERT_TRUE(
-      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false, NULL, NULL, NULL, NULL)));
+      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false,ACK_TIMEOUT_MS, NULL, NULL, NULL, NULL)));
 
    prime_process(&m_mp_a.interface);
    prime_process(&m_mp_b.interface);
@@ -1727,9 +1729,9 @@ TEST_F(message_protocol_suite, sync_steps_master_detects_mismatch_first)
 {
    // Edge case: master detects session mismatch first and initiates SYNC_START immediately.
    ASSERT_TRUE(IS_OK(message_protocol_init(
-      &m_mp_a, &m_time.interface, &m_link_a.interface, true, NULL, NULL, NULL, generate_session_id_master)));
+      &m_mp_a, &m_time.interface, &m_link_a.interface, true,ACK_TIMEOUT_MS, NULL, NULL, NULL, generate_session_id_master)));
    ASSERT_TRUE(
-      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false, NULL, NULL, NULL, NULL)));
+      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false,ACK_TIMEOUT_MS, NULL, NULL, NULL, NULL)));
 
    prime_process(&m_mp_a.interface);
    prime_process(&m_mp_b.interface);
@@ -1776,9 +1778,9 @@ TEST_F(message_protocol_suite, two_masters_conflict_on_sync_start)
 {
    // Edge case: two masters should reject SYNC_START from another master.
    ASSERT_TRUE(IS_OK(message_protocol_init(
-      &m_mp_a, &m_time.interface, &m_link_a.interface, true, NULL, NULL, NULL, generate_session_id_master)));
+      &m_mp_a, &m_time.interface, &m_link_a.interface, true,ACK_TIMEOUT_MS, NULL, NULL, NULL, generate_session_id_master)));
    ASSERT_TRUE(IS_OK(message_protocol_init(
-      &m_mp_b, &m_time.interface, &m_link_b.interface, true, NULL, NULL, NULL, generate_session_id_master)));
+      &m_mp_b, &m_time.interface, &m_link_b.interface, true,ACK_TIMEOUT_MS, NULL, NULL, NULL, generate_session_id_master)));
 
    prime_process(&m_mp_a.interface);
    prime_process(&m_mp_b.interface);
@@ -1810,9 +1812,9 @@ TEST_F(message_protocol_suite, two_slaves_conflict_on_sync_mismatch)
 {
    // Edge case: a slave receiving SYNC_MISMATCH should error.
    ASSERT_TRUE(
-      IS_OK(message_protocol_init(&m_mp_a, &m_time.interface, &m_link_a.interface, false, NULL, NULL, NULL, NULL)));
+      IS_OK(message_protocol_init(&m_mp_a, &m_time.interface, &m_link_a.interface, false,ACK_TIMEOUT_MS, NULL, NULL, NULL, NULL)));
    ASSERT_TRUE(
-      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false, NULL, NULL, NULL, NULL)));
+      IS_OK(message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false,ACK_TIMEOUT_MS, NULL, NULL, NULL, NULL)));
 
    prime_process(&m_mp_a.interface);
    prime_process(&m_mp_b.interface);
@@ -1847,9 +1849,9 @@ TEST_F(message_protocol_suite, request_and_async_push_overlap_delays_push_until_
    // Scenario: A (master) sends a request to B (slave) while B also has an async push ready for A.
    // Expectation: request is received, ACKed, async push is retried after link busy clears, then B responds.
    result_t init_result_a = message_protocol_init(
-      &m_mp_a, &m_time.interface, &m_link_a.interface, true, NULL, NULL, NULL, generate_session_id_master);
+      &m_mp_a, &m_time.interface, &m_link_a.interface, true,ACK_TIMEOUT_MS, NULL, NULL, NULL, generate_session_id_master);
    result_t init_result_b
-      = message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false, NULL, NULL, NULL, NULL);
+      = message_protocol_init(&m_mp_b, &m_time.interface, &m_link_b.interface, false,ACK_TIMEOUT_MS, NULL, NULL, NULL, NULL);
    printf("Init results: A unit=%u code=%u, B unit=%u code=%u\n",
           (unsigned)GET_ERR_UNIT(init_result_a),
           (unsigned)GET_ERR_CODE(init_result_a),

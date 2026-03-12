@@ -99,6 +99,7 @@ typedef struct comms_driver
 
    nfc_tag_cache_t _tag_cache[NFC_TAG_TYPE_MAX]; /**< Cached state per tag family (A / V). */
    bool _tag_quiet[NFC_TAG_TYPE_MAX];            /**< Tracks whether a tag family has been put into quiet state. */
+   uint8_t _presence_fail_count[NFC_TAG_TYPE_MAX]; /**< Debounced presence failures per tag family. */
 
    bool _initializing;
    bool _initialized;

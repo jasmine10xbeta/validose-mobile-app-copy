@@ -247,14 +247,14 @@ static result_t configure_detection_mode(nfc_driver_t *self, NFC_TAG_TYPE tag_ty
 static result_t check_tag_presence(nfc_driver_t *self, bool *is_tag_present);
 
 /**
- * @brief Check presence of an NFC-V tag using the mailbox.
+ * @brief Check presence of an NFC-V tag using ISO15693 inventory.
  *
  * @param self Pointer to the NFC driver instance.
  * @param debounce_fail Number of allowed failures before considering tag absent.
  * @param is_tag_present Pointer to store presence status.
  * @return Result code indicating success or error.
  */
-static result_t nfcv_check_presence_via_mailbox(nfc_driver_t *self, uint8_t debounce_fail, bool *is_tag_present);
+static result_t nfcv_check_presence(nfc_driver_t *self, uint8_t debounce_fail, bool *is_tag_present);
 
 /**
  * @brief Check presence of an NFC-A tag.
@@ -357,6 +357,7 @@ static void reset_detection_state(nfc_driver_t *self)
    self->_is_tag_present = false;
    self->_tag_uid_len = 0;
    memset(self->_tag_uid, 0, sizeof(self->_tag_uid));
+   memset(self->_presence_fail_count, 0, sizeof(self->_presence_fail_count));
    self->_last_presence_check_ms = 0;
    self->_last_discovery_ms = 0;
    self->_gt_ready = false;
@@ -527,22 +528,25 @@ static result_t nfca_check_presence(nfc_driver_t *self, uint8_t debounce_fail, b
    RETURN_ERR_IF_NULL(is_tag_present, NFC_R_ERROR_PTR_NULL);
 
    result_t result = RESULT_OK;
-   static uint8_t fail = 0;
+   uint8_t *fail = &self->_presence_fail_count[NFC_TAG_TYPE_A];
    rfalNfcaSensRes sens_res = {0};
 
    ReturnCode err = rfalNfcaPollerCheckPresence(RFAL_14443A_SHORTFRAME_CMD_WUPA, &sens_res);
 
    if(err == RFAL_ERR_NONE)
    {
-      fail = 0;
+      *fail = 0;
       *is_tag_present = true;
       // Cache the NFC-A UID so the driver can switch modes without re-reading it.
       update_tag_cache(self, NFC_TAG_TYPE_A, true, self->_tag_uid, self->_tag_uid_len);
    }
    else
    {
-      fail++;
-      if(fail >= debounce_fail)
+      if(*fail < UINT8_MAX)
+      {
+         (*fail)++;
+      }
+      if(*fail >= debounce_fail)
       {
          *is_tag_present = false;
          DEBUG_INFO("NFC-A tag not present");
@@ -571,37 +575,46 @@ static result_t nfca_check_presence(nfc_driver_t *self, uint8_t debounce_fail, b
    return result;
 }
 
-static result_t nfcv_check_presence_via_mailbox(nfc_driver_t *self, uint8_t debounce_fail, bool *is_tag_present)
+static result_t nfcv_check_presence(nfc_driver_t *self, uint8_t debounce_fail, bool *is_tag_present)
 {
    RETURN_ERR_IF_NULL(self, NFC_R_ERROR_PTR_NULL);
    RETURN_ERR_IF_NULL(is_tag_present, NFC_R_ERROR_PTR_NULL);
 
-   RETURN_ERR_IF_TRUE(self->_tag_uid_len != NFCV_TAG_UID_SIZE, NFC_R_ERROR_NO_TAG);
-
    result_t result = RESULT_OK;
-
-   static uint8_t fail = 0;
-   uint8_t len_m1;
-
-   ReturnCode err = rfalST25xVPollerFastReadMsgLength(
-      RFAL_NFCV_REQ_FLAG_DEFAULT | RFAL_NFCV_REQ_FLAG_ADDRESS, self->_tag_uid, &len_m1);
+   uint8_t *fail = &self->_presence_fail_count[NFC_TAG_TYPE_V];
+   rfalNfcvInventoryRes inv_res = {0};
+   ReturnCode err = rfalNfcvPollerCheckPresence(&inv_res);
    if(err == RFAL_ERR_NONE)
    {
-      // Tag detected, reset debouncing count
-      fail = 0;
+      // Tag detected, reset debouncing count and refresh UID from inventory response.
+      *fail = 0;
       *is_tag_present = true;
+      self->_tag_uid_len = NFCV_TAG_UID_SIZE;
+      memcpy(self->_tag_uid, inv_res.UID, NFCV_TAG_UID_SIZE);
       // Record the latest ISO15693 UID/presence for later quiet/wake decisions.
       update_tag_cache(self, NFC_TAG_TYPE_V, true, self->_tag_uid, self->_tag_uid_len);
    }
    else
    {
-      fail++;
+      // Inventory timeout/notfound means no VICC answered. Other errors are transient (collision/protocol/request) and
+      // should not instantly drop a stationary ring.
+      if((RFAL_ERR_TIMEOUT == err) || (RFAL_ERR_NOTFOUND == err))
+      {
+         if(*fail < UINT8_MAX)
+         {
+            (*fail)++;
+         }
+      }
+      else
+      {
+         DEBUG_DEBUG("NFC-V presence transient err=%d", err);
+      }
    }
 
-   if(fail >= debounce_fail)
+   if(*fail >= debounce_fail)
    {
       *is_tag_present = false;
-      DEBUG_INFO("Tag not present");
+      DEBUG_INFO("NFC-V tag not present");
       // Clear the cache so future logic knows this family is absent.
       update_tag_cache(self, NFC_TAG_TYPE_V, false, NULL, 0);
    }
@@ -904,7 +917,7 @@ static result_t check_tag_presence(nfc_driver_t *self, bool *is_tag_present)
    switch(self->_configured_tag_type)
    {
       case NFC_TAG_TYPE_V:
-         result = nfcv_check_presence_via_mailbox(self, TAG_PRESENCE_CHECK_DEBOUNCE_NUM, is_tag_present);
+         result = nfcv_check_presence(self, TAG_PRESENCE_CHECK_DEBOUNCE_NUM, is_tag_present);
          break;
       case NFC_TAG_TYPE_A:
          result = nfca_check_presence(self, TAG_PRESENCE_CHECK_DEBOUNCE_NUM, is_tag_present);
@@ -1632,6 +1645,7 @@ result_t nfc_driver_init(nfc_driver_t *const self,
    self->_last_discovery_ms = 0;
    self->_gt_ready = false;
    self->_gt_started = false;
+   memset(self->_presence_fail_count, 0, sizeof(self->_presence_fail_count));
 
    // Reset cached tag metadata before enabling the RF front-end.
    for(size_t idx = 0; idx < NFC_TAG_TYPE_MAX; idx++)

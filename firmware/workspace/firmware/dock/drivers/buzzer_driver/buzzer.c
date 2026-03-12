@@ -104,27 +104,29 @@ static result_t set_on(const buzzer_interface_t *const interface)
    RETURN_ERR_IF_INTERFACE_NULL(interface, BUZZER_ERROR_NULL);
 
    result_t result = RESULT_OK;
-   buzzer_t *self = interface->parent; /// Get access to the containing unit instance
 
-   bool is_lock_acquired = nrf_mtx_trylock(&(self->_twi_mutex));
+   // TODO: Uncomment when done with testing.
+   // buzzer_t *self = interface->parent; /// Get access to the containing unit instance
 
-   if(!is_lock_acquired)
-   {
-      SET_ERR(result, BUZZER_ERROR_MTX_LOCKED);
-   }
+   // bool is_lock_acquired = nrf_mtx_trylock(&(self->_twi_mutex));
 
-   if(IS_OK(result))
-   {
-      // Start the PWM sequence
-      nrf_drv_pwm_simple_playback(&m_pwm, &s_pwm_sequence, 1, NRF_DRV_PWM_FLAG_LOOP);
+   // if(!is_lock_acquired)
+   // {
+   //    SET_ERR(result, BUZZER_ERROR_MTX_LOCKED);
+   // }
 
-      self->_buzzing = true;
-   }
+   // if(IS_OK(result))
+   // {
+   //    // Start the PWM sequence
+   //    nrf_drv_pwm_simple_playback(&m_pwm, &s_pwm_sequence, 1, NRF_DRV_PWM_FLAG_LOOP);
 
-   if(is_lock_acquired)
-   {
-      nrf_mtx_unlock(&(self->_twi_mutex));
-   }
+   //    self->_buzzing = true;
+   // }
+
+   // if(is_lock_acquired)
+   // {
+   //    nrf_mtx_unlock(&(self->_twi_mutex));
+   // }
 
    return result;
 }

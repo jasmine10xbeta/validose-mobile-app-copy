@@ -268,7 +268,7 @@ typedef struct __attribute__((packed)) semantic_version
 STATIC_ASSERT(SEMANTIC_VERSION_T_SIZE_BYTES == sizeof(semantic_version_t),
               "Size of semantic_version_t does not match defined SEMANTIC_VERSION_T_SIZE_BYTES");
 
-#define RING_STATUS_T_SIZE_BYTES (47u)
+#define RING_STATUS_T_SIZE_BYTES (41u)
 typedef struct __attribute__((packed))
 {
    semantic_version_t hardware_version;         /**< Hardware version of the ring. */
@@ -288,9 +288,6 @@ typedef struct __attribute__((packed))
    uint8_t imu_fifo_used_percent_watermark;     /**< Watermark percentage of IMU FIFO used. */
    uint8_t error_fifo_used_percent_watermark;   /**< Watermark percentage of error FIFO used. */
    uint16_t battery_sample_frequency_millihz;   /**< Battery sample frequency in millihertz. */
-   uint16_t cap_on;
-   uint16_t cap_off;
-   uint16_t current_prox;
 } ring_status_t;
 STATIC_ASSERT(RING_STATUS_T_SIZE_BYTES == sizeof(ring_status_t),
               "Size of ring_status_t does not match defined RING_STATUS_T_SIZE_BYTES");
@@ -430,11 +427,26 @@ typedef struct __attribute__((packed))
 STATIC_ASSERT(SHIP_MODE_T_SIZE_BYTES == sizeof(ship_mode_t),
               "Size of ship_mode_t does not match defined SHIP_MODE_T_SIZE_BYTES");
 
-typedef struct __attribute__((packed))
+#define CAP_DETECTION_CFG_T_SIZE_BYTES (4u)
+typedef struct __attribute__((packed)) cap_detection_cfg
 {
-   uint16_t cap_on;
-   uint16_t cap_off;
-} prox_data_t;
+   uint16_t threshhold; /**< Proximity threshold for determining cap state. */
+   uint16_t hysteresis; /**< Hysteresis value to prevent rapid toggling of cap state around the threshold. */
+} cap_detection_cfg_t;
+STATIC_ASSERT(CAP_DETECTION_CFG_T_SIZE_BYTES == sizeof(cap_detection_cfg_t),
+              "Size of cap_detection_cfg_t does not match defined CAP_DETECTION_CFG_T_SIZE_BYTES");
+
+#define CAP_DETECTION_STATUS_T_SIZE_BYTES (15u)
+typedef struct __attribute__((packed)) cap_detection_status
+{
+   cap_detection_cfg_t config; /**< Current cap detection configuration. */
+   uint16_t prox_value;        /**< Current raw proximity sensor value. */
+   bool is_cap_closed;         /**< Boolean indicating whether the cap is currently detected as closed or open. */
+   uint32_t timestamp_unix_s;  /**< Timestamp of the cap detection status in unix format. */
+   uint32_t poll_period_ms;    /**< Polling period to request the cap detection status in ms. */
+} cap_detection_status_t;
+STATIC_ASSERT(CAP_DETECTION_STATUS_T_SIZE_BYTES == sizeof(cap_detection_status_t),
+              "Size of cap_detection_status_t does not match defined CAP_DETECTION_STATUS_T_SIZE_BYTES");
 
 /***********************************************************************************************************************
  * Variables

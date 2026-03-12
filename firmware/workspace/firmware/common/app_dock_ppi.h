@@ -75,14 +75,17 @@
  *   - Type: @ref PPI_TYPE_PUSH, Payload: @ref raw_debug_log_t
  * - 19: PPI_AD_RING_DEBUG_LOG
  *   - Type: @ref PPI_TYPE_PUSH, Payload: @ref raw_debug_log_t
+ * - 20: PPI_AD_PROXIMITY_CONFIG
+ *   - Type: @ref PPI_TYPE_PUSH, Payload: @ref proximity_config_t
+ *   - Type: @ref PPI_TYPE_RQ, Payload: None
  *
  * Baselining Flow Commands
- * - 20: PPI_AD_START_BASELINING
+ * - 21: PPI_AD_START_BASELINING
  *   - Type: @ref PPI_TYPE_RQ, Payload: None
  *   - Type: @ref PPI_TYPE_RE, Payload: Bool
- * - 21: PPI_AD_BASELINING_FEEDBACK
+ * - 22: PPI_AD_BASELINING_FEEDBACK
  *   - Type: @ref PPI_TYPE_PUSH, Payload: @ref baselining_feedback_t
- * - 22: PPI_AD_VALIDATE_MED
+ * - 23: PPI_AD_VALIDATE_MED
  *   - Type: @ref PPI_TYPE_RQ, Payload: None
  *   - Type: @ref PPI_TYPE_RE, Payload: Bool
  *
@@ -124,6 +127,9 @@ typedef enum
 
    // Development Commands
    PPI_AD_DEVELOPMENT_CMD,
+
+   PPI_AD_CAP_DETECTION_CONFIG,
+   PPI_AD_CAP_DETECTION_SAMPLE_RATE,
 
    PPI_AD_MAX,
 } PPI_AD;
@@ -183,6 +189,10 @@ typedef enum
    APP2DOCK_COMMANDS_NONE = 0,
    APP2DOCK_COMMANDS_ENTER_SHIP_MODE,
    APP2DOCK_COMMANDS_ENABLE_DFU, // TODO
+#ifdef DEBUG
+   APP2DOCK_COMMANDS_RESET_DOCK,
+   APP2DOCK_COMMANDS_POPULATE_DOCK_PUSH_DATA, // Populate the dock with test data to push to the app
+#endif
    APP2DOCK_COMMANDS_MAX
 } APP2DOCK_COMMANDS;
 

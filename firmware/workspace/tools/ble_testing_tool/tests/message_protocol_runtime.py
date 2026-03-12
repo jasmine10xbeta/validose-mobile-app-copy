@@ -48,6 +48,7 @@ class MessageProtocolRuntime:
         self._process_interval_s = process_interval_s
         self._logger = logger if logger is not None else LOGGER
         self._tx_inflight: Optional[mp_structs.MpPacketPayload] = None
+        self._rx_drop_count = 0
 
         self.runtime_error: Optional[int] = None
 
@@ -258,7 +259,16 @@ class MessageProtocolRuntime:
         try:
             self.rx_queue.put_nowait(rx_packet)
         except Full:
-            pass
+            self._rx_drop_count += 1
+            if self._rx_drop_count <= 5 or (self._rx_drop_count % 25) == 0:
+                self._logger.warning(
+                    "RX queue full; dropping incoming packet type=%d ppi=%d payload_len=%d (drop_count=%d queue_size=%d)",
+                    int(rx_packet.type),
+                    int(rx_packet.ppi),
+                    int(rx_packet.pkt_payload_len),
+                    self._rx_drop_count,
+                    self.rx_queue.qsize(),
+                )
 
         return RESULT_OK
 

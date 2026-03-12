@@ -1162,8 +1162,6 @@ static result_t get_packet(const comms_driver_interface_t *const interface, uint
 
    uint64_t current_ms = 0;
 
-   // static uint64_t prev_time_ms = 0;
-
    // Casting result to void since this time is only used for tracing purposes and a failure here shouldn't affect the
    // flow of the rest of the code.
    (void)self->_systick_ifc->get_time_ms(self->_systick_ifc, &current_ms);
@@ -1192,16 +1190,6 @@ static result_t get_packet(const comms_driver_interface_t *const interface, uint
             ON_ERR_DEBUG_WARNING(
                result, "Failed to get mailbox status. unit %d, code %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
          }
-      }
-      else
-      {
-         // @todo: Reconsider commenting this
-         // DEBUG_TRACE("Mailbox status: rf_put_msg=%d host_put_msg=%d msg_len=%d, deltaT=%d",
-         //             status.rf_put_msg,
-         //             status.host_put_msg,
-         //             status.msg_len,
-         //             (uint32_t)(current_ms - prev_time_ms));
-         // prev_time_ms = current_ms;
       }
    }
 

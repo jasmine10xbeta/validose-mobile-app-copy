@@ -419,10 +419,9 @@ static result_t send_pkt_to_link_layer(const message_protocol_t *self, const mp_
    // This should propagate the buffer overflow error but ignore errors from the link layer.
    if(IS_ERR(result) && (SW_UNIT_ID_MESSAGE_PROTOCOL != GET_ERR_UNIT(result)))
    {
-      // @todo Count and log these periodically
-      // DEBUG_ERROR("Failed to send data over LL. See comms_driver_interface.h error unit %d, code %d",
-      //             GET_ERR_UNIT(result),
-      //             GET_ERR_CODE(result));
+      DEBUG_ERROR("Failed to send data over LL. See comms_driver_interface.h error unit %d, code %d",
+                  GET_ERR_UNIT(result),
+                  GET_ERR_CODE(result));
       // Do not propagate the error. The message transmit will be retried and eventually time out. When this happens,
       // the link layer will be reported as being down.
       result = RESULT_OK;
