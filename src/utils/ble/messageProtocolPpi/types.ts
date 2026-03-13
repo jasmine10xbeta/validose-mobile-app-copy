@@ -40,6 +40,9 @@ export enum PpiId {
   AD_CALIBRATION_WEIGHT_PRESENT = 25,
   AD_CALIBRATION_FEEDBACK = 26,
   AD_DEVELOPMENT_CMD = 27,
+  AD_CAP_DETECTION_CONFIG = 28,
+  AD_CAP_DETECTION_SAMPLE_RATE = 29,
+  AD_CAP_DETECTION_STATUS = 30,
 }
 
 export type PpiPayloadLength = {
@@ -197,6 +200,19 @@ export type WeightStackCalibrationRecord = {
   zero_offset: number;
   calibration_factor: number;
   full_assembly_weight_mg: number;
+};
+
+export type CapDetectionConfig = {
+  threshhold: number;
+  hysteresis: number;
+};
+
+export type CapDetectionStatus = {
+  config: CapDetectionConfig;
+  prox_value: number;
+  is_cap_closed: boolean;
+  timestamp_unix_s: number;
+  poll_period_ms: number;
 };
 
 export type DecodedPpiPayload = {

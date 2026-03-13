@@ -1,6 +1,8 @@
 import {
   BATTERY_LEVEL_T_SIZE_BYTES,
   BLUETOOTH_STATUS_T_SIZE_BYTES,
+  CAP_DETECTION_CFG_T_SIZE_BYTES,
+  CAP_DETECTION_STATUS_T_SIZE_BYTES,
   DOCK_CHARGE_STATUS_T_SIZE_BYTES,
   DOCK_STATUS_T_SIZE_BYTES,
   DOCK_WEIGHT_MEASUREMENT_T_SIZE_BYTES,
@@ -13,6 +15,8 @@ import {
 import {
   BatteryLevel,
   BluetoothStatus,
+  CapDetectionConfig,
+  CapDetectionStatus,
   DockChargeStatus,
   DockStatus,
   DockWeightMeasurement,
@@ -142,6 +146,36 @@ export function decodeBluetoothStatus(payload: Uint8Array): BluetoothStatus | nu
   return {
     timestamp_unix_s: view.getUint32(0, true),
     bluetooth_status: view.getUint8(4),
+  };
+}
+
+export function decodeCapDetectionConfig(payload: Uint8Array): CapDetectionConfig | null {
+  if (payload.length !== CAP_DETECTION_CFG_T_SIZE_BYTES) {
+    return null;
+  }
+
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  return {
+    threshhold: view.getUint16(0, true),
+    hysteresis: view.getUint16(2, true),
+  };
+}
+
+export function decodeCapDetectionStatus(payload: Uint8Array): CapDetectionStatus | null {
+  if (payload.length !== CAP_DETECTION_STATUS_T_SIZE_BYTES) {
+    return null;
+  }
+
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  return {
+    config: {
+      threshhold: view.getUint16(0, true),
+      hysteresis: view.getUint16(2, true),
+    },
+    prox_value: view.getUint16(4, true),
+    is_cap_closed: view.getUint8(6) !== 0,
+    timestamp_unix_s: view.getUint32(7, true),
+    poll_period_ms: view.getUint32(11, true),
   };
 }
 

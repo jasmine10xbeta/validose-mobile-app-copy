@@ -75,6 +75,14 @@ export function decodeUint32LE(payload: Uint8Array): number | null {
   return view.getUint32(0, true);
 }
 
+export function decodeUint16LE(payload: Uint8Array): number | null {
+  if (payload.length !== 2) {
+    return null;
+  }
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  return view.getUint16(0, true);
+}
+
 export function decodeUint8(payload: Uint8Array): number | null {
   if (payload.length !== 1) {
     return null;

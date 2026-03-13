@@ -1,6 +1,8 @@
 import {
   BASELINING_FEEDBACK_T_SIZE_BYTES,
   CALIBRATION_FEEDBACK_T_SIZE_BYTES,
+  CAP_DETECTION_CFG_T_SIZE_BYTES,
+  CAP_DETECTION_STATUS_T_SIZE_BYTES,
   DOCK_STATUS_T_SIZE_BYTES,
   DOCK_WEIGHT_MEASUREMENT_T_SIZE_BYTES,
   DOSE_EVENT_T_SIZE_BYTES,
@@ -206,6 +208,17 @@ describe("messageProtocolPpi firmware layout parity", () => {
     expect(getExpectedPayloadLength(PpiId.AD_CALIBRATION_FEEDBACK, PpiType.PUSH)).toBe(
       CALIBRATION_FEEDBACK_T_SIZE_BYTES
     );
+    expect(getExpectedPayloadLength(PpiId.AD_CAP_DETECTION_CONFIG, PpiType.RQ)).toBe(0);
+    expect(getExpectedPayloadLength(PpiId.AD_CAP_DETECTION_CONFIG, PpiType.RE)).toBe(
+      CAP_DETECTION_STATUS_T_SIZE_BYTES
+    );
+    expect(getExpectedPayloadLength(PpiId.AD_CAP_DETECTION_CONFIG, PpiType.PUSH)).toBe(
+      CAP_DETECTION_CFG_T_SIZE_BYTES
+    );
+    expect(getExpectedPayloadLength(PpiId.AD_CAP_DETECTION_SAMPLE_RATE, PpiType.PUSH)).toBe(2);
+    expect(getExpectedPayloadLength(PpiId.AD_CAP_DETECTION_STATUS, PpiType.PUSH)).toBe(
+      CAP_DETECTION_STATUS_T_SIZE_BYTES
+    );
     expect(getExpectedPayloadLength(PpiId.AD_DOCK_DEBUG_LOG, PpiType.PUSH)).toBe(
       RAW_DEBUG_LOG_T_SIZE_BYTES
     );
@@ -276,6 +289,74 @@ describe("messageProtocolPpi firmware layout parity", () => {
       std_dev: 12,
       avg_weight_mg: -50,
       is_ring_present: false,
+    });
+  });
+
+  test("AD_START_CALIBRATION PUSH decodes firmware feedback payload", () => {
+    const payload = new Uint8Array(CALIBRATION_FEEDBACK_T_SIZE_BYTES);
+    const view = new DataView(payload.buffer);
+
+    view.setUint8(0, 3); // current_state
+    view.setUint8(1, 1); // motion_state
+    view.setUint16(2, 33, true); // std_dev
+    view.setInt32(4, 250, true); // avg_weight_mg
+    view.setUint8(8, 1); // is_ring_present
+
+    const decoded = decodePpiPayload(PpiId.AD_START_CALIBRATION, PpiType.PUSH, payload);
+    expect(decoded.value).toEqual({
+      current_state: 3,
+      motion_state: 1,
+      std_dev: 33,
+      avg_weight_mg: 250,
+      is_ring_present: true,
+    });
+  });
+
+  test("AD_CAP_DETECTION_CONFIG RE decodes cap_detection_status_t payload", () => {
+    const payload = new Uint8Array(CAP_DETECTION_STATUS_T_SIZE_BYTES);
+    const view = new DataView(payload.buffer);
+
+    view.setUint16(0, 1000, true); // config.threshhold
+    view.setUint16(2, 200, true); // config.hysteresis
+    view.setUint16(4, 345, true); // prox_value
+    view.setUint8(6, 1); // is_cap_closed
+    view.setUint32(7, 1700000000, true); // timestamp_unix_s
+    view.setUint32(11, 1000, true); // poll_period_ms
+
+    const decoded = decodePpiPayload(PpiId.AD_CAP_DETECTION_CONFIG, PpiType.RE, payload);
+    expect(decoded.value).toEqual({
+      config: {
+        threshhold: 1000,
+        hysteresis: 200,
+      },
+      prox_value: 345,
+      is_cap_closed: true,
+      timestamp_unix_s: 1700000000,
+      poll_period_ms: 1000,
+    });
+  });
+
+  test("AD_CAP_DETECTION_STATUS PUSH decodes cap_detection_status_t payload", () => {
+    const payload = new Uint8Array(CAP_DETECTION_STATUS_T_SIZE_BYTES);
+    const view = new DataView(payload.buffer);
+
+    view.setUint16(0, 1200, true); // config.threshhold
+    view.setUint16(2, 300, true); // config.hysteresis
+    view.setUint16(4, 412, true); // prox_value
+    view.setUint8(6, 0); // is_cap_closed
+    view.setUint32(7, 1700000100, true); // timestamp_unix_s
+    view.setUint32(11, 1500, true); // poll_period_ms
+
+    const decoded = decodePpiPayload(PpiId.AD_CAP_DETECTION_STATUS, PpiType.PUSH, payload);
+    expect(decoded.value).toEqual({
+      config: {
+        threshhold: 1200,
+        hysteresis: 300,
+      },
+      prox_value: 412,
+      is_cap_closed: false,
+      timestamp_unix_s: 1700000100,
+      poll_period_ms: 1500,
     });
   });
 

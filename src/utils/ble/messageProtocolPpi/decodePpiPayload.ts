@@ -12,6 +12,8 @@ import {
 import {
   decodeBatteryLevel,
   decodeBluetoothStatus,
+  decodeCapDetectionConfig,
+  decodeCapDetectionStatus,
   decodeDockChargeStatus,
   decodeDockStatus,
   decodeDockWeightMeasurement,
@@ -20,7 +22,7 @@ import {
   decodeRingStatus,
   decodeTemperatureLog,
 } from "./decoders.status";
-import { decodeBool, decodeUint32LE, decodeUint8 } from "./helpers";
+import { decodeBool, decodeUint16LE, decodeUint32LE, decodeUint8 } from "./helpers";
 import { DecodedPpiPayload, PpiId, PpiType } from "./types";
 
 /**
@@ -116,6 +118,11 @@ export function decodePpiPayload(ppi: number, type: PpiType, payload: Uint8Array
         const value = decodeStartCalibrationParam(payload) ?? payload;
         return { ppi, type, value };
       }
+      // Firmware workspace may emit calibration feedback on this PPI as PUSH.
+      if (type === PpiType.PUSH) {
+        const value = decodeCalibrationFeedback(payload) ?? payload;
+        return { ppi, type, value };
+      }
       const value = decodeBool(payload);
       return { ppi, type, value: value ?? payload };
     }
@@ -129,6 +136,26 @@ export function decodePpiPayload(ppi: number, type: PpiType, payload: Uint8Array
     }
     case PpiId.AD_CALIBRATION_FEEDBACK: {
       const value = decodeCalibrationFeedback(payload) ?? payload;
+      return { ppi, type, value };
+    }
+    case PpiId.AD_CAP_DETECTION_CONFIG: {
+      if (type === PpiType.PUSH) {
+        const value = decodeCapDetectionConfig(payload) ?? payload;
+        return { ppi, type, value };
+      }
+      if (type === PpiType.RE) {
+        const value = decodeCapDetectionStatus(payload) ?? payload;
+        return { ppi, type, value };
+      }
+      const value = payload.length === 0 ? null : payload;
+      return { ppi, type, value };
+    }
+    case PpiId.AD_CAP_DETECTION_SAMPLE_RATE: {
+      const value = decodeUint16LE(payload);
+      return { ppi, type, value: value ?? payload };
+    }
+    case PpiId.AD_CAP_DETECTION_STATUS: {
+      const value = decodeCapDetectionStatus(payload) ?? payload;
       return { ppi, type, value };
     }
     case PpiId.AD_DEVELOPMENT_CMD: {
