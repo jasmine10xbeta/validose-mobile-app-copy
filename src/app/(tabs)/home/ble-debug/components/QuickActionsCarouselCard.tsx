@@ -35,6 +35,10 @@ type QuickActionsCarouselCardProps = {
   developmentCmdInputError: string;
   calibrationWeightInput: string;
   calibrationWeightInputError: string;
+  capDetectionThresholdInput: string;
+  capDetectionHysteresisInput: string;
+  capDetectionConfigInputError: string;
+  isCalibrationWeightInputDisabled: boolean;
   calibrationGuideStage: CalibrationGuideStage;
   calibrationGuideStageLabel: string;
   calibrationGuideInstruction: string;
@@ -53,6 +57,8 @@ type QuickActionsCarouselCardProps = {
   onQuickActionPageLayout: (pageId: string, height: number) => void;
   onDevelopmentCmdInputChange: (text: string) => void;
   onCalibrationWeightInputChange: (text: string) => void;
+  onCapDetectionThresholdInputChange: (text: string) => void;
+  onCapDetectionHysteresisInputChange: (text: string) => void;
   onQuickActionPress: (action: QuickFlowAction) => void;
   onQuickActionInfoPress: (action: QuickFlowAction) => void;
   quickActionSubtitle: (action: QuickFlowAction) => string;
@@ -72,6 +78,10 @@ export function QuickActionsCarouselCard({
   developmentCmdInputError,
   calibrationWeightInput,
   calibrationWeightInputError,
+  capDetectionThresholdInput,
+  capDetectionHysteresisInput,
+  capDetectionConfigInputError,
+  isCalibrationWeightInputDisabled,
   calibrationGuideStage,
   calibrationGuideStageLabel,
   calibrationGuideInstruction,
@@ -90,6 +100,8 @@ export function QuickActionsCarouselCard({
   onQuickActionPageLayout,
   onDevelopmentCmdInputChange,
   onCalibrationWeightInputChange,
+  onCapDetectionThresholdInputChange,
+  onCapDetectionHysteresisInputChange,
   onQuickActionPress,
   onQuickActionInfoPress,
   quickActionSubtitle,
@@ -199,19 +211,35 @@ export function QuickActionsCarouselCard({
                       <View
                         style={[
                           styles.quickDevInlineInputWrap,
+                          isCalibrationWeightInputDisabled
+                            ? styles.quickDevInlineInputWrapDisabled
+                            : null,
                           calibrationWeightInputError ? styles.quickDevInlineInputWrapError : null,
                         ]}
                       >
-                        <Text style={styles.quickDevInlineInputPrefix}>mg</Text>
+                        <Text
+                          style={[
+                            styles.quickDevInlineInputPrefix,
+                            isCalibrationWeightInputDisabled
+                              ? styles.quickDevInlineInputPrefixDisabled
+                              : null,
+                          ]}
+                        >
+                          mg
+                        </Text>
                         <TextInput
                           value={calibrationWeightInput}
                           onChangeText={onCalibrationWeightInputChange}
                           placeholder="e.g. 5000"
-                          placeholderTextColor="#98A2B3"
+                          placeholderTextColor={isCalibrationWeightInputDisabled ? "#B0B8C5" : "#98A2B3"}
                           keyboardType="number-pad"
                           autoCapitalize="none"
                           autoCorrect={false}
-                          style={styles.quickDevInlineInput}
+                          editable={!isCalibrationWeightInputDisabled}
+                          style={[
+                            styles.quickDevInlineInput,
+                            isCalibrationWeightInputDisabled ? styles.quickDevInlineInputDisabled : null,
+                          ]}
                         />
                       </View>
                       {calibrationWeightInputError ? (
@@ -221,6 +249,59 @@ export function QuickActionsCarouselCard({
                       ) : (
                         <Text style={styles.quickDevInputHint}>
                           Used by Start/Stop Calibration payload.
+                        </Text>
+                      )}
+                    </View>
+                  ) : null}
+                  {page.id === "capCalibration" ? (
+                    <View style={styles.quickDevCommandCard}>
+                      <View style={styles.quickDevCommandHeader}>
+                        <Text style={styles.quickDevCommandTitle}>Cap Detection Config</Text>
+                        <Text style={styles.quickDevCommandMeta}>threshold/hysteresis · uint16</Text>
+                      </View>
+                      <View style={styles.quickDevStackedInputs}>
+                        <View
+                          style={[
+                            styles.quickDevInlineInputWrap,
+                            capDetectionConfigInputError ? styles.quickDevInlineInputWrapError : null,
+                          ]}
+                        >
+                          <Text style={styles.quickDevInlineInputPrefix}>thresh</Text>
+                          <TextInput
+                            value={capDetectionThresholdInput}
+                            onChangeText={onCapDetectionThresholdInputChange}
+                            placeholder="e.g. 1000"
+                            placeholderTextColor="#98A2B3"
+                            keyboardType="number-pad"
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            style={styles.quickDevInlineInput}
+                          />
+                        </View>
+                        <View
+                          style={[
+                            styles.quickDevInlineInputWrap,
+                            capDetectionConfigInputError ? styles.quickDevInlineInputWrapError : null,
+                          ]}
+                        >
+                          <Text style={styles.quickDevInlineInputPrefix}>hyst</Text>
+                          <TextInput
+                            value={capDetectionHysteresisInput}
+                            onChangeText={onCapDetectionHysteresisInputChange}
+                            placeholder="e.g. 200"
+                            placeholderTextColor="#98A2B3"
+                            keyboardType="number-pad"
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            style={styles.quickDevInlineInput}
+                          />
+                        </View>
+                      </View>
+                      {capDetectionConfigInputError ? (
+                        <Text style={styles.quickDevInputErrorText}>{capDetectionConfigInputError}</Text>
+                      ) : (
+                        <Text style={styles.quickDevInputHint}>
+                          Firmware expects threshold above zero and hysteresis no greater than threshold.
                         </Text>
                       )}
                     </View>

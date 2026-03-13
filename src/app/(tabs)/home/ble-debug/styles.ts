@@ -598,6 +598,9 @@ export const styles = StyleSheet.create({
     color: "#667085",
     fontWeight: "700",
   },
+  quickDevStackedInputs: {
+    gap: 8,
+  },
   quickDevInlineInputWrap: {
     flexDirection: "row",
     alignItems: "center",
@@ -606,6 +609,10 @@ export const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: validoseWhite,
     minHeight: 40,
+  },
+  quickDevInlineInputWrapDisabled: {
+    borderColor: "#D0D5DD",
+    backgroundColor: "#F2F4F7",
   },
   quickDevInlineInputWrapError: {
     borderColor: "#F04438",
@@ -617,12 +624,18 @@ export const styles = StyleSheet.create({
     paddingLeft: 10,
     paddingRight: 8,
   },
+  quickDevInlineInputPrefixDisabled: {
+    color: "#98A2B3",
+  },
   quickDevInlineInput: {
     flex: 1,
     color: validoseDarkBlue,
     fontSize: 13,
     paddingVertical: 8,
     paddingRight: 10,
+  },
+  quickDevInlineInputDisabled: {
+    color: "#98A2B3",
   },
   quickPageFeedbackWrap: {
     marginTop: 10,
@@ -779,9 +792,12 @@ export const styles = StyleSheet.create({
     fontWeight: "600",
   },
   calibrationGuideCard: {
+    borderWidth: 1,
     borderColor: "#E4E7EC",
     borderRadius: 14,
     backgroundColor: validoseWhite,
+    padding: 12,
+    gap: 10,
   },
   calibrationGuideHeader: {
     flexDirection: "row",
@@ -790,9 +806,18 @@ export const styles = StyleSheet.create({
     gap: 8,
   },
   calibrationGuideTitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "800",
     color: "#111827",
+  },
+  calibrationGuideCurrentState: {
+    fontSize: 12,
+    color: validoseButtonColor,
+    fontWeight: "800",
+  },
+  calibrationGuideStageRow: {
+    flexDirection: "row",
+    alignItems: "center",
   },
   calibrationGuideStagePill: {
     borderWidth: 1,
@@ -863,6 +888,73 @@ export const styles = StyleSheet.create({
     color: "#1F2937",
     fontWeight: "700",
   },
+  calibrationGuideStateList: {
+    gap: 6,
+  },
+  calibrationGuideStateItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "#E4E7EC",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    backgroundColor: "#FAFBFC",
+  },
+  calibrationGuideStateItemDone: {
+    borderColor: "#ABEFC6",
+    backgroundColor: "#ECFDF3",
+  },
+  calibrationGuideStateItemActive: {
+    borderColor: "#B9DCE4",
+    backgroundColor: "#EAF6F8",
+  },
+  calibrationGuideStateItemError: {
+    borderColor: "#FECACA",
+    backgroundColor: "#FEF2F2",
+  },
+  calibrationGuideStateCode: {
+    minWidth: 16,
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#667085",
+    textAlign: "center",
+    paddingTop: 1,
+  },
+  calibrationGuideStateCodeDone: {
+    color: "#087443",
+  },
+  calibrationGuideStateCodeActive: {
+    color: validoseButtonColor,
+  },
+  calibrationGuideStateTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  calibrationGuideStateLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#344054",
+  },
+  calibrationGuideStateLabelDone: {
+    color: "#087443",
+  },
+  calibrationGuideStateLabelActive: {
+    color: validoseButtonColor,
+  },
+  calibrationGuideStateInstruction: {
+    fontSize: 10,
+    lineHeight: 14,
+    color: "#475467",
+    fontWeight: "600",
+  },
+  calibrationGuideStateHint: {
+    fontSize: 9,
+    lineHeight: 12,
+    color: "#B42318",
+    fontWeight: "600",
+  },
   calibrationGuideDataCard: {
     borderWidth: 1,
     borderColor: "#E4E7EC",
@@ -870,7 +962,7 @@ export const styles = StyleSheet.create({
     padding: 10,
     backgroundColor: "#FBFCFE",
     gap: 8,
-    marginTop: 8
+    marginTop: 2,
   },
   calibrationGuideDataHeader: {
     flexDirection: "row",

@@ -70,6 +70,8 @@ export type QuickFlowAction =
   | "STOP_CALIBRATION_RQ"
   | "CALIBRATION_WEIGHT_PRESENT_PUSH_TRUE"
   | "CALIBRATION_WEIGHT_PRESENT_PUSH_FALSE"
+  | "START_CAP_CALIBRATION_INTERVAL_PUSH"
+  | "SET_CAP_DETECTION_CONFIG_PUSH"
   | "START_BASELINING_RQ"
   | "STOP_BASELINING_RQ"
   | "VALIDATE_MED_RE_TRUE"
@@ -96,7 +98,7 @@ export type QuickActionItem = {
 };
 
 export type QuickActionPage = {
-  id: "general" | "developer" | "calibration" | "baselining";
+  id: "general" | "developer" | "calibration" | "capCalibration" | "baselining";
   title: string;
   actions: QuickActionItem[];
 };

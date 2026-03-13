@@ -16,6 +16,11 @@ export const BASELINING_QUICK_ACTION_KEY_SET = new Set<QuickFlowAction>([
   "VALIDATE_MED_RE_FALSE",
 ]);
 
+export const CAP_DETECTION_QUICK_ACTION_KEY_SET = new Set<QuickFlowAction>([
+  "START_CAP_CALIBRATION_INTERVAL_PUSH",
+  "SET_CAP_DETECTION_CONFIG_PUSH",
+]);
+
 export const DEVELOPMENT_CMD_QUICK_ACTION_KEY_SET = new Set<QuickFlowAction>([
   "DEVELOPMENT_CMD_RQ",
 ]);
@@ -25,6 +30,7 @@ export function buildQuickActionPages(): QuickActionPage[] {
     (action) =>
       !DEVELOPMENT_CMD_QUICK_ACTION_KEY_SET.has(action.key) &&
       !CALIBRATION_QUICK_ACTION_KEY_SET.has(action.key) &&
+      !CAP_DETECTION_QUICK_ACTION_KEY_SET.has(action.key) &&
       !BASELINING_QUICK_ACTION_KEY_SET.has(action.key)
   );
   const developmentActions = QUICK_FLOW_ACTIONS.filter((action) =>
@@ -32,6 +38,9 @@ export function buildQuickActionPages(): QuickActionPage[] {
   );
   const calibrationActions = QUICK_FLOW_ACTIONS.filter((action) =>
     CALIBRATION_QUICK_ACTION_KEY_SET.has(action.key)
+  );
+  const capCalibrationActions = QUICK_FLOW_ACTIONS.filter((action) =>
+    CAP_DETECTION_QUICK_ACTION_KEY_SET.has(action.key)
   );
   const baseliningActions = QUICK_FLOW_ACTIONS.filter((action) =>
     BASELINING_QUICK_ACTION_KEY_SET.has(action.key)
@@ -41,6 +50,7 @@ export function buildQuickActionPages(): QuickActionPage[] {
     { id: "general", title: "General", actions: primaryActions },
     { id: "developer", title: "Developer", actions: developmentActions },
     { id: "calibration", title: "Calibration", actions: calibrationActions },
+    { id: "capCalibration", title: "Cap Calibration", actions: capCalibrationActions },
     { id: "baselining", title: "Baselining", actions: baseliningActions },
   ].filter((page) => page.actions.length > 0) as QuickActionPage[];
 }
@@ -75,6 +85,10 @@ export function getQuickActionSubtitle(action: QuickFlowAction): string {
       return "AD_CALIBRATION_WEIGHT_PRESENT (PUSH, is_present=true)";
     case "CALIBRATION_WEIGHT_PRESENT_PUSH_FALSE":
       return "AD_CALIBRATION_WEIGHT_PRESENT (PUSH, is_present=false)";
+    case "START_CAP_CALIBRATION_INTERVAL_PUSH":
+      return "AD_CAP_DETECTION_SAMPLE_RATE (PUSH, sample_period_ms=1000)";
+    case "SET_CAP_DETECTION_CONFIG_PUSH":
+      return "AD_CAP_DETECTION_CONFIG (PUSH, threshold/hysteresis from inputs)";
     case "START_BASELINING_RQ":
       return "AD_START_BASELINING (RQ, start=true)";
     case "STOP_BASELINING_RQ":

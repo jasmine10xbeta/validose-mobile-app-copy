@@ -31,6 +31,14 @@ type BaseliningStateEntry = {
   hint?: string;
 };
 
+export type CalibrationStateEntry = {
+  code: number;
+  label: string;
+  stepNumber: number | null;
+  instruction: string;
+  hint?: string;
+};
+
 export const BASELINING_STATE_ENTRIES: BaseliningStateEntry[] = [
   { code: 0, label: "Wait For Ring Removal" },
   { code: 1, label: "Set Dock Weight" },
@@ -46,6 +54,63 @@ export const BASELINING_STATE_ENTRIES: BaseliningStateEntry[] = [
   },
   { code: 8, label: "Max" },
 ];
+
+export const CALIBRATION_STATE_ENTRIES: CalibrationStateEntry[] = [
+  {
+    code: 0,
+    label: "Wait For Ring Removal",
+    stepNumber: 1,
+    instruction: "Remove ring from dock.",
+  },
+  {
+    code: 1,
+    label: "Set Dock Weight",
+    stepNumber: 2,
+    instruction: "Place dock on a stable, level surface and keep it still while tare is captured.",
+  },
+  {
+    code: 2,
+    label: "Wait For Calibration Weight",
+    stepNumber: 3,
+    instruction: "Place calibration weight on the dock, then press Weight Present.",
+  },
+  {
+    code: 3,
+    label: "Calibrating",
+    stepNumber: 4,
+    instruction: "Do not move the dock or calibration weight while calibration is running.",
+  },
+  {
+    code: 4,
+    label: "Store Updated Param",
+    stepNumber: 5,
+    instruction: "Wait while firmware stores updated calibration values.",
+  },
+  {
+    code: 5,
+    label: "Complete",
+    stepNumber: 6,
+    instruction: "Calibration is complete. Request calibration data to verify values.",
+  },
+  {
+    code: 6,
+    label: "Error",
+    stepNumber: null,
+    instruction: "Calibration entered ERROR state. Stop and restart calibration.",
+    hint: "Recheck setup stability and ring removal before retrying.",
+  },
+];
+
+export function getCalibrationStateEntry(stateCode: number | null): CalibrationStateEntry | null {
+  if (stateCode === null) {
+    return null;
+  }
+  return CALIBRATION_STATE_ENTRIES.find((entry) => entry.code === stateCode) ?? null;
+}
+
+export function getCalibrationInstructionForState(stateCode: number | null): string | null {
+  return getCalibrationStateEntry(stateCode)?.instruction ?? null;
+}
 
 function normalizeUuidKey(uuid: string): string {
   return uuid.replace(/[^0-9a-fA-F]/g, "").toLowerCase();
@@ -322,10 +387,17 @@ export function describeCalibrationState(stateCode: number | null): string {
   if (stateCode === null) {
     return "--";
   }
+
+  const entry = getCalibrationStateEntry(stateCode);
+  if (entry) {
+    return `${entry.label} (${stateCode})`;
+  }
+
   if (CALIBRATION_COMPLETE_STATE_CODES.has(stateCode)) {
     return `Complete (${stateCode})`;
   }
-  return `Step ${stateCode}`;
+
+  return `State ${stateCode}`;
 }
 
 export function describeCalibrationMotion(motionCode: number | null): string {

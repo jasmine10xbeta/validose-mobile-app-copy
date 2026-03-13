@@ -82,6 +82,7 @@ import {
   extractCalibrationDataSnapshot,
   extractCalibrationFeedbackSnapshot,
   formatPpiHumanReadable,
+  getCalibrationInstructionForState,
   isQuickFlowAction,
   isResponseTypeForRequest,
   parseMpFrameBytes,
@@ -116,8 +117,6 @@ const MP_RX_SHORT_UUID = "1509";
 // Firmware parity: MESSAGE_PROTOCOL_PROCESS_INTERVAL_MS = 0 (process on demand).
 const MP_PROCESS_INTERVAL_MS = 0;
 const MP_MAX_PACKET_LEN = 244;
-const CALIBRATION_POST_START_INSTRUCTION =
-  "Remove ring from dock. Place dock on a stable, level surface. Place calibration weight on the dock and press the weight present button";
 const BASELINING_STATE_WAIT_FOR_BACKEND_VALIDATION = 4;
 const BASELINING_STATE_COMPLETE = 6;
 const BASELINING_STATE_ERROR = 7;
@@ -126,6 +125,10 @@ const MP_MIN_FRAME_LEN_BYTES = 14;
 const MP_PACKET_TYPE_DATA = 0;
 const CALIBRATION_WEIGHT_STORAGE_KEY = "ble_debug_calibration_weight_mg";
 const CALIBRATION_WEIGHT_MG_FALLBACK = 5000;
+const CAP_DETECTION_SAMPLE_PERIOD_MS_DEFAULT = 1000;
+const CAP_DETECTION_THRESHOLD_DEFAULT = 1000;
+const CAP_DETECTION_HYSTERESIS_DEFAULT = 200;
+const UINT16_MAX = 0xffff;
 const UINT32_MAX = 0xffffffff;
 
 function coerceCalibrationWeightMg(rawInput: string): number | null {
@@ -136,6 +139,20 @@ function coerceCalibrationWeightMg(rawInput: string): number | null {
 
   const parsed = Number.parseInt(value, 10);
   if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > UINT32_MAX) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function coerceUint16FromDecimalInput(rawInput: string): number | null {
+  const value = rawInput.trim();
+  if (!value || !/^\d+$/.test(value)) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > UINT16_MAX) {
     return null;
   }
 
@@ -169,6 +186,13 @@ export default function BleDebugScreen() {
     String(CALIBRATION_WEIGHT_MG_FALLBACK)
   );
   const [calibrationWeightInputError, setCalibrationWeightInputError] = useState("");
+  const [capDetectionThresholdInput, setCapDetectionThresholdInput] = useState(
+    String(CAP_DETECTION_THRESHOLD_DEFAULT)
+  );
+  const [capDetectionHysteresisInput, setCapDetectionHysteresisInput] = useState(
+    String(CAP_DETECTION_HYSTERESIS_DEFAULT)
+  );
+  const [capDetectionConfigInputError, setCapDetectionConfigInputError] = useState("");
   const [calibrationFeedbackPreview, setCalibrationFeedbackPreview] =
     useState<CompactFeedbackPreview | null>(null);
   const [calibrationResponsePreview, setCalibrationResponsePreview] =
@@ -251,6 +275,13 @@ export default function BleDebugScreen() {
         return "Ready";
     }
   }, [calibrationGuideStage]);
+  const isCalibrationWeightInputDisabled = useMemo(
+    () =>
+      calibrationGuideStage === "START_SENT" ||
+      calibrationGuideStage === "AWAITING_WEIGHT" ||
+      calibrationGuideStage === "WEIGHT_PRESENT_SENT",
+    [calibrationGuideStage]
+  );
   const isCalibrationActionEnabled = useCallback(
     (action: QuickFlowAction) => {
       if (!CALIBRATION_QUICK_ACTION_KEY_SET.has(action)) {
@@ -384,6 +415,15 @@ export default function BleDebugScreen() {
       };
     }
 
+    if (selectedFlowAction === "SET_CAP_DETECTION_CONFIG_PUSH") {
+      const threshold = coerceUint16FromDecimalInput(capDetectionThresholdInput);
+      const hysteresis = coerceUint16FromDecimalInput(capDetectionHysteresisInput);
+      return {
+        threshhold: threshold ?? "(invalid input)",
+        hysteresis: hysteresis ?? "(invalid input)",
+      };
+    }
+
     if (selectedFlowMeta.payloadPreview !== undefined) {
       return selectedFlowMeta.payloadPreview;
     }
@@ -398,7 +438,13 @@ export default function BleDebugScreen() {
     }
 
     return "(none)";
-  }, [calibrationWeightInput, selectedFlowAction, selectedFlowMeta]);
+  }, [
+    calibrationWeightInput,
+    capDetectionHysteresisInput,
+    capDetectionThresholdInput,
+    selectedFlowAction,
+    selectedFlowMeta,
+  ]);
 
   const selectedFlowPayloadValueText = useMemo(
     () => prettifyForLog(selectedFlowPayloadValue),
@@ -937,36 +983,36 @@ export default function BleDebugScreen() {
             return;
           }
 
-          try {
-            await ingestRawHardwareData({
-              packetBytes,
-              timestamp: new Date(),
-              deviceId,
-            });
-          } catch (error) {
-            const status =
-              typeof error === "object" && error !== null && "response" in error
-                ? (error as { response?: { status?: number } }).response?.status
-                : undefined;
+          // try {
+          //   await ingestRawHardwareData({
+          //     packetBytes,
+          //     timestamp: new Date(),
+          //     deviceId,
+          //   });
+          // } catch (error) {
+          //   const status =
+          //     typeof error === "object" && error !== null && "response" in error
+          //       ? (error as { response?: { status?: number } }).response?.status
+          //       : undefined;
 
-            addLog("[PPI][INGEST][WARN] Failed to ingest ACKed packet.", {
-              error: toErrorDetails(error),
-              status,
-              deviceId,
-              sessionId: ackedPacket.sessionId,
-              pktCounter: ackedPacket.pktCounter,
-              ppi: ackedPacket.payload.ppi,
-              type: ackedPacket.payload.type,
-              packetBytesLength: packetBytes.length,
-              packetBase64: Buffer.from(packetBytes).toString("base64"),
-            });
+          //   addLog("[PPI][INGEST][WARN] Failed to ingest ACKed packet.", {
+          //     error: toErrorDetails(error),
+          //     status,
+          //     deviceId,
+          //     sessionId: ackedPacket.sessionId,
+          //     pktCounter: ackedPacket.pktCounter,
+          //     ppi: ackedPacket.payload.ppi,
+          //     type: ackedPacket.payload.type,
+          //     packetBytesLength: packetBytes.length,
+          //     packetBase64: Buffer.from(packetBytes).toString("base64"),
+          //   });
 
-            if (status === 401 || status === 403) {
-              addLog(
-                "[PPI][INGEST][WARN] Missing or expired auth token for /api/mobile/hardware/ingest."
-              );
-            }
-          }
+          //   if (status === 401 || status === 403) {
+          //     addLog(
+          //       "[PPI][INGEST][WARN] Missing or expired auth token for /api/mobile/hardware/ingest."
+          //     );
+          //   }
+          // }
         })();
       },
       logger: {
@@ -1033,7 +1079,10 @@ export default function BleDebugScreen() {
           typeName: rxPreview.typeName ?? `TYPE_${packet.type}`,
         };
 
-        if (packetType === PpiType.PUSH && packet.ppi === PpiId.AD_CALIBRATION_FEEDBACK) {
+        if (
+          packetType === PpiType.PUSH &&
+          (packet.ppi === PpiId.AD_CALIBRATION_FEEDBACK || packet.ppi === PpiId.AD_START_CALIBRATION)
+        ) {
           setCalibrationFeedbackPreview({
             ...compactBase,
             summary: summarizeFeedbackValue(normalizedDecodedValue),
@@ -1045,20 +1094,50 @@ export default function BleDebugScreen() {
           );
           if (feedbackSnapshot) {
             setCalibrationFeedbackSnapshot(feedbackSnapshot);
+            const stateCode = feedbackSnapshot.currentState;
+            const stateInstruction = getCalibrationInstructionForState(stateCode);
+            const pendingMatcher = pendingResponseMatcherRef.current;
+            const isStopConfirmationFeedback =
+              stateCode === 6 &&
+              (calibrationStopRequestedRef.current || pendingMatcher?.actionName === "STOP_CALIBRATION_RQ");
 
-            if (feedbackSnapshot.currentState === 6 && calibrationStopRequestedRef.current) {
+            if (stateCode === 0 || stateCode === 1 || stateCode === 2) {
+              setCalibrationGuideStage("AWAITING_WEIGHT");
+            } else if (stateCode === 3 || stateCode === 4) {
+              setCalibrationGuideStage("WEIGHT_PRESENT_SENT");
+            } else if (stateCode === 6) {
+              setCalibrationGuideStage("IDLE");
+            }
+
+            if (stateInstruction) {
+              setCalibrationGuideInstruction(stateInstruction);
+            }
+
+            if (isStopConfirmationFeedback) {
               calibrationStopRequestedRef.current = false;
               calibrationCompletionAutoRequestRef.current = false;
               setCalibrationGuideStage("IDLE");
               setCalibrationGuideInstruction("Calibration stopped.");
+
+              if (pendingMatcher?.actionName === "STOP_CALIBRATION_RQ") {
+                setResolvedResponsePreview(rxPreview);
+                addLog("[PPI][STOP_CALIBRATION_RQ] RESPONSE_RESOLVED_BY_FEEDBACK", {
+                  sentAt: pendingMatcher.sentAt,
+                  receivedAt: rxPreview.receivedAt,
+                  ppi: rxPreview.ppi,
+                  ppiName: rxPreview.ppiName,
+                  type: rxPreview.type,
+                  typeName: rxPreview.typeName,
+                  payloadLen: rxPreview.pktPayloadLen,
+                  decoded: rxPreview.decoded,
+                });
+                pendingResponseMatcherRef.current = null;
+                setPendingResponseMatcher(null);
+              }
             }
 
             if (feedbackSnapshot.isComplete) {
-              if (feedbackSnapshot.currentState === 5) {
-                setCalibrationGuideStage("IDLE");
-              } else {
-                setCalibrationGuideStage("COMPLETED");
-              }
+              setCalibrationGuideStage("COMPLETED");
               setCalibrationCompletionMessage(
                 `Calibration complete feedback received at ${compactBase.updatedAt}.`
               );
@@ -1149,7 +1228,6 @@ export default function BleDebugScreen() {
           const dataSnapshot = extractCalibrationDataSnapshot(normalizedDecodedValue, compactBase.updatedAt);
           if (dataSnapshot) {
             setCalibrationDataSnapshot(dataSnapshot);
-            setCalibrationGuideInstruction("");
           }
         }
 
@@ -1163,19 +1241,26 @@ export default function BleDebugScreen() {
           if (pendingActionName === "START_CALIBRATION_RQ") {
             if (accepted === true) {
               setCalibrationGuideStage("AWAITING_WEIGHT");
-              setCalibrationGuideInstruction(CALIBRATION_POST_START_INSTRUCTION);
+              setCalibrationGuideInstruction(
+                getCalibrationInstructionForState(0) ??
+                  "Remove ring from dock. Place dock on a stable, level surface."
+              );
             } else if (accepted === false) {
               setCalibrationGuideStage("IDLE");
               setCalibrationGuideInstruction("Firmware rejected start calibration.");
             }
-          } else if (pendingActionName === "STOP_CALIBRATION_RQ") {
+          } else if (pendingActionName === "STOP_CALIBRATION_RQ" || calibrationStopRequestedRef.current) {
             if (accepted === true) {
               calibrationStopRequestedRef.current = false;
               setCalibrationGuideStage("IDLE");
               setCalibrationGuideInstruction("Calibration stopped.");
+              pendingResponseMatcherRef.current = null;
+              setPendingResponseMatcher(null);
             } else if (accepted === false) {
               calibrationStopRequestedRef.current = false;
               setCalibrationGuideInstruction("Firmware rejected stop calibration.");
+              pendingResponseMatcherRef.current = null;
+              setPendingResponseMatcher(null);
             }
           }
         }
@@ -1356,7 +1441,7 @@ export default function BleDebugScreen() {
 
     const sentAtMs = Date.now();
     const sentAt = new Date(sentAtMs).toLocaleTimeString();
-    const shouldTrackResponse = type !== PpiType.RE;
+    const shouldTrackResponse = type !== PpiType.RE && actionName !== "STOP_CALIBRATION_RQ";
     let matcher: PendingResponseMatcher | null = null;
     lateAckWatchTokenRef.current += 1;
     setResolvedResponsePreview(null);
@@ -1461,6 +1546,55 @@ export default function BleDebugScreen() {
 
     setCalibrationWeightInputError("");
     return parsed;
+  }
+
+  function parseCapDetectionConfigInput(
+    thresholdRawInput: string,
+    hysteresisRawInput: string
+  ): { threshold: number; hysteresis: number } | null {
+    const thresholdTrimmed = thresholdRawInput.trim();
+    const hysteresisTrimmed = hysteresisRawInput.trim();
+
+    if (!thresholdTrimmed) {
+      setCapDetectionConfigInputError("Enter cap threshold.");
+      return null;
+    }
+    if (!/^\d+$/.test(thresholdTrimmed)) {
+      setCapDetectionConfigInputError("Threshold must be decimal digits only.");
+      return null;
+    }
+
+    const threshold = coerceUint16FromDecimalInput(thresholdTrimmed);
+    if (threshold === null) {
+      setCapDetectionConfigInputError("Threshold must be a uint16 value (0-65535).");
+      return null;
+    }
+    if (threshold <= 0) {
+      setCapDetectionConfigInputError("Threshold must be greater than 0.");
+      return null;
+    }
+
+    if (!hysteresisTrimmed) {
+      setCapDetectionConfigInputError("Enter cap hysteresis.");
+      return null;
+    }
+    if (!/^\d+$/.test(hysteresisTrimmed)) {
+      setCapDetectionConfigInputError("Hysteresis must be decimal digits only.");
+      return null;
+    }
+
+    const hysteresis = coerceUint16FromDecimalInput(hysteresisTrimmed);
+    if (hysteresis === null) {
+      setCapDetectionConfigInputError("Hysteresis must be a uint16 value (0-65535).");
+      return null;
+    }
+    if (hysteresis > threshold) {
+      setCapDetectionConfigInputError("Hysteresis must be less than or equal to threshold.");
+      return null;
+    }
+
+    setCapDetectionConfigInputError("");
+    return { threshold, hysteresis };
   }
 
   async function persistCalibrationWeight(weightMg: number) {
@@ -1580,6 +1714,57 @@ export default function BleDebugScreen() {
 
   function buildStartCalibrationPayload(start: boolean, calibrationWeightMg: number): Uint8Array {
     return encodeStartCalibrationParamPayload(start, calibrationWeightMg);
+  }
+
+  function buildCapDetectionSampleRatePayload(samplePeriodMs: number): Uint8Array {
+    const payload = new Uint8Array(2);
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+    view.setUint16(0, samplePeriodMs, true);
+    return payload;
+  }
+
+  function buildCapDetectionConfigPayload(threshold: number, hysteresis: number): Uint8Array {
+    const payload = new Uint8Array(4);
+    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+    view.setUint16(0, threshold, true);
+    view.setUint16(2, hysteresis, true);
+    return payload;
+  }
+
+  async function onStartCapCalibrationIntervalPush() {
+    setSelectedFlowAction("START_CAP_CALIBRATION_INTERVAL_PUSH");
+    await withBusy("ppi-start-cap-calibration-interval-push", async () => {
+      await sendPpi(
+        "START_CAP_CALIBRATION_INTERVAL_PUSH",
+        PpiId.AD_CAP_DETECTION_SAMPLE_RATE,
+        PpiType.PUSH,
+        buildCapDetectionSampleRatePayload(CAP_DETECTION_SAMPLE_PERIOD_MS_DEFAULT)
+      );
+    });
+  }
+
+  async function onSetCapDetectionConfigPush() {
+    const parsedConfig = parseCapDetectionConfigInput(
+      capDetectionThresholdInput,
+      capDetectionHysteresisInput
+    );
+    if (!parsedConfig) {
+      addLog("[PPI][SET_CAP_DETECTION_CONFIG_PUSH][WARN] Invalid cap detection config input.", {
+        threshold: capDetectionThresholdInput,
+        hysteresis: capDetectionHysteresisInput,
+      });
+      return;
+    }
+
+    setSelectedFlowAction("SET_CAP_DETECTION_CONFIG_PUSH");
+    await withBusy("ppi-set-cap-detection-config-push", async () => {
+      await sendPpi(
+        "SET_CAP_DETECTION_CONFIG_PUSH",
+        PpiId.AD_CAP_DETECTION_CONFIG,
+        PpiType.PUSH,
+        buildCapDetectionConfigPayload(parsedConfig.threshold, parsedConfig.hysteresis)
+      );
+    });
   }
 
   async function onStartCalibrationRequest() {
@@ -1965,6 +2150,8 @@ export default function BleDebugScreen() {
     STOP_CALIBRATION_RQ: onStopCalibrationRequest,
     CALIBRATION_WEIGHT_PRESENT_PUSH_TRUE: onCalibrationWeightPresentPushTrue,
     CALIBRATION_WEIGHT_PRESENT_PUSH_FALSE: onCalibrationWeightPresentPushFalse,
+    START_CAP_CALIBRATION_INTERVAL_PUSH: onStartCapCalibrationIntervalPush,
+    SET_CAP_DETECTION_CONFIG_PUSH: onSetCapDetectionConfigPush,
     START_BASELINING_RQ: onStartBaseliningRequest,
     STOP_BASELINING_RQ: onStopBaseliningRequest,
     VALIDATE_MED_RE_TRUE: onValidateMedResponseTrue,
@@ -2026,6 +2213,10 @@ export default function BleDebugScreen() {
             developmentCmdInputError={developmentCmdInputError}
             calibrationWeightInput={calibrationWeightInput}
             calibrationWeightInputError={calibrationWeightInputError}
+            capDetectionThresholdInput={capDetectionThresholdInput}
+            capDetectionHysteresisInput={capDetectionHysteresisInput}
+            capDetectionConfigInputError={capDetectionConfigInputError}
+            isCalibrationWeightInputDisabled={isCalibrationWeightInputDisabled}
             calibrationGuideStage={calibrationGuideStage}
             calibrationGuideStageLabel={calibrationGuideStageLabel}
             calibrationGuideInstruction={calibrationGuideInstruction}
@@ -2057,6 +2248,18 @@ export default function BleDebugScreen() {
               const parsedWeight = coerceCalibrationWeightMg(text);
               if (parsedWeight !== null) {
                 void persistCalibrationWeight(parsedWeight);
+              }
+            }}
+            onCapDetectionThresholdInputChange={(text) => {
+              setCapDetectionThresholdInput(text);
+              if (capDetectionConfigInputError) {
+                setCapDetectionConfigInputError("");
+              }
+            }}
+            onCapDetectionHysteresisInputChange={(text) => {
+              setCapDetectionHysteresisInput(text);
+              if (capDetectionConfigInputError) {
+                setCapDetectionConfigInputError("");
               }
             }}
             onQuickActionPress={(action) => {
