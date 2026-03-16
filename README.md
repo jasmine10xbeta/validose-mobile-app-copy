@@ -4,7 +4,7 @@ Cross-platform mobile companion app for the Validose system, connecting to dock/
 
 ## Prerequisites
 
-- Node.js `>=18`
+- Node.js `>=20.19.4`
 - npm
 - Xcode (iOS builds) and/or Android Studio (Android builds)
 - EAS CLI account access (`EXPO_TOKEN`) for cloud builds/submissions

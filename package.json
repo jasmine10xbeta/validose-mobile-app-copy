@@ -2,6 +2,10 @@
   "name": "Validose",
   "main": "expo-router/entry",
   "version": "1.0.1-build.0",
+  "engines": {
+    "node": ">=20.19.4",
+    "npm": ">=10"
+  },
   "scripts": {
     "start": "expo start",
     "start:dev": "ENV_FILE=.env.development expo start",
@@ -14,7 +18,7 @@
     "ios:dev": "ENV_FILE=.env.development expo run:ios",
     "web": "expo start --web",
     "test": "jest --passWithNoTests",
-    "prepare": "husky install",
+    "prepare": "husky",
     "expo-lint": "expo lint",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "lint-fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
@@ -100,7 +104,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
-    "@react-native-community/cli": "latest",
+    "@react-native-community/cli": "20.1.2",
     "@tanstack/eslint-plugin-query": "^5.73.3",
     "@types/crypto-js": "^4.2.2",
     "@types/jest": "^29.5.12",
