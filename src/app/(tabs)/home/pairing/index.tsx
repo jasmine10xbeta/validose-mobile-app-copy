@@ -97,9 +97,12 @@ export default function PairingScreen() {
   const devices = useDeviceStore((s) => s.devices);
   const isDevicesConnected = devices.length > 0;
   const activeConnectedDeviceCount = devices.filter((device) => device?.connected).length;
-  const shouldContinueBeGreen = activeConnectedDeviceCount >= 3;
-  const hasReconnectableDevice = devices.some((device) => !device?.connected);
-  const forceConnectedButtonsWhite = hasReconnectableDevice;
+  const allListedDevicesConnected =
+    devices.length > 0 && devices.every((device) => device?.connected === true);
+  const isReconnectInProgress = reconnectingDeviceId !== null;
+  const canShowGreenConnectedAction = allListedDevicesConnected && !isReconnectInProgress;
+  const shouldContinueBeGreen = canShowGreenConnectedAction && activeConnectedDeviceCount >= 3;
+  const forceConnectedButtonsWhite = !canShowGreenConnectedAction;
   const scanButtonIsWhite = forceConnectedButtonsWhite || shouldContinueBeGreen;
   const continueButtonIsWhite = forceConnectedButtonsWhite || !shouldContinueBeGreen;
   const {
@@ -259,14 +262,14 @@ export default function PairingScreen() {
     isMockBleModeEnabled,
   ]);
 
-  async function reconnectDevice(deviceName: string) {
+  async function reconnectDevice(deviceIdentifier: string) {
     if (reconnectingDeviceId) {
       showToast("info", "Another connection in progress", "Please wait..");
       return;
     }
-    setReconnectingDeviceId(deviceName);
+    setReconnectingDeviceId(deviceIdentifier);
     try {
-      const connected = await connectAndSetupDevice(deviceName);
+      const connected = await connectAndSetupDevice(deviceIdentifier);
       if (connected.error) showToast("error", connected.error.toString());
     } catch (error) {
       showToast(
@@ -431,8 +434,8 @@ export default function PairingScreen() {
                     <VDeviceItem
                       item={item}
                       state={item?.connected}
-                      reconnect={() => reconnectDevice(item.deviceName)}
-                      isReconnecting={reconnectingDeviceId === item.deviceName}
+                      reconnect={() => reconnectDevice(item.deviceId)}
+                      isReconnecting={reconnectingDeviceId === item.deviceId}
                       index={index}
                     />
                   )}
@@ -711,7 +714,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   connectedActionButton: {
-    width: "80%",
+    width: "85%",
     borderWidth: 2,
     borderRadius: 25,
     padding: 5,

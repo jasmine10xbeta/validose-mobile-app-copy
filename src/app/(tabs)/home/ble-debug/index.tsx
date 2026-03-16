@@ -17,7 +17,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { CHARACTERISTIC_UUIDS, SERVICE_UUIDS } from "@/constants/ble";
 import { getAccessToken, invokeSignIn } from "@/providers/auth";
 import { login as loginWithMobileId } from "@/services/auth";
-import { ingestRawHardwareData } from "@/services/hardware";
 import {
   addBleDebugLog,
   getBleDebugLogs,
@@ -108,7 +107,7 @@ import type {
   QuickFlowAction,
 } from "./types";
 
-const MP_SERVICE_UUID = SERVICE_UUIDS.CUSTOM_SERVICE;
+const MP_SERVICE_UUID = SERVICE_UUIDS.MESSAGE_PROTOCOL_SERVICE;
 const MP_TX_UUID = CHARACTERISTIC_UUIDS.MESSAGE_PROTOCOL_TX;
 const MP_RX_UUID = CHARACTERISTIC_UUIDS.MESSAGE_PROTOCOL_RX;
 const MP_SERVICE_SHORT_UUID = "1500";
@@ -225,6 +224,7 @@ export default function BleDebugScreen() {
   const pendingResponseMatcherRef = useRef<PendingResponseMatcher | null>(null);
   const resolvedMpTxUuidRef = useRef(MP_TX_UUID);
   const resolvedMpRxUuidRef = useRef(MP_RX_UUID);
+  const resolvedMpServiceUuidRef = useRef(MP_SERVICE_UUID);
   const lateAckWatchTokenRef = useRef(0);
   const gattDiscoveryInFlightRef = useRef<Promise<void> | null>(null);
   const isGattDiscoveredRef = useRef(false);
@@ -768,6 +768,7 @@ export default function BleDebugScreen() {
           });
           resolvedMpTxUuidRef.current = resolved.txUuid;
           resolvedMpRxUuidRef.current = resolved.rxUuid;
+          resolvedMpServiceUuidRef.current = resolved.serviceUuid;
           isGattDiscoveredRef.current = true;
           addLog("[DISCOVER] Services/characteristics ready.", response);
           // addLog("[DISCOVER] Resolved message protocol UUIDs.", {
@@ -910,11 +911,12 @@ export default function BleDebugScreen() {
     await ensureGattDiscovered("protocol-start");
     const txUuid = resolvedMpTxUuidRef.current || MP_TX_UUID;
     const rxUuid = resolvedMpRxUuidRef.current || MP_RX_UUID;
+    const serviceUuid = resolvedMpServiceUuidRef.current || MP_SERVICE_UUID;
 
     const protocol = new BleMessageProtocol({
       txCharacteristicUUID: txUuid,
       rxCharacteristicUUID: rxUuid,
-      serviceUUID: MP_SERVICE_UUID,
+      serviceUUID: serviceUuid,
       processIntervalMs: MP_PROCESS_INTERVAL_MS,
       ackTimeoutMs: PPI_ACK_TIMEOUT_MS,
       maxRetries: PPI_MAX_RETRIES,
@@ -1346,7 +1348,7 @@ export default function BleDebugScreen() {
     }
     setProtocolRunning(true);
     addLog("[PPI] Message protocol started", {
-      serviceUuid: MP_SERVICE_UUID,
+      serviceUuid,
       txCharacteristicUuid: txUuid,
       rxCharacteristicUuid: rxUuid,
       mode: "MASTER",
@@ -1997,6 +1999,7 @@ export default function BleDebugScreen() {
         stopPpiProtocol();
         resolvedMpTxUuidRef.current = MP_TX_UUID;
         resolvedMpRxUuidRef.current = MP_RX_UUID;
+        resolvedMpServiceUuidRef.current = MP_SERVICE_UUID;
         isGattDiscoveredRef.current = false;
         gattDiscoveryInFlightRef.current = null;
         const res = await disconnect();
@@ -2293,9 +2296,9 @@ export default function BleDebugScreen() {
 
           <ProtocolInfoCard
             protocolInfo={protocolInfo}
-            serviceUuid={MP_SERVICE_UUID}
-            txUuid={MP_TX_UUID}
-            rxUuid={MP_RX_UUID}
+            serviceUuid={resolvedMpServiceUuidRef.current || MP_SERVICE_UUID}
+            txUuid={resolvedMpTxUuidRef.current || MP_TX_UUID}
+            rxUuid={resolvedMpRxUuidRef.current || MP_RX_UUID}
           />
         </View>
       </ScrollView>

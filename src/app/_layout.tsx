@@ -108,8 +108,8 @@ function AppInitializer({ onReady }: { onReady: () => void }) {
     let allConnected = true;
 
     for (const device of devices) {
-      const deviceId = device.deviceName;
-      const connected = await connectAndSetupDevice(deviceId);
+      const deviceIdentifier = device.deviceId || device.deviceName;
+      const connected = await connectAndSetupDevice(deviceIdentifier);
 
       if (connected.status === "error") allConnected = false;
     }

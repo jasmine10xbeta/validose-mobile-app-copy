@@ -2,6 +2,8 @@
 export const SERVICE_UUIDS = {
   BATTERY_SERVICE: "180f",
   CUSTOM_SERVICE: "00001500-eb00-430a-a8ff-c7ad4211bf86",
+  MESSAGE_PROTOCOL_SERVICE: "00001500-eb00-430a-a8ff-c7ad4211bf86",
+  MESSAGE_PROTOCOL_NUS_SERVICE: "6e400001-b5a3-f393-e0a9-e50e24dcca9e",
 };
 
 export const CHARACTERISTIC_UUIDS = {
@@ -14,6 +16,8 @@ export const CHARACTERISTIC_UUIDS = {
   MESSAGE_PROTOCOL_TX: "00001508-eb00-430a-a8ff-c7ad4211bf86",
   // Device -> app notify pipe (firmware UUID_DATA_TX).
   MESSAGE_PROTOCOL_RX: "00001509-eb00-430a-a8ff-c7ad4211bf86",
+  MESSAGE_PROTOCOL_NUS_TX: "6e400002-b5a3-f393-e0a9-e50e24dcca9e",
+  MESSAGE_PROTOCOL_NUS_RX: "6e400003-b5a3-f393-e0a9-e50e24dcca9e",
   // Legacy alias kept for compatibility in older code paths.
   MESSAGE_PROTOCOL: "00001508-eb00-430a-a8ff-c7ad4211bf86",
   RESET: "00001506-eb00-430a-a8ff-c7ad4211bf86",

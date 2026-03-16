@@ -5,8 +5,8 @@ import {
 } from "@/services/schedule";
 import useScheduleStore from "@/store/schedule";
 import useTreatmentStore from "@/store/treatment";
-import { Treatment } from "@/types/dose";
 import { Schedule } from "@/types/schedule";
+import { Treatment } from "@/types/treatment";
 import { toUtcISOString } from "../date";
 import { updateNotificationsForSchedules } from "../notifications";
 
@@ -194,5 +194,133 @@ export const refreshExpiringSchedules = async () => {
     console.error("[Scheduler] Failed to refresh schedules:", err);
   }
 };
+
+type DeviceScheduleSyncData = {
+  treatment: Treatment;
+  schedules: Schedule[];
+  signature: string;
+  payload: {
+    medication_type: number;
+    dosage_mg: number;
+    temp_upper_limit_deg_c: number;
+    temp_lower_limit_deg_c: number;
+    temp_avg_window_duration_sec: number;
+    dose_days_bitfield: number;
+    dose_window_duration_minutes: number;
+    dose_window_count: number;
+    dose_window_start_times_minutes: number[];
+  };
+};
+
+function toMinutesSinceMidnight(isoValue: string): number {
+  const parsed = new Date(isoValue);
+  if (Number.isNaN(parsed.getTime())) return 0;
+  return parsed.getHours() * 60 + parsed.getMinutes();
+}
+
+function buildDoseWindowStartTimes(schedules: Schedule[]): number[] {
+  const unique = new Set<number>();
+
+  for (const schedule of schedules) {
+    unique.add(toMinutesSinceMidnight(schedule.event_at_local || schedule.event_at));
+  }
+
+  return Array.from(unique)
+    .filter((value) => Number.isFinite(value) && value >= 0)
+    .sort((a, b) => a - b)
+    .slice(0, 10);
+}
+
+function buildDeviceScheduleSignature(
+  deviceId: string,
+  treatment: Treatment,
+  schedules: Schedule[],
+): string {
+  const normalized = schedules
+    .map((schedule) => ({
+      id: schedule.id,
+      event_at: schedule.event_at,
+      event_at_local: schedule.event_at_local,
+      dosing_window_min: schedule.dosing_window_min,
+      medication_code: schedule.medication_code,
+    }))
+    .sort((a, b) => a.event_at.localeCompare(b.event_at));
+
+  return JSON.stringify({
+    deviceId,
+    treatmentId: treatment.id,
+    scheduleUpdatedAt: treatment.schedule_updated_at ?? "",
+    schedules: normalized,
+  });
+}
+
+function buildDeviceDoseSchedulePayload(schedules: Schedule[]) {
+  const sorted = [...schedules].sort((a, b) => a.event_at.localeCompare(b.event_at));
+  const doseWindowStartTimesMinutes = buildDoseWindowStartTimes(sorted);
+  const firstSchedule = sorted[0];
+  const doseWindowDurationMinutes = Math.max(
+    1,
+    Math.min(255, Number(firstSchedule?.dosing_window_min) || 30),
+  );
+
+  if (!doseWindowStartTimesMinutes.length) {
+    return null;
+  }
+
+  return {
+    medication_type: 0,
+    dosage_mg: 0,
+    temp_upper_limit_deg_c: 60,
+    temp_lower_limit_deg_c: 0,
+    temp_avg_window_duration_sec: 30 * 60,
+    dose_days_bitfield: 0x7f,
+    dose_window_duration_minutes: doseWindowDurationMinutes,
+    dose_window_count: doseWindowStartTimesMinutes.length,
+    dose_window_start_times_minutes: doseWindowStartTimesMinutes,
+  };
+}
+
+export async function fetchAndStoreDeviceSchedules(deviceId: string): Promise<Schedule[]> {
+  const now = new Date();
+  const end = new Date(Date.now() + 604800000);
+
+  const latestTreatments = await getTreatments();
+  useTreatmentStore.getState().storeTreatments(latestTreatments.treatments);
+
+  const treatment = latestTreatments.treatments.find((t: Treatment) => t.device_id === deviceId);
+  if (!treatment) {
+    useScheduleStore.getState().storeSchedules(deviceId, []);
+    return [];
+  }
+
+  const schedulesResponse = await getSchedules(treatment.id, {
+    device: deviceId,
+    event_at: { ">=": toUtcISOString(now), "<": toUtcISOString(end) },
+  });
+
+  const scheduleList = Array.isArray(schedulesResponse?.data) ? schedulesResponse.data : [];
+  useScheduleStore.getState().storeSchedules(deviceId, scheduleList);
+  return scheduleList;
+}
+
+export async function getDeviceScheduleSyncData(
+  deviceId: string,
+): Promise<DeviceScheduleSyncData | null> {
+  const schedules = await fetchAndStoreDeviceSchedules(deviceId);
+  if (!schedules.length) return null;
+
+  const treatment = useTreatmentStore.getState().getDeviceTreatment(deviceId);
+  if (!treatment) return null;
+
+  const payload = buildDeviceDoseSchedulePayload(schedules);
+  if (!payload) return null;
+
+  return {
+    treatment,
+    schedules,
+    payload,
+    signature: buildDeviceScheduleSignature(deviceId, treatment, schedules),
+  };
+}
 
 export { toUtcISOString } from "../date";

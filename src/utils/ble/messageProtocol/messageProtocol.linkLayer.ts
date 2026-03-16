@@ -22,6 +22,11 @@ type BleModule = {
 
 let bleModuleCache: BleModule | null = null;
 
+function isServiceNotFoundError(error: unknown): boolean {
+  const normalized = String(error ?? "").toLowerCase();
+  return normalized.includes("service_not_found") || normalized.includes("service with the given uuid not found");
+}
+
 function getBleModule(): BleModule {
   if (bleModuleCache) {
     return bleModuleCache;
@@ -37,11 +42,10 @@ function getBleModule(): BleModule {
 export async function subscribeToBleCharacteristic(
   rxCharacteristicUUID: string,
   onRawBytes: (bytes: Uint8Array) => void,
-  serviceUUID = SERVICE_UUIDS.CUSTOM_SERVICE
+  serviceUUID = SERVICE_UUIDS.MESSAGE_PROTOCOL_SERVICE
 ): Promise<() => void> {
   const { subscribeToCharacteristic } = getBleModule();
-
-  return subscribeToCharacteristic(rxCharacteristicUUID, serviceUUID, ({ hex }) => {
+  const onNotification = ({ hex }: BleNotificationData) => {
     if (!hex) {
       return;
     }
@@ -60,7 +64,33 @@ export async function subscribeToBleCharacteristic(
     } catch {
       // Ignore malformed notifications.
     }
-  });
+  };
+
+  try {
+    return await subscribeToCharacteristic(rxCharacteristicUUID, serviceUUID, onNotification);
+  } catch (error) {
+    if (!isServiceNotFoundError(error)) {
+      throw error;
+    }
+
+    const fallbackServices = [
+      SERVICE_UUIDS.MESSAGE_PROTOCOL_SERVICE,
+      SERVICE_UUIDS.MESSAGE_PROTOCOL_NUS_SERVICE,
+      SERVICE_UUIDS.CUSTOM_SERVICE,
+    ].filter((candidate, index, all) => candidate && all.indexOf(candidate) === index && candidate !== serviceUUID);
+
+    for (const fallbackServiceUuid of fallbackServices) {
+      try {
+        return await subscribeToCharacteristic(rxCharacteristicUUID, fallbackServiceUuid, onNotification);
+      } catch (fallbackError) {
+        if (!isServiceNotFoundError(fallbackError)) {
+          throw fallbackError;
+        }
+      }
+    }
+
+    throw error;
+  }
 }
 
 export async function writeBytesToBleCharacteristic(

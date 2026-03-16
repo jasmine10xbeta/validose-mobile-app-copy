@@ -9,6 +9,10 @@ export interface ValidoseDevice {
   color: string;
   error: string;
   batteryLevel: number;
+  dockBatteryLevel?: number;
+  ringBatteryLevel?: number;
+  lastScheduleSyncSignature?: string;
+  lastScheduleSyncedAt?: string;
 }
 
 export type StatusType = "network" | "connection" | "error" | "battery";

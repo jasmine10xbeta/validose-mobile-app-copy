@@ -1,5 +1,6 @@
 import { Buffer } from "buffer";
 
+import { CHARACTERISTIC_UUIDS, SERVICE_UUIDS } from "@/constants/ble";
 import { PpiId, PpiType } from "@/utils/ble/messageProtocolPpi";
 
 import { QUICK_FLOW_META } from "./constants";
@@ -125,6 +126,20 @@ function isUuidMatchByShortKey(uuid: string, shortUuid: string): boolean {
   return normalized.startsWith(`0000${shortKey}`);
 }
 
+function isUuidEquivalent(uuid: string, expectedUuid: string): boolean {
+  return normalizeUuidKey(uuid) === normalizeUuidKey(expectedUuid);
+}
+
+function hasProperty(
+  characteristic: DiscoveredCharacteristic,
+  predicate: (prop: string) => boolean
+): boolean {
+  return (
+    Array.isArray(characteristic.properties) &&
+    characteristic.properties.some((prop) => typeof prop === "string" && predicate(prop.toLowerCase()))
+  );
+}
+
 export function resolveMessageProtocolUuidsFromDiscovery(
   discovery: unknown,
   defaults: {
@@ -137,90 +152,110 @@ export function resolveMessageProtocolUuidsFromDiscovery(
 ): {
   txUuid: string;
   rxUuid: string;
+  serviceUuid: string;
   source: string;
 } {
   let txUuid = defaults.txUuid;
   let rxUuid = defaults.rxUuid;
+  let serviceUuid = SERVICE_UUIDS.MESSAGE_PROTOCOL_SERVICE;
   let source = "defaults";
 
   if (!Array.isArray(discovery)) {
-    return { txUuid, rxUuid, source };
+    return { txUuid, rxUuid, serviceUuid, source };
   }
 
   const services = discovery as DiscoveredService[];
-  const customService = services.find(
-    (service) =>
-      typeof service?.uuid === "string" &&
-      isUuidMatchByShortKey(service.uuid, defaults.serviceShortUuid)
-  );
+  type Candidate = {
+    txUuid: string;
+    rxUuid: string;
+    serviceUuid: string;
+    source: string;
+    score: number;
+  };
 
-  if (!customService?.characteristics?.length) {
-    return { txUuid, rxUuid, source };
+  const candidates: Candidate[] = [];
+
+  for (const service of services) {
+    if (typeof service?.uuid !== "string" || !service.characteristics?.length) {
+      continue;
+    }
+
+    const characteristics = service.characteristics.filter(
+      (characteristic): characteristic is DiscoveredCharacteristic & { uuid: string } =>
+        typeof characteristic?.uuid === "string" && characteristic.uuid.length > 0
+    );
+    if (!characteristics.length) continue;
+
+    const explicitTx = characteristics.find(
+      (characteristic) =>
+        isUuidMatchByShortKey(characteristic.uuid, defaults.txShortUuid) ||
+        isUuidEquivalent(characteristic.uuid, defaults.txUuid) ||
+        isUuidEquivalent(characteristic.uuid, CHARACTERISTIC_UUIDS.MESSAGE_PROTOCOL_NUS_TX)
+    );
+    const explicitRx = characteristics.find(
+      (characteristic) =>
+        isUuidMatchByShortKey(characteristic.uuid, defaults.rxShortUuid) ||
+        isUuidEquivalent(characteristic.uuid, defaults.rxUuid) ||
+        isUuidEquivalent(characteristic.uuid, CHARACTERISTIC_UUIDS.MESSAGE_PROTOCOL_NUS_RX)
+    );
+    const writeCharacteristic = characteristics.find((characteristic) =>
+      hasProperty(characteristic, (prop) => prop === "write" || prop === "writewithoutresponse")
+    );
+    const notifyCharacteristic = characteristics.find((characteristic) =>
+      hasProperty(characteristic, (prop) => prop === "notify" || prop === "indicate")
+    );
+
+    const isPreferredService =
+      isUuidMatchByShortKey(service.uuid, defaults.serviceShortUuid) ||
+      isUuidEquivalent(service.uuid, SERVICE_UUIDS.MESSAGE_PROTOCOL_NUS_SERVICE);
+    const hasWriteNotifyPair = Boolean(writeCharacteristic && notifyCharacteristic);
+
+    const resolvedTx = explicitTx?.uuid ?? writeCharacteristic?.uuid;
+    const resolvedRx = explicitRx?.uuid ?? notifyCharacteristic?.uuid;
+    const singleCharacteristicUuid =
+      !resolvedTx && !resolvedRx && isPreferredService && characteristics.length === 1
+        ? characteristics[0].uuid
+        : null;
+
+    if (!resolvedTx && !resolvedRx && !singleCharacteristicUuid) {
+      continue;
+    }
+    if (!explicitTx && !explicitRx && !isPreferredService && !hasWriteNotifyPair) {
+      continue;
+    }
+
+    let score = 0;
+    if (isPreferredService) score += 40;
+    if (explicitTx) score += 30;
+    if (explicitRx) score += 30;
+    if (writeCharacteristic) score += 12;
+    if (notifyCharacteristic) score += 12;
+    if (singleCharacteristicUuid) score += 3;
+
+    const candidateSource = singleCharacteristicUuid
+      ? "single-characteristic-fallback"
+      : explicitTx || explicitRx
+        ? "discovery-explicit-uuid"
+        : "discovery-properties";
+
+    candidates.push({
+      txUuid: resolvedTx ?? singleCharacteristicUuid ?? defaults.txUuid,
+      rxUuid: resolvedRx ?? singleCharacteristicUuid ?? defaults.rxUuid,
+      serviceUuid: service.uuid,
+      source: candidateSource,
+      score,
+    });
   }
 
-  const characteristics = customService.characteristics.filter(
-    (characteristic): characteristic is DiscoveredCharacteristic & { uuid: string } =>
-      typeof characteristic?.uuid === "string" && characteristic.uuid.length > 0
-  );
-
-  const hasProperty = (
-    characteristic: DiscoveredCharacteristic,
-    predicate: (prop: string) => boolean
-  ) =>
-    Array.isArray(characteristic.properties) &&
-    characteristic.properties.some((prop) => typeof prop === "string" && predicate(prop.toLowerCase()));
-
-  const writeCharacteristic = characteristics.find((characteristic) =>
-    hasProperty(
-      characteristic,
-      (prop) => prop === "write" || prop === "writewithoutresponse"
-    )
-  );
-  const notifyCharacteristic = characteristics.find((characteristic) =>
-    hasProperty(
-      characteristic,
-      (prop) => prop === "notify" || prop === "indicate"
-    )
-  );
-
-  const explicitTx = characteristics.find((characteristic) =>
-    isUuidMatchByShortKey(characteristic.uuid, defaults.txShortUuid)
-  );
-  const explicitRx = characteristics.find((characteristic) =>
-    isUuidMatchByShortKey(characteristic.uuid, defaults.rxShortUuid)
-  );
-
-  if (explicitTx?.uuid) {
-    txUuid = explicitTx.uuid;
-    source = "discovery-explicit-uuid";
-  }
-  if (explicitRx?.uuid) {
-    rxUuid = explicitRx.uuid;
-    source = source === "discovery-explicit-uuid" ? source : "discovery-explicit-uuid";
+  candidates.sort((a, b) => b.score - a.score);
+  if (candidates[0]) {
+    txUuid = candidates[0].txUuid;
+    rxUuid = candidates[0].rxUuid;
+    serviceUuid = candidates[0].serviceUuid;
+    source = candidates[0].source;
   }
 
-  if (!explicitTx?.uuid && writeCharacteristic?.uuid) {
-    txUuid = writeCharacteristic.uuid;
-    source = source === "defaults" ? "discovery-properties" : `${source}+properties`;
-  }
-  if (!explicitRx?.uuid && notifyCharacteristic?.uuid) {
-    rxUuid = notifyCharacteristic.uuid;
-    source = source === "defaults" ? "discovery-properties" : `${source}+properties`;
-  }
-
-  if (
-    !explicitTx?.uuid &&
-    !explicitRx?.uuid &&
-    !writeCharacteristic?.uuid &&
-    !notifyCharacteristic?.uuid &&
-    characteristics.length === 1
-  ) {
-    txUuid = characteristics[0].uuid;
-    rxUuid = characteristics[0].uuid;
-    source = "single-characteristic-fallback";
-  }
-
-  return { txUuid, rxUuid, source };
+  return { txUuid, rxUuid, serviceUuid, source };
 }
 
 export function getMpPacketTypeLabel(pktType: number): string {

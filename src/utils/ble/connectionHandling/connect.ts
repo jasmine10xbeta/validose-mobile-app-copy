@@ -3,16 +3,20 @@ import { Buffer } from "buffer";
 import { ingestRawHardwareData } from "@/services/hardware";
 import useDevStore from "@/store/dev";
 import useDeviceStore from "@/store/device";
+import useScheduleStore from "@/store/schedule";
+import { getDeviceScheduleSyncData } from "@/utils/schedule";
 import {
   bondDevice,
   connect,
   discoverServicesAndCharacteristics,
+  getConnectedDevice,
   scanLeDevice,
 } from "../../../../modules/tenx-mdk-ble-rn-library/src/index";
 import { BleMessageProtocol, MsgProtError } from "../messageProtocol";
 import { USE_MESSAGE_PROTOCOL_PPI, MESSAGE_PROTOCOL_PROCESS_INTERVAL_MS } from "./constants";
 import { resolveMessageProtocolUuidsFromDiscovery } from "./discovery";
 import {
+  requestRuntimePpiState,
   relayMessageProtocolConsoleLog,
   setupMessageProtocolHandlers,
   waitForTxSendable,
@@ -33,10 +37,35 @@ const { addDevice, updateDevice } = useDeviceStore.getState();
 const MP_MIN_FRAME_LEN_BYTES = 14;
 const MP_PACKET_TYPE_DATA = 0;
 
-export async function connectAndSetupDevice(deviceName: string) {
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error ?? "");
+}
+
+function isAlreadyConnectedError(error: unknown): boolean {
+  const normalized = toErrorMessage(error).toLowerCase();
+  return normalized.includes("already connected") || normalized.includes("already_connected");
+}
+
+function buildCandidateIdentifiers(
+  primaryIdentifier: string,
+  knownDevice: { deviceId?: string; deviceName?: string } | undefined,
+): string[] {
+  const unique = new Set<string>();
+  const candidates = [primaryIdentifier, knownDevice?.deviceId, knownDevice?.deviceName];
+
+  for (const candidate of candidates) {
+    const normalized = candidate?.trim();
+    if (normalized) unique.add(normalized);
+  }
+
+  return Array.from(unique);
+}
+
+export async function connectAndSetupDevice(deviceIdentifier: string) {
   if (useDevStore.getState().isMockBleModeEnabled()) {
-    const mockDeviceId = deviceName || `MOCK-${Date.now()}`;
-    const mockDeviceName = deviceName || "MOCK-VALIDOSE";
+    const mockDeviceId = deviceIdentifier || `MOCK-${Date.now()}`;
+    const mockDeviceName = deviceIdentifier || "MOCK-VALIDOSE";
 
     const added = addDevice({
       connected: true,
@@ -64,28 +93,65 @@ export async function connectAndSetupDevice(deviceName: string) {
 
   console.log("Scan result:", scanResponse);
 
+  const knownDevice = useDeviceStore.getState().getDevice(deviceIdentifier);
+  const candidateIdentifiers = buildCandidateIdentifiers(deviceIdentifier, knownDevice);
+
   let deviceId = "";
   let resolvedDeviceName = "";
+  let lastConnectionError: unknown = null;
 
   try {
-    const bondResponse = await bondDevice(deviceName);
+    let connectionResponse: any = null;
 
-    console.log(`Bonding with device ${deviceName}`);
-    console.log("Response:", bondResponse);
-
-    if (!bondResponse || bondResponse.length === 0) {
-      const connectResponse = await connect(deviceName);
-
-      if (connectResponse) {
-        deviceId = connectResponse.deviceId;
-        resolvedDeviceName = connectResponse.deviceName;
-      } else {
-        return { error: "Failed to bond with device", status: "error" };
+    for (const candidate of candidateIdentifiers) {
+      try {
+        console.log(`Bonding with device ${candidate}`);
+        const bondResponse = await bondDevice(candidate);
+        console.log("Bond response:", bondResponse);
+        if (bondResponse) {
+          connectionResponse = bondResponse;
+          break;
+        }
+      } catch (bondError) {
+        lastConnectionError = bondError;
+        console.warn(`[BLE] bondDevice failed for ${candidate}:`, bondError);
       }
-    } else {
-      deviceId = bondResponse.deviceId;
-      resolvedDeviceName = bondResponse.deviceName;
+
+      try {
+        console.log(`Connecting to device ${candidate}`);
+        const connectResponse = await connect(candidate);
+        console.log("Connect response:", connectResponse);
+        if (connectResponse) {
+          connectionResponse = connectResponse;
+          break;
+        }
+      } catch (connectError) {
+        lastConnectionError = connectError;
+        if (isAlreadyConnectedError(connectError)) {
+          try {
+            const connectedDevice = await getConnectedDevice();
+            if (connectedDevice) {
+              connectionResponse = connectedDevice;
+              break;
+            }
+          } catch (getConnectedDeviceError) {
+            lastConnectionError = getConnectedDeviceError;
+          }
+        }
+        console.warn(`[BLE] connect failed for ${candidate}:`, connectError);
+      }
     }
+
+    if (!connectionResponse) {
+      throw (
+        lastConnectionError ??
+        new Error(`Failed to connect to ${deviceIdentifier} with available identifiers`)
+      );
+    }
+
+    deviceId = connectionResponse?.deviceId || knownDevice?.deviceId || deviceIdentifier;
+    resolvedDeviceName =
+      connectionResponse?.deviceName || knownDevice?.deviceName || deviceIdentifier;
 
     const added = addDevice({
       connected: true,
@@ -117,6 +183,7 @@ export async function connectAndSetupDevice(deviceName: string) {
       new BleMessageProtocol({
         txCharacteristicUUID: resolvedMpUuids.txUuid,
         rxCharacteristicUUID: resolvedMpUuids.rxUuid,
+        serviceUUID: resolvedMpUuids.serviceUuid,
         processIntervalMs: MESSAGE_PROTOCOL_PROCESS_INTERVAL_MS,
         // Native BLE layer negotiates MTU up front (247 target on Android); ATT payload is MTU - 3.
         // Use 244-byte packet budget here until MTU is exposed to JS directly.
@@ -218,6 +285,7 @@ export async function connectAndSetupDevice(deviceName: string) {
       sendAckNak: true,
       txCharacteristicUuid: resolvedMpUuids.txUuid,
       rxCharacteristicUuid: resolvedMpUuids.rxUuid,
+      serviceUuid: resolvedMpUuids.serviceUuid,
       sessionId: messageProtocol.getCurrentSessionId(),
       syncStartResult,
       syncReady,
@@ -229,28 +297,87 @@ export async function connectAndSetupDevice(deviceName: string) {
     }
 
     if (USE_MESSAGE_PROTOCOL_PPI) {
-      setupMessageProtocolHandlers(deviceId);
+      try {
+        setupMessageProtocolHandlers(deviceId);
+      } catch (handlerSetupError) {
+        console.warn("[MP] Failed to register runtime protocol handlers.", handlerSetupError);
+      }
+
+      try {
+        await requestRuntimePpiState();
+      } catch (runtimeStateError) {
+        console.warn("[MP] Failed to request runtime PPI state.", runtimeStateError);
+      }
     } else {
-      await subscribeToDoseEvent(deviceId);
+      try {
+        await subscribeToDoseEvent(deviceId);
+      } catch (doseSubscriptionError) {
+        console.warn("[BLE] Failed to subscribe to dose events.", doseSubscriptionError);
+      }
+
+      try {
+        await subscribeToBatteryLevel(deviceId);
+      } catch (batterySubscriptionError) {
+        console.warn("[BLE] Failed to subscribe to battery updates.", batterySubscriptionError);
+      }
+
+      try {
+        await subscribeToError(deviceId);
+      } catch (errorSubscriptionError) {
+        console.warn("[BLE] Failed to subscribe to device errors.", errorSubscriptionError);
+      }
     }
-    await subscribeToBatteryLevel(deviceId);
-    await subscribeToError(deviceId);
 
     await new Promise((res) => setTimeout(res, 300));
 
-    await writeSystemTime();
-    await writeDoseSchedule({
-      dosage_amount: 2,
-      events_per_day: 4,
-      max_temperature_threshold: 60,
-      temperature_avg_time_window_min: 30,
-      window: [
-        { start_min: 630, end_min: 30 },
-        { start_min: 840, end_min: 30 },
-        { start_min: 1050, end_min: 30 },
-        { start_min: 1260, end_min: 30 },
-      ],
-    });
+    try {
+      await writeSystemTime();
+    } catch (timeSyncError) {
+      console.warn("[BLE] Failed to write system time over message protocol.", timeSyncError);
+    }
+
+    try {
+      const scheduleLookupIdentifiers = buildCandidateIdentifiers(deviceId, {
+        deviceId,
+        deviceName: resolvedDeviceName,
+      });
+      let scheduleSyncData: Awaited<ReturnType<typeof getDeviceScheduleSyncData>> = null;
+      let scheduleSyncIdentifier = deviceId;
+
+      for (const identifier of scheduleLookupIdentifiers) {
+        scheduleSyncData = await getDeviceScheduleSyncData(identifier);
+        if (scheduleSyncData) {
+          scheduleSyncIdentifier = identifier;
+          break;
+        }
+      }
+
+      if (scheduleSyncData && scheduleSyncIdentifier !== deviceId) {
+        useScheduleStore.getState().storeSchedules(deviceId, scheduleSyncData.schedules);
+      }
+
+      const existingDevice = useDeviceStore.getState().getDevice(deviceId);
+      const hasScheduleChanged =
+        scheduleSyncData?.signature &&
+        scheduleSyncData.signature !== existingDevice?.lastScheduleSyncSignature;
+
+      if (scheduleSyncData && hasScheduleChanged) {
+        await writeDoseSchedule(scheduleSyncData.payload);
+        updateDevice(deviceId, {
+          lastScheduleSyncSignature: scheduleSyncData.signature,
+          lastScheduleSyncedAt: new Date().toISOString(),
+        });
+        console.log("[BLE] Updated dose schedule via message protocol.");
+      } else if (scheduleSyncData) {
+        console.log("[BLE] Dose schedule unchanged, skipping message protocol schedule push.");
+      } else {
+        console.log("[BLE] No backend schedule available to push for this device.", {
+          lookupIdentifiers: scheduleLookupIdentifiers,
+        });
+      }
+    } catch (scheduleSyncError) {
+      console.warn("[BLE] Failed to sync backend schedule to device.", scheduleSyncError);
+    }
 
     return { deviceId, deviceName: resolvedDeviceName, status: "success" };
   } catch (error) {
@@ -258,7 +385,7 @@ export async function connectAndSetupDevice(deviceName: string) {
 
     stopAndClearMessageProtocol();
 
-    updateDevice(deviceName, {
+    updateDevice(deviceIdentifier, {
       connected: false,
       color: "",
       batteryLevel: -1,

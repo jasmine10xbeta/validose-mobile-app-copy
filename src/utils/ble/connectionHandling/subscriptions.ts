@@ -76,21 +76,23 @@ export async function subscribeToDoseEvent(deviceId: string): Promise<void> {
       }
 
       const device = useDeviceStore.getState().getDevice(deviceId);
-      const deviceName = device?.deviceName ?? "Unknown Device";
-      const treatment = useTreatmentStore.getState().getDeviceTreatment(deviceName);
+      const resolvedDeviceId = device?.deviceId ?? deviceId;
+      const treatment =
+        useTreatmentStore.getState().getDeviceTreatment(resolvedDeviceId) ??
+        useTreatmentStore.getState().getDeviceTreatment(device?.deviceName ?? "");
 
       if (!treatment?.medication_code) {
         return;
       }
 
-      const response = await sendDoseEvent(parsed, deviceName, treatment.medication_code);
+      const response = await sendDoseEvent(parsed, resolvedDeviceId, treatment.medication_code);
       if (!response) {
         return;
       }
 
       const acknowledged = useScheduleStore
         .getState()
-        .acknowledgeDoseEvent(deviceName, response.event_id, parsed);
+        .acknowledgeDoseEvent(resolvedDeviceId, response.event_id, parsed);
 
       console.log("Locally acknowledged dose event?", acknowledged);
 

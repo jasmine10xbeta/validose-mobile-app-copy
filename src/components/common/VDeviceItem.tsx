@@ -199,6 +199,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 6,
     backgroundColor: "#E7F6EC",
+    marginRight: 8,
   },
   statusTextConnected: {
     color: "#207245",

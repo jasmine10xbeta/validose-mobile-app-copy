@@ -31,6 +31,16 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
   const deviceId = (item as any).deviceId ?? (item as any).device_id ?? item.deviceId;
   const treatment = useTreatmentStore((state) => state.getDeviceTreatment(deviceId));
   const isNetworkConnected = useNetworkStore((s) => s.isConnected);
+  const dockBatteryLevel =
+    typeof item.dockBatteryLevel === "number" && item.dockBatteryLevel >= 0
+      ? item.dockBatteryLevel
+      : null;
+  const ringBatteryLevel =
+    typeof item.ringBatteryLevel === "number" && item.ringBatteryLevel >= 0
+      ? item.ringBatteryLevel
+      : null;
+  const showBatteryBanner = dockBatteryLevel !== null || ringBatteryLevel !== null;
+  const showErrorBanner = typeof item.error === "string" && item.error.trim().length > 0;
 
   // Prefer the schedule's medication code, fall back to the treatment's code.
   const medLabel = useMemo(() => {
@@ -127,7 +137,7 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
         <TouchableOpacity
           onPress={async () => {
             if (type === "connection") {
-              const connected = await connectAndSetupDevice(item.deviceName);
+              const connected = await connectAndSetupDevice(deviceId || item.deviceName);
               if (connected.error) showToast("error", connected.error.toString());
             }
           }}
@@ -206,13 +216,28 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
 
   return (
     <View style={styles.container}>
-      {statusType ? renderStatusBlock(statusType) : renderDoseProgress()}
+      <View style={styles.deviceRow}>{statusType ? renderStatusBlock(statusType) : renderDoseProgress()}</View>
+      {showBatteryBanner ? (
+        <View style={styles.batteryBanner}>
+          <VText textVariant="DeviceItemState" style={styles.batteryBannerText}>
+            {`Dock battery: ${dockBatteryLevel ?? "--"}%   Ring battery: ${ringBatteryLevel ?? "--"}%`}
+          </VText>
+        </View>
+      ) : null}
+      {showErrorBanner ? (
+        <View style={styles.errorBanner}>
+          <VText textVariant="DeviceItemState" style={styles.errorBannerText}>
+            ERROR
+          </VText>
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flexDirection: "row", marginTop: 20 },
+  container: { width: "100%", marginTop: 20 },
+  deviceRow: { flexDirection: "row" },
   noDose: { marginLeft: 20 },
   medSection: {
     borderTopLeftRadius: 12,
@@ -254,6 +279,32 @@ const styles = StyleSheet.create({
   image: {
     height: 30,
     width: 30,
+  },
+  batteryBanner: {
+    marginTop: 4,
+    borderRadius: 8,
+    backgroundColor: "#FAF2E8",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  batteryBannerText: {
+    color: "#7A4A00",
+    fontWeight: "500",
+  },
+  errorBanner: {
+    marginTop: 4,
+    borderRadius: 8,
+    backgroundColor: "#FFEDED",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  errorBannerText: {
+    color: "#A60000",
+    fontWeight: "600",
   },
 });
 

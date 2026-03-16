@@ -52,15 +52,15 @@ export function VManualLinkingSheet({
   } = useDevStore();
   const listMaxHeight = useMemo(() => SCREEN_HEIGHT * 0.30, []);
 
-  async function reconnectDevice(deviceName: string) {
+  async function reconnectDevice(deviceIdentifier: string) {
     if (reconnectingDeviceId) {
       showToast("info", "Another connection in progress", "Please wait..");
       return;
     }
 
-    setReconnectingDeviceId(deviceName);
+    setReconnectingDeviceId(deviceIdentifier);
     try {
-      const connected = await connectAndSetupDevice(deviceName);
+      const connected = await connectAndSetupDevice(deviceIdentifier);
       if (connected.error) showToast("error", connected.error.toString());
     } catch (error) {
       showToast(
