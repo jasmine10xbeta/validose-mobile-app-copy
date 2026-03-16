@@ -165,12 +165,13 @@ export function VManualLinkingSheet({
             <View style={[styles.devicesListContainer, { maxHeight: listMaxHeight }]}>
               <FlatList
                 data={devices}
-                renderItem={({ item }) => (
+                renderItem={({ item, index }) => (
                   <VDeviceItem
                     item={item}
                     state={item?.connected || false}
                     reconnect={() => reconnectDevice(item.deviceId)}
                     isReconnecting={reconnectingDeviceId === item.deviceId}
+                    index={index}
                   />
                 )}
                 keyExtractor={(item) => item.deviceId}

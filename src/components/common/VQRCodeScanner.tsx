@@ -115,7 +115,7 @@ export function QRCodeScanner({
           translucent
           backgroundColor="rgba(12, 17, 25, 0.95)"
         />
-        <SafeAreaView style={styles.overlayRoot}>
+        <SafeAreaView style={styles.overlayRoot} edges={[]}>
           <TouchableOpacity
             style={StyleSheet.absoluteFill}
             activeOpacity={1}

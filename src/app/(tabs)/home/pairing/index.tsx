@@ -96,6 +96,12 @@ export default function PairingScreen() {
   const screenHeight = Dimensions.get("window").height;
   const devices = useDeviceStore((s) => s.devices);
   const isDevicesConnected = devices.length > 0;
+  const activeConnectedDeviceCount = devices.filter((device) => device?.connected).length;
+  const shouldContinueBeGreen = activeConnectedDeviceCount >= 3;
+  const hasReconnectableDevice = devices.some((device) => !device?.connected);
+  const forceConnectedButtonsWhite = hasReconnectableDevice;
+  const scanButtonIsWhite = forceConnectedButtonsWhite || shouldContinueBeGreen;
+  const continueButtonIsWhite = forceConnectedButtonsWhite || !shouldContinueBeGreen;
   const {
     isMockBleModeEnabled,
     matchesBypassKey,
@@ -390,7 +396,7 @@ export default function PairingScreen() {
             <VText textVariant="LabelDose">Setup</VText>
             <VText style={styles.setupMessage} textVariant="Label">
               {isDevicesConnected
-                ? "Device Connection Status"
+                ? "Device Connection\nStatus"
                 : "Let's connect\nyour device"}
             </VText>
             {!isDevicesConnected && (
@@ -414,18 +420,20 @@ export default function PairingScreen() {
             {isDevicesConnected ? (
               <View
                 style={{
+                  marginTop: 16,
                   maxHeight: screenHeight * 0.35,
                   width: "100%",
                 }}
               >
                 <FlatList
                   data={devices}
-                  renderItem={({ item }) => (
+                  renderItem={({ item, index }) => (
                     <VDeviceItem
                       item={item}
                       state={item?.connected}
                       reconnect={() => reconnectDevice(item.deviceName)}
                       isReconnecting={reconnectingDeviceId === item.deviceName}
+                      index={index}
                     />
                   )}
                   keyExtractor={(item) => item.deviceId}
@@ -435,37 +443,68 @@ export default function PairingScreen() {
             ) : (
               <View style={{ marginBottom: 18, marginTop: 21 }} />
             )}
-            {isDevicesConnected ? (
+            {!isDevicesConnected && (
               <>
+              <VButton onPress={openScanIntro} label="Scan device sticker" />
+                <VButton
+                  onPress={() => {
+                    router.push("/home/pairing/manual-pairing");
+                  }}
+                  style={{
+                    borderWidth: 0,
+                    marginTop: 18,
+                  }}
+                  label="Enter device ID manually"
+                  labelStyle={styles.manualPairingLabel}
+                />
+              </>
+            )}
+          </View>
+          <View style={styles.bottomActionsArea}>
+            {isDevicesConnected && (
+              <View style={styles.connectedBottomActions}>
+                <VButton
+                  onPress={openScanIntro}
+                  label="Add next device"
+                  style={[
+                    styles.connectedActionButton,
+                    scanButtonIsWhite
+                      ? styles.connectedActionButtonWhite
+                      : styles.connectedActionButtonGreen,
+                  ]}
+                  labelStyle={[
+                    styles.connectedActionButtonLabel,
+                    scanButtonIsWhite
+                      ? styles.connectedActionButtonLabelDark
+                      : styles.connectedActionButtonLabelLight,
+                  ]}
+                />
                 <VButton
                   onPress={() => router.push("/home/dashboard")}
-                  label="Continue"
-                  style={[styles.continueButton, { marginBottom: 10 }]}
-                  labelStyle={{ color: "#252F3B", fontWeight: "500" }}
+                  label="Continue to view doses"
+                  style={[
+                    styles.connectedActionButton,
+                    styles.connectedActionButtonSpacing,
+                    continueButtonIsWhite
+                      ? styles.connectedActionButtonWhite
+                      : styles.connectedActionButtonGreen,
+                  ]}
+                  labelStyle={[
+                    styles.connectedActionButtonLabel,
+                    continueButtonIsWhite
+                      ? styles.connectedActionButtonLabelDark
+                      : styles.connectedActionButtonLabelLight,
+                  ]}
                 />
-                <VButton onPress={openScanIntro} label="Scan device sticker" />
-              </>
-            ) : (
-              <VButton onPress={openScanIntro} label="Scan device sticker" />
+              </View>
             )}
-            <VButton
-              onPress={() => {
-                router.push("/home/pairing/manual-pairing");
-              }}
-              style={{
-                borderWidth: 0,
-                marginTop: 18,
-              }}
-              label="Enter device ID manually"
-              labelStyle={styles.manualPairingLabel}
-            />
+            <Pressable
+              onPress={() => router.push("/home/ble-debug/console")}
+              style={styles.debugTextAction}
+            >
+              <Text style={styles.debugText}>BLE Debug Console</Text>
+            </Pressable>
           </View>
-          <Pressable
-            onPress={() => router.push("/home/ble-debug/console")}
-            style={styles.debugTextAction}
-          >
-            <Text style={styles.debugText}>BLE Debug Console</Text>
-          </Pressable>
         </View>
       </SafeAreaView>
       {isScanIntroMounted && (
@@ -568,7 +607,7 @@ export default function PairingScreen() {
                   {isLastScanSlide ? (
                     <>
                       <VButton
-                        label="Scan device sticker"
+                        label="Add next device"
                         onPress={openCameraFromScanIntro}
                       />
                       <VButton
@@ -662,15 +701,47 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textDecorationLine: "underline",
   },
-
-  // Continue Button Styles
-  continueButton: {
-    marginTop: 10,
-    borderColor: "#252F3B",
-    borderWidth: 2,
+  bottomActionsArea: {
     width: "100%",
-    padding: 5,
+    alignItems: "center",
+  },
+  connectedBottomActions: {
+    width: "100%",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  connectedActionButton: {
+    width: "80%",
+    borderWidth: 2,
     borderRadius: 25,
+    padding: 5,
+  },
+  connectedActionButtonSpacing: {
+    marginTop: 10,
+  },
+  connectedActionButtonGreen: {
+    backgroundColor: "#255F6C",
+    borderColor: "#255F6C",
+  },
+  connectedActionButtonWhite: {
+    backgroundColor: "#FFFFFF",
+    borderColor: "#E1E5EB",
+    borderWidth: 1,
+    shadowColor: "#252F3B",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 1,
+    elevation: 1,
+  },
+  connectedActionButtonLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  connectedActionButtonLabelLight: {
+    color: "#FFFFFF",
+  },
+  connectedActionButtonLabelDark: {
+    color: "#255F6C",
   },
   introOverlay: {
     flex: 1,
