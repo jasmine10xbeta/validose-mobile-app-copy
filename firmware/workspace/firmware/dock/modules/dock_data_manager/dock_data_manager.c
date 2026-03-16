@@ -94,6 +94,10 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_DOCK_DATA_MANAGER;
 #define DOCK_DATA_MANAGER_DOCK_STATUS_QUEUE_STORAGE_BYTES                                                              \
    (DOCK_DATA_MANAGER_DOCK_STATUS_QUEUE_LEN * sizeof(dock_status_t)) // 1400 bytes of RAM
 
+#define DOCK_DATA_MANAGER_CAP_DETECTION_STATUS_QUEUE_LEN (120u) // One sample every second for 2min during calibration
+#define DOCK_DATA_MANAGER_CAP_DETECTION_STATUS_QUEUE_STORAGE_BYTES                                                     \
+   (DOCK_DATA_MANAGER_CAP_DETECTION_STATUS_QUEUE_LEN * sizeof(cap_detection_status_t)) // 1800 bytes of RAM
+
 #define DOCK_DATA_MANAGER_TOTAL_QUEUE_SIZE_BYTES                                                                       \
    (DOCK_DATA_MANAGER_DOSE_EVENT_QUEUE_STORAGE_BYTES + DOCK_DATA_MANAGER_DOCK_CHARGE_STATUS_QUEUE_STORAGE_BYTES        \
     + DOCK_DATA_MANAGER_RING_DOCKED_STATUS_QUEUE_STORAGE_BYTES                                                         \
@@ -102,7 +106,8 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_DOCK_DATA_MANAGER;
     + DOCK_DATA_MANAGER_RING_BATTERY_LEVEL_QUEUE_STORAGE_BYTES + DOCK_DATA_MANAGER_DOCK_DEBUG_LOG_QUEUE_STORAGE_BYTES  \
     + DOCK_DATA_MANAGER_RING_DEBUG_LOG_QUEUE_STORAGE_BYTES + DOCK_DATA_MANAGER_DOSE_DATA_QUEUE_STORAGE_BYTES           \
     + DOCK_DATA_MANAGER_TEMP_LOG_QUEUE_STORAGE_BYTES + DOCK_DATA_MANAGER_WEIGHT_MEAS_LOG_QUEUE_STORAGE_BYTES           \
-    + DOCK_DATA_MANAGER_RING_STATUS_QUEUE_STORAGE_BYTES + DOCK_DATA_MANAGER_DOCK_STATUS_QUEUE_STORAGE_BYTES)
+    + DOCK_DATA_MANAGER_RING_STATUS_QUEUE_STORAGE_BYTES + DOCK_DATA_MANAGER_DOCK_STATUS_QUEUE_STORAGE_BYTES            \
+    + DOCK_DATA_MANAGER_CAP_DETECTION_STATUS_QUEUE_STORAGE_BYTES)
 
 #define DOCK_DATA_MANAGER_TOTAL_RAM_QUEUE_ASSIGNMENT_BYTES (163840u)
 STATIC_ASSERT(DOCK_DATA_MANAGER_TOTAL_RAM_QUEUE_ASSIGNMENT_BYTES >= DOCK_DATA_MANAGER_TOTAL_QUEUE_SIZE_BYTES,
@@ -299,6 +304,10 @@ static uint8_t m_ring_status_queue_storage[DOCK_DATA_MANAGER_RING_STATUS_QUEUE_S
 // Dock Status File and Queue
 static queue_t m_dock_status_queue = {0};
 static uint8_t m_dock_status_queue_storage[DOCK_DATA_MANAGER_DOCK_STATUS_QUEUE_STORAGE_BYTES] = {0};
+
+// Cap Detection Status File and Queue
+static queue_t m_cap_detection_status_queue = {0};
+static uint8_t m_cap_detection_status_queue_storage[DOCK_DATA_MANAGER_CAP_DETECTION_STATUS_QUEUE_STORAGE_BYTES] = {0};
 
 // Queue interfaces and info for each data ID
 static queue_info_t m_queue_data[DATA_ID_MAX] = {0};
@@ -1237,6 +1246,18 @@ result_t dock_data_manager_init(dock_data_manager_t *const self)
                         m_dock_status_queue.interface.get_element_size(
                            &m_dock_status_queue.interface, &m_queue_data[DATA_ID_DOCK_STATUS].element_size));
    m_queue_data[DATA_ID_DOCK_STATUS].queue_ifc = &m_dock_status_queue.interface;
+
+   // Initialize the cap detecion status queue
+   IF_OK_RUN_AND_UPDATE(result,
+                        queue_init(&m_cap_detection_status_queue,
+                                   m_cap_detection_status_queue_storage,
+                                   sizeof(m_cap_detection_status_queue_storage),
+                                   sizeof(cap_detection_status_t)));
+   IF_OK_RUN_AND_UPDATE(
+      result,
+      m_cap_detection_status_queue.interface.get_element_size(
+         &m_cap_detection_status_queue.interface, &m_queue_data[DATA_ID_CAP_DETECTION_STATUS].element_size));
+   m_queue_data[DATA_ID_CAP_DETECTION_STATUS].queue_ifc = &m_cap_detection_status_queue.interface;
 
    if(IS_OK(result))
    {

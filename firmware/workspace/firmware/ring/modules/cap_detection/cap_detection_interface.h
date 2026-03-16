@@ -74,13 +74,6 @@ struct cap_detection; // Forward declaration
 
 typedef struct cap_detection_interface cap_detection_interface_t;
 
-typedef enum
-{
-   CAP_STATE_UNKNOWN = 0,
-   CAP_STATE_OPEN = 1,
-   CAP_STATE_CLOSED = 2
-} CAP_STATE;
-
 struct cap_detection_interface
 {
    struct cap_detection *parent; // Reference to the containing instance.
@@ -96,22 +89,22 @@ struct cap_detection_interface
                               uint16_t *prox_val);
 
    /**
-    * @brief Set cap detection configuration (threshhold and hysteresis)
+    * @brief Set cap detection configuration (threshold and hysteresis)
     * @param interface The cap_detection_interface_t interface handles.
-    * @param threshhold The threshold value for cap detection
+    * @param threshold The threshold value for cap detection
     * @param hysteresis The hysteresis value for cap detection
     * @return Status code indicating the result of the operation
     */
-   result_t (*set_config)(const cap_detection_interface_t *const interface, uint16_t threshhold, uint16_t hysteresis);
+   result_t (*set_config)(const cap_detection_interface_t *const interface, uint16_t threshold, uint16_t hysteresis);
 
    /**
-    * @brief Get cap detection configuration (threshhold and hysteresis)
+    * @brief Get cap detection configuration (threshold and hysteresis)
     * @param interface The cap_detection_interface_t interface handles.
-    * @param threshhold Pointer to store the retrieved threshold value for cap detection
+    * @param threshold Pointer to store the retrieved threshold value for cap detection
     * @param hysteresis Pointer to store the retrieved hysteresis value for cap detection
     * @return Status code indicating the result of the operation
     */
-   result_t (*get_config)(const cap_detection_interface_t *const interface, uint16_t *threshhold, uint16_t *hysteresis);
+   result_t (*get_config)(const cap_detection_interface_t *const interface, uint16_t *threshold, uint16_t *hysteresis);
 };
 
 /***********************************************************************************************************************

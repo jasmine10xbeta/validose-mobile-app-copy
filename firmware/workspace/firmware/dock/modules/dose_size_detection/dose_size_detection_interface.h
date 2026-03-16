@@ -11,7 +11,27 @@
  * @brief Interface for the dose size detection module for the dock. This module is ONLY for the interim release,
  * whereafter dose size detection will be handled by the backend.
  *
- * Expected usage sequence:
+ * ## Overview
+ *
+ * Dose size is detected using a combination of weight sensor data and ring presence reporting.
+ * The module maintains an internal state machine to manage the timing and sequencing of data collection and processing.
+ * The main states of the dose size data are:
+ * - `RING_PRESENT` - Low power state where sampling is slow and a pre-dose weight is being established.
+ * - `RING_ABSENT` - Fast sampling state where the zero weight is measured to determine drift.
+ * - `RING_REPLACED` - Fast sampling state where the post-dose weight is measured.
+ *
+ * Dose size is calculated based on the difference between the post-dose weight and the baseline weight of a full
+ * assembly (dock + ring + full bottle). The baseline weight is established during a baselining procedure. See @ref
+ * try_baseline_if_stable for more details.
+ *
+ * Drift correction is applied to account for any changes in weight readings due to temperature or similar factors.
+ *
+ * Measurement stability is determined based on standard deviation of weight samples. Samples with a high standard
+ * deviation are initally accepted with the threshold for stability being gradually tightened as more samples are
+ * collected. A time window is used to limit the age of the best sample used for dose size calculation.
+ *
+ * ## Expected usage sequence:
+ *
  * 1. General Control initializes the dose size detection module with `dose_size_detection_init`
  *    - Calibration data is passed in at initialization
  * 2. General Control regularly calls the `process` method to update the dose size detection state machine
@@ -46,6 +66,15 @@
 
 /** Maximum time in milliseconds to wait for stable samples during baselining */
 #define DSD_BASELINING_TIMEOUT_MS (60000u)
+
+/** Initial sigma threshold in milligrams used before accepting a weight samples as stable. */
+#define DSD_SIGMA_INITIAL_THRESHOLD_MG (1000u)
+
+/** Best-case sigma in milligrams under which weight samples are considered good enough to settle early. */
+#define DSD_SIGMA_BEST_THRESHOLD_MG (5u)
+
+/** Duration in seconds of the rolling window for tracking best weight sample each second. */
+#define DSD_BEST_SAMPLE_WINDOW_DURATION_S (20u)
 
 /***********************************************************************************************************************
  * Types
@@ -99,9 +128,9 @@ typedef enum
  */
 typedef enum
 {
-   DSD_DATA_BAD_REASON_NONE = 0,           /**< No issues. Data is valid */
-   DSD_DATA_BAD_REASON_INVALID_DRB_DATA,   /**< One or more of the dose ring baseline (DRB) measurements were invalid */
-   DSD_DATA_BAD_REASON_NEGATIVE_DOSE_SIZE, /**< The computed dose size is negative */
+   DSD_DATA_BAD_REASON_NONE = 0,          /**< No issues. Data is valid */
+   DSD_DATA_BAD_REASON_INVALID_DOSE_DATA, /**< One or more of pre-dose, drift, or post-dose measurements were invalid */
+   DSD_DATA_BAD_REASON_NEGATIVE_DOSE_SIZE,       /**< The computed dose size is negative */
    DSD_DATA_BAD_REASON_NEGATIVE_TOTAL_DISPENSED, /**< The computed total dispensed amount is negative */
    DSD_DATA_BAD_REASON_TOTAL_DISPENSED_OVERFLOW, /**< The computed total dispensed amount overflowed */
 
@@ -116,7 +145,7 @@ typedef enum
  */
 typedef struct
 {
-   uint32_t dose_size_mg;       /**< Computed dose size in milligrams */
+   int32_t dose_size_mg;        /**< Computed dose size in milligrams */
    uint32_t total_dispensed_mg; /**< Total dispensed amount in milligrams */
    uint16_t sigma_total_mg;     /**< Overall standard deviation of weight measurements in milligrams */
 } dose_size_data_out_t;

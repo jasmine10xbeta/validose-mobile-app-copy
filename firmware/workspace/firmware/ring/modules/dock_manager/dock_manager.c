@@ -68,8 +68,8 @@ static result_t dispatch_push_ppi(const dock_manager_interface_t *interface, mp_
 
    dock_manager_t *self = interface->parent;
 
-   uint64_t time = 0;
-   uint16_t battery_sample_hz = 0;
+   uint64_t time = 0u;
+   uint16_t battery_sample_hz = 0u;
    cap_detection_cfg_t cap_detection_cfg = {0};
 
    // Dispatch based on PPI
@@ -206,7 +206,11 @@ static result_t dispatch_req_ppi(const dock_manager_interface_t *interface, mp_p
 
       case PPI_RD_CAP_DETECTION_CONFIG:
 
-         if(rx_packet->pkt_payload_len != 0)
+         SEGGER_RTT_SetTerminal(7);
+         SEGGER_RTT_printf(0, "Received cap detection config req\r\n");
+         SEGGER_RTT_SetTerminal(0);
+
+         if(rx_packet->pkt_payload_len != 0u)
          {
             DEBUG_ERROR("Invalid CAP DETECTION CONFIG REQ length");
             SET_ERR(result, DOCK_MANAGER_ERROR_INVALID_RX_PACKET_LEN);

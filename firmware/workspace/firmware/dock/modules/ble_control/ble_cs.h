@@ -131,13 +131,6 @@ struct ble_cs_s
 {
    ble_cs_evt_handler_t evt_handler; // Event handler to be called for handling events in the Custom Service.
    uint16_t service_handle;          // Handle of Custom Service (as provided by the BLE stack).
-   ble_gatts_char_handles_t epoch_time_handle;
-   ble_gatts_char_handles_t set_dose_schedule_handle;
-   ble_gatts_char_handles_t error_handle;
-   ble_gatts_char_handles_t dose_event_handle;
-   ble_gatts_char_handles_t temperature_handle;
-   ble_gatts_char_handles_t calibration_handle;
-   ble_gatts_char_handles_t device_command_handle;
    ble_gatts_char_handles_t data_rx_handle;
    ble_gatts_char_handles_t data_tx_handle;
    uint16_t conn_handle; // Handle of the current connection (as provided by the BLE stack, is BLE_CONN_HANDLE_INVALID

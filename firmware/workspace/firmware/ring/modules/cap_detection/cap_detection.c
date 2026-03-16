@@ -58,9 +58,8 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_CAP_DETECTION_MODULE;
 static result_t
    get_cap_status(const cap_detection_interface_t *const interface, CAP_STATE *cap_state, uint16_t *prox_val);
 
-static result_t set_config(const cap_detection_interface_t *const interface, uint16_t threshhold, uint16_t hysteresis);
-static result_t
-   get_config(const cap_detection_interface_t *const interface, uint16_t *threshhold, uint16_t *hysteresis);
+static result_t set_config(const cap_detection_interface_t *const interface, uint16_t threshold, uint16_t hysteresis);
+static result_t get_config(const cap_detection_interface_t *const interface, uint16_t *threshold, uint16_t *hysteresis);
 
 /***********************************************************************************************************************
  * Variables
@@ -73,28 +72,28 @@ static result_t
 /***********************************************************************************************************************
  * Static interface function definitions
  **********************************************************************************************************************/
-static result_t set_config(const cap_detection_interface_t *const interface, uint16_t threshhold, uint16_t hysteresis)
+static result_t set_config(const cap_detection_interface_t *const interface, uint16_t threshold, uint16_t hysteresis)
 {
    RETURN_ERR_IF_INTERFACE_NULL(interface, CAP_MODULE_ERROR_PTR_NULL);
    RETURN_ERR_IF_TRUE(false == interface->parent->_is_initialized, CAP_MODULE_ERROR_UNINITIALIZED);
-   RETURN_ERR_IF_TRUE((hysteresis > threshhold), CAP_MODULE_ERROR_INVALID_PARAM);
-   RETURN_ERR_IF_TRUE((threshhold == 0), CAP_MODULE_ERROR_INVALID_PARAM);
+   RETURN_ERR_IF_TRUE((hysteresis > threshold), CAP_MODULE_ERROR_INVALID_PARAM);
+   RETURN_ERR_IF_TRUE((threshold == 0u), CAP_MODULE_ERROR_INVALID_PARAM);
 
-   interface->parent->_threshhold = threshhold;
+   interface->parent->_threshold = threshold;
    interface->parent->_hysteresis = hysteresis;
 
    return RESULT_OK;
 }
 
-static result_t get_config(const cap_detection_interface_t *const interface, uint16_t *threshhold, uint16_t *hysteresis)
+static result_t get_config(const cap_detection_interface_t *const interface, uint16_t *threshold, uint16_t *hysteresis)
 {
    // For future implementation if we want to support dynamic configuration of cap detection parameters.
    RETURN_ERR_IF_INTERFACE_NULL(interface, CAP_MODULE_ERROR_PTR_NULL);
    RETURN_ERR_IF_TRUE(false == interface->parent->_is_initialized, CAP_MODULE_ERROR_UNINITIALIZED);
-   RETURN_ERR_IF_NULL(threshhold, CAP_MODULE_ERROR_PTR_NULL);
+   RETURN_ERR_IF_NULL(threshold, CAP_MODULE_ERROR_PTR_NULL);
    RETURN_ERR_IF_NULL(hysteresis, CAP_MODULE_ERROR_PTR_NULL);
 
-   *threshhold = interface->parent->_threshhold;
+   *threshold = interface->parent->_threshold;
    *hysteresis = interface->parent->_hysteresis;
 
    return RESULT_OK;
@@ -141,7 +140,7 @@ static result_t
          // Sensor data might not be valid yet after wake up, so we keep UNKNOWN state.
          *cap_state = CAP_STATE_UNKNOWN;
       }
-      else if((pdata >= (self->_threshhold + (self->_hysteresis / 2u))) && (CAP_STATE_CLOSED != self->_cap_state))
+      else if((pdata >= (self->_threshold + (self->_hysteresis / 2u))) && (CAP_STATE_CLOSED != self->_cap_state))
       {
          // Cap is detected as ON. Adjust sampling rate for CAP ON state.
          *cap_state = CAP_STATE_CLOSED;
@@ -152,7 +151,7 @@ static result_t
             DEBUG_WARNING("Failed to set proximity sampling rate for CAP ON state.");
          }
       }
-      else if((pdata < (self->_threshhold - (self->_hysteresis / 2u))) && (CAP_STATE_OPEN != self->_cap_state))
+      else if((pdata < (self->_threshold - (self->_hysteresis / 2u))) && (CAP_STATE_OPEN != self->_cap_state))
       {
          // Cap is detected as OFF. Adjust sampling rate for CAP OFF state.
          // Note: zero proximity value treated as OPEN state as well after initialization.
@@ -207,13 +206,13 @@ static result_t
 
 result_t cap_detection_init(cap_detection_t *const self,
                             const ir_proximity_driver_interface_t *const p_prox_ifc,
-                            uint16_t init_threshhold,
+                            uint16_t init_threshold,
                             uint16_t init_hysteresis)
 {
    RETURN_ERR_IF_NULL(self, CAP_MODULE_ERROR_PTR_NULL);
    RETURN_ERR_IF_INTERFACE_NULL(p_prox_ifc, CAP_MODULE_ERROR_PTR_NULL);
-   RETURN_ERR_IF_TRUE((init_hysteresis > init_threshhold), CAP_MODULE_ERROR_INVALID_PARAM);
-   RETURN_ERR_IF_TRUE((init_threshhold == 0), CAP_MODULE_ERROR_INVALID_PARAM);
+   RETURN_ERR_IF_TRUE((init_hysteresis > init_threshold), CAP_MODULE_ERROR_INVALID_PARAM);
+   RETURN_ERR_IF_TRUE((init_threshold == 0), CAP_MODULE_ERROR_INVALID_PARAM);
 
    self->_is_initialized = false;
 
@@ -228,7 +227,7 @@ result_t cap_detection_init(cap_detection_t *const self,
 
    // Initialize private data
    self->_cap_state = CAP_STATE_UNKNOWN;
-   self->_threshhold = init_threshhold;
+   self->_threshold = init_threshold;
    self->_hysteresis = init_hysteresis;
 
    // Activate the proximity sensor with initial sampling rate

@@ -104,6 +104,9 @@ static PPI_AD get_ppi_for_data_id(DATA_ID data_id)
       case DATA_ID_DOCK_STATUS:
          ppi = PPI_AD_DOCK_STATUS;
          break;
+      case DATA_ID_CAP_DETECTION_STATUS:
+         ppi = PPI_AD_CAP_DETECTION_STATUS;
+         break;
       case DATA_ID_MAX:
          break;
       default:

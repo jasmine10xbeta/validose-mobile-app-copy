@@ -10,6 +10,6 @@ services:
     stdin_open: true                    # Keep the container interactive
     tty: true                           # Enable TTY for terminal
     ports:
-      - "5000:5000"                     # Forward port 5000 for TCP communication
+      - "5001:5000"                     # Forward port 5000 for TCP communication
 
     command: ["/bin/bash", "-c", "chmod +x /workspace/.devcontainer/startup.sh && /workspace/.devcontainer/startup.sh && exec bash"]

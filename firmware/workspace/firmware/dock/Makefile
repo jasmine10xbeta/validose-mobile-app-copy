@@ -17,6 +17,10 @@ SOFTDEVICE_BINARY := $(SDK_ROOT)/components/softdevice/s140/hex/s140_nrf52_7.2.0
 # MUST remain 0 for production/release builds so data persists across reset/power loss.
 DOCK_DATA_MANAGER_DISABLE_FDS_FLASH_WRITES_DEV_ONLY ?= 1
 
+# Optional BLE one-way TX throughput test mode for the custom data TX characteristic.
+# 0 = disabled (default), 1 = enabled.
+BLE_TX_THROUGHPUT_TEST_ENABLE ?= 0
+
 $(OUTPUT_DIRECTORY)/nrf52840_xxaa.out: \
   LINKER_SCRIPT  := link.ld
 
@@ -509,6 +513,7 @@ CFLAGS += -DNRF_DFU_SVCI_ENABLED
 CFLAGS += -DNRF_DFU_TRANSPORT_BLE=1
 CFLAGS += -DDEBUG # Only for use during development
 CFLAGS += -DDOCK_DATA_MANAGER_DISABLE_FDS_FLASH_WRITES=$(DOCK_DATA_MANAGER_DISABLE_FDS_FLASH_WRITES_DEV_ONLY)
+CFLAGS += -DBLE_TX_THROUGHPUT_TEST_ENABLE=$(BLE_TX_THROUGHPUT_TEST_ENABLE)
 CFLAGS += -DST25R3916B -DST25R_COM_SINGLETXRX
 CFLAGS += -DRFAL_USE_I2C
 CFLAGS += -DRFAL_ANALOG_CONFIG_CUSTOM

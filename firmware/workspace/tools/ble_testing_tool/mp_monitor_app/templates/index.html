@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en" data-bs-theme="dark">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -31,8 +32,10 @@
     }
   </style>
 </head>
+
 <body>
-  <div id="alerts_container" class="position-fixed end-0 p-3 d-flex flex-column gap-2" style="top: 4.5rem; z-index: 2000; max-width: 28rem;" aria-live="polite" aria-atomic="true"></div>
+  <div id="alerts_container" class="position-fixed end-0 p-3 d-flex flex-column gap-2"
+    style="top: 4.5rem; z-index: 2000; max-width: 28rem;" aria-live="polite" aria-atomic="true"></div>
   <div class="page">
     <header class="navbar navbar-expand-md d-print-none">
       <div class="container-fluid px-3 px-xl-4 px-xxl-5">
@@ -61,500 +64,573 @@
         </div>
       </div>
       <div class="page-body">
-      <div class="container-fluid px-3 px-xl-4 px-xxl-5">
-        <div class="row row-cards mb-3">
-          <div class="col-12 col-sm-6 col-xl-3">
-            <div class="card card-sm h-100 bg-blue-lt">
-              <div class="card-body">
-                <div class="d-flex align-items-center justify-content-between mb-1">
-                  <div class="text-blue text-uppercase small">Target</div>
-                  <i class="ti ti-link text-blue"></i>
-                </div>
-                <div class="fw-semibold" id="target">-</div>
-              </div>
-            </div>
-          </div>
-          <div class="col-12 col-sm-6 col-xl-3">
-            <div class="card card-sm h-100 bg-indigo-lt">
-              <div class="card-body">
-                <div class="d-flex align-items-center justify-content-between mb-1">
-                  <div class="text-indigo text-uppercase small">Role</div>
-                  <i class="ti ti-hierarchy-2 text-indigo"></i>
-                </div>
-                <div class="fw-semibold" id="role">-</div>
-              </div>
-            </div>
-          </div>
-          <div class="col-12 col-sm-6 col-xl-3">
-            <div class="card card-sm h-100 bg-cyan-lt">
-              <div class="card-body">
-                <div class="d-flex align-items-center justify-content-between mb-1">
-                  <div class="text-cyan text-uppercase small">Session</div>
-                  <i class="ti ti-fingerprint text-cyan"></i>
-                </div>
-                <div class="fw-semibold" id="session">-</div>
-              </div>
-            </div>
-          </div>
-          <div class="col-12 col-sm-6 col-xl-3">
-            <div class="card card-sm h-100 bg-orange-lt">
-              <div class="card-body">
-                <div class="d-flex align-items-center justify-content-between mb-1">
-                  <div class="text-orange text-uppercase small">Process Interval</div>
-                  <i class="ti ti-clock-hour-4 text-orange"></i>
-                </div>
-                <div class="fw-semibold" id="process_interval">-</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="row g-3">
-          <div id="dashboard_col_left" class="col-12 col-xl-6 d-flex flex-column gap-3 dashboard-card-sortable">
-            <div id="card_dose_schedule" class="card">
-          <div class="card-header">
-            <div>
-              <h3 class="card-title mb-0"><i class="ti ti-pill me-1 text-purple"></i>Dose Schedule</h3>
-              <div class="card-subtitle">Edit values and push/request schedule state from the device.</div>
-            </div>
-          </div>
-          <div class="card-body">
-            <div class="row g-3">
-              <div class="col-12 col-xl-6">
-                <div class="row g-2">
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">medication_type</label>
-                    <input class="form-control form-control-sm" id="dose_medication_type" type="number" min="0" max="255" value="0">
+        <div class="container-fluid px-3 px-xl-4 px-xxl-5">
+          <div class="row row-cards mb-3">
+            <div class="col-12 col-sm-6 col-xl-3">
+              <div class="card card-sm h-100 bg-blue-lt">
+                <div class="card-body">
+                  <div class="d-flex align-items-center justify-content-between mb-1">
+                    <div class="text-blue text-uppercase small">Target</div>
+                    <i class="ti ti-link text-blue"></i>
                   </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">dosage_mg</label>
-                    <input class="form-control form-control-sm" id="dose_dosage_mg" type="number" min="0" max="65535" value="0">
-                  </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">temp_upper_limit_deg_c</label>
-                    <input class="form-control form-control-sm" id="dose_temp_upper" type="number" min="-128" max="127" value="0">
-                  </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">temp_lower_limit_deg_c</label>
-                    <input class="form-control form-control-sm" id="dose_temp_lower" type="number" min="-128" max="127" value="0">
-                  </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">temp_avg_window_duration_sec</label>
-                    <input class="form-control form-control-sm" id="dose_temp_avg_window" type="number" min="0" max="65535" value="0">
-                  </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">dose_days_bitfield</label>
-                    <input class="form-control form-control-sm" id="dose_days_bitfield" type="number" min="0" max="255" value="0">
-                  </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">dose_window_duration_minutes</label>
-                    <input class="form-control form-control-sm" id="dose_window_duration" type="number" min="0" max="255" value="0">
-                  </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">dose_window_count</label>
-                    <input class="form-control form-control-sm" id="dose_window_count" type="number" min="0" max="10" value="0">
-                  </div>
-                </div>
-              </div>
-              <div class="col-12 col-xl-6">
-                <div class="row g-2">
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">start[0] min</label>
-                    <input class="form-control form-control-sm" id="dose_start_0" type="number" min="0" max="65535" value="0">
-                  </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">start[1] min</label>
-                    <input class="form-control form-control-sm" id="dose_start_1" type="number" min="0" max="65535" value="0">
-                  </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">start[2] min</label>
-                    <input class="form-control form-control-sm" id="dose_start_2" type="number" min="0" max="65535" value="0">
-                  </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">start[3] min</label>
-                    <input class="form-control form-control-sm" id="dose_start_3" type="number" min="0" max="65535" value="0">
-                  </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">start[4] min</label>
-                    <input class="form-control form-control-sm" id="dose_start_4" type="number" min="0" max="65535" value="0">
-                  </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">start[5] min</label>
-                    <input class="form-control form-control-sm" id="dose_start_5" type="number" min="0" max="65535" value="0">
-                  </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">start[6] min</label>
-                    <input class="form-control form-control-sm" id="dose_start_6" type="number" min="0" max="65535" value="0">
-                  </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">start[7] min</label>
-                    <input class="form-control form-control-sm" id="dose_start_7" type="number" min="0" max="65535" value="0">
-                  </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">start[8] min</label>
-                    <input class="form-control form-control-sm" id="dose_start_8" type="number" min="0" max="65535" value="0">
-                  </div>
-                  <div class="col-12 col-md-6">
-                    <label class="form-label">start[9] min</label>
-                    <input class="form-control form-control-sm" id="dose_start_9" type="number" min="0" max="65535" value="0">
-                  </div>
+                  <div class="fw-semibold" id="target">-</div>
                 </div>
               </div>
             </div>
-            <div class="d-flex flex-wrap gap-2 mt-3">
-              <button class="btn btn-outline-secondary" id="dose_populate_default"><i class="ti ti-template me-1"></i>Populate Default Dose Schedule</button>
-              <button class="btn btn-green" id="dose_update"><i class="ti ti-upload me-1"></i>Push New Dose Schedule</button>
-              <button class="btn btn-azure" id="dose_request"><i class="ti ti-download me-1"></i>Request Current Dose Schedule</button>
+            <div class="col-12 col-sm-6 col-xl-3">
+              <div class="card card-sm h-100 bg-indigo-lt">
+                <div class="card-body">
+                  <div class="d-flex align-items-center justify-content-between mb-1">
+                    <div class="text-indigo text-uppercase small">Role</div>
+                    <i class="ti ti-hierarchy-2 text-indigo"></i>
+                  </div>
+                  <div class="fw-semibold" id="role">-</div>
+                </div>
+              </div>
             </div>
-            <div id="dose_status" class="alert alert-secondary py-2 px-3 mt-3 mb-0">Dose schedule ready.</div>
-          </div>
+            <div class="col-12 col-sm-6 col-xl-3">
+              <div class="card card-sm h-100 bg-cyan-lt">
+                <div class="card-body">
+                  <div class="d-flex align-items-center justify-content-between mb-1">
+                    <div class="text-cyan text-uppercase small">Session</div>
+                    <i class="ti ti-fingerprint text-cyan"></i>
+                  </div>
+                  <div class="fw-semibold" id="session">-</div>
+                </div>
+              </div>
             </div>
-
-            <div id="card_temperature" class="card">
-          <div class="card-header">
-            <div>
-              <h3 class="card-title mb-0"><i class="ti ti-thermometer me-1 text-cyan"></i>Temperature</h3>
-              <div class="card-subtitle">Points are extracted from PPI_TYPE_PUSH / PPI_AD_DOCK_TEMP_LOG payloads.</div>
-            </div>
-            <div class="card-actions">
-              <span id="temp_points_badge" class="badge bg-cyan-lt text-cyan">0 points</span>
-            </div>
-          </div>
-          <div class="card-body">
-              <div id="temp_chart"></div>
-            <div id="temp_status" class="alert alert-secondary py-2 px-3 mt-3 mb-0">Waiting for temperature logs...</div>
-          </div>
-            </div>
-
-            <div id="card_dock_battery_level" class="card">
-          <div class="card-header">
-            <div>
-              <h3 class="card-title mb-0"><i class="ti ti-battery-3 me-1 text-green"></i>Dock Battery Level</h3>
-              <div class="card-subtitle">Points are extracted from PPI_TYPE_PUSH / PPI_AD_DOCK_BATT_LEVEL_LOG payloads.</div>
-            </div>
-            <div class="card-actions">
-              <span id="dock_batt_points_badge" class="badge bg-green-lt text-green">0 points</span>
-            </div>
-          </div>
-          <div class="card-body">
-              <div id="dock_batt_chart"></div>
-            <div id="dock_batt_status" class="alert alert-secondary py-2 px-3 mt-3 mb-0">Waiting for dock battery logs...</div>
-          </div>
-            </div>
-
-            <div id="card_ring_battery_level" class="card">
-          <div class="card-header">
-            <div>
-              <h3 class="card-title mb-0"><i class="ti ti-battery-2 me-1 text-lime"></i>Ring Battery Level</h3>
-              <div class="card-subtitle">Points are extracted from PPI_TYPE_PUSH / PPI_AD_RING_BATT_LEVEL_LOG payloads.</div>
-            </div>
-            <div class="card-actions">
-              <span id="ring_batt_points_badge" class="badge bg-lime-lt text-lime">0 points</span>
-            </div>
-          </div>
-          <div class="card-body">
-              <div id="ring_batt_chart"></div>
-            <div id="ring_batt_status" class="alert alert-secondary py-2 px-3 mt-3 mb-0">Waiting for ring battery logs...</div>
-          </div>
+            <div class="col-12 col-sm-6 col-xl-3">
+              <div class="card card-sm h-100 bg-orange-lt">
+                <div class="card-body">
+                  <div class="d-flex align-items-center justify-content-between mb-1">
+                    <div class="text-orange text-uppercase small">Process Interval</div>
+                    <i class="ti ti-clock-hour-4 text-orange"></i>
+                  </div>
+                  <div class="fw-semibold" id="process_interval">-</div>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div id="dashboard_col_right" class="col-12 col-xl-6 d-flex flex-column gap-3 dashboard-card-sortable">
-            <div id="card_unix_time" class="card">
-          <div class="card-header">
-            <div>
-              <h3 class="card-title mb-0"><i class="ti ti-clock-hour-4 me-1 text-orange"></i>Unix Time</h3>
-              <div class="card-subtitle">Request current device time (RQ/RE) and push a new unix time (PUSH) via PPI_AD_TIME.</div>
-            </div>
-          </div>
-          <div class="card-body">
-            <div class="row g-2 align-items-end">
-              <div class="col-12 col-md-6 col-lg-4">
-                <label class="form-label">unix_time_s</label>
-                <input class="form-control" id="time_unix_s" type="number" min="0" max="4294967295" step="1" value="0">
+          <div class="row g-3">
+            <div id="dashboard_col_left" class="col-12 col-xl-6 d-flex flex-column gap-3 dashboard-card-sortable">
+              <div id="card_dose_schedule" class="card">
+                <div class="card-header">
+                  <div>
+                    <h3 class="card-title mb-0"><i class="ti ti-pill me-1 text-purple"></i>Dose Schedule</h3>
+                    <div class="card-subtitle">Edit values and push/request schedule state from the device.</div>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="row g-3">
+                    <div class="col-12 col-xl-6">
+                      <div class="row g-2">
+                        <div class="col-12 col-md-6">
+                          <label class="form-label">medication_type</label>
+                          <input class="form-control form-control-sm" id="dose_medication_type" type="number" min="0"
+                            max="255" value="0">
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <label class="form-label">dosage_mg</label>
+                          <input class="form-control form-control-sm" id="dose_dosage_mg" type="number" min="0"
+                            max="65535" value="0">
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <label class="form-label">temp_upper_limit_deg_c</label>
+                          <input class="form-control form-control-sm" id="dose_temp_upper" type="number" min="-128"
+                            max="127" value="0">
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <label class="form-label">temp_lower_limit_deg_c</label>
+                          <input class="form-control form-control-sm" id="dose_temp_lower" type="number" min="-128"
+                            max="127" value="0">
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <label class="form-label">temp_avg_window_duration_sec</label>
+                          <input class="form-control form-control-sm" id="dose_temp_avg_window" type="number" min="0"
+                            max="65535" value="0">
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <label class="form-label">dose_days_bitfield</label>
+                          <input class="form-control form-control-sm" id="dose_days_bitfield" type="number" min="0"
+                            max="255" value="0">
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <label class="form-label">dose_window_duration_minutes</label>
+                          <input class="form-control form-control-sm" id="dose_window_duration" type="number" min="0"
+                            max="255" value="0">
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <label class="form-label">dose_window_count</label>
+                          <input class="form-control form-control-sm" id="dose_window_count" type="number" min="0"
+                            max="10" value="0">
+                        </div>
+                      </div>
+                    </div>
+                    <div class="col-12 col-xl-6">
+                      <div class="row g-2">
+                        <div class="col-12 col-md-6">
+                          <label class="form-label">start[0] min</label>
+                          <input class="form-control form-control-sm" id="dose_start_0" type="number" min="0"
+                            max="65535" value="0">
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <label class="form-label">start[1] min</label>
+                          <input class="form-control form-control-sm" id="dose_start_1" type="number" min="0"
+                            max="65535" value="0">
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <label class="form-label">start[2] min</label>
+                          <input class="form-control form-control-sm" id="dose_start_2" type="number" min="0"
+                            max="65535" value="0">
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <label class="form-label">start[3] min</label>
+                          <input class="form-control form-control-sm" id="dose_start_3" type="number" min="0"
+                            max="65535" value="0">
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <label class="form-label">start[4] min</label>
+                          <input class="form-control form-control-sm" id="dose_start_4" type="number" min="0"
+                            max="65535" value="0">
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <label class="form-label">start[5] min</label>
+                          <input class="form-control form-control-sm" id="dose_start_5" type="number" min="0"
+                            max="65535" value="0">
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <label class="form-label">start[6] min</label>
+                          <input class="form-control form-control-sm" id="dose_start_6" type="number" min="0"
+                            max="65535" value="0">
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <label class="form-label">start[7] min</label>
+                          <input class="form-control form-control-sm" id="dose_start_7" type="number" min="0"
+                            max="65535" value="0">
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <label class="form-label">start[8] min</label>
+                          <input class="form-control form-control-sm" id="dose_start_8" type="number" min="0"
+                            max="65535" value="0">
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <label class="form-label">start[9] min</label>
+                          <input class="form-control form-control-sm" id="dose_start_9" type="number" min="0"
+                            max="65535" value="0">
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="d-flex flex-wrap gap-2 mt-3">
+                    <button class="btn btn-outline-secondary" id="dose_populate_default"><i
+                        class="ti ti-template me-1"></i>Populate Default Dose Schedule</button>
+                    <button class="btn btn-green" id="dose_update"><i class="ti ti-upload me-1"></i>Push New Dose
+                      Schedule</button>
+                    <button class="btn btn-azure" id="dose_request"><i class="ti ti-download me-1"></i>Request Current
+                      Dose Schedule</button>
+                  </div>
+                  <div id="dose_status" class="alert alert-secondary py-2 px-3 mt-3 mb-0">Dose schedule ready.</div>
+                </div>
               </div>
-              <div class="col-12 col-md-auto">
-                <button class="btn btn-outline-secondary" id="time_populate_current"><i class="ti ti-clock me-1"></i>Populate Current Unix Time</button>
+
+              <div id="card_temperature" class="card">
+                <div class="card-header">
+                  <div>
+                    <h3 class="card-title mb-0"><i class="ti ti-thermometer me-1 text-cyan"></i>Temperature</h3>
+                    <div class="card-subtitle">Points are extracted from PPI_TYPE_PUSH / PPI_AD_DOCK_TEMP_LOG payloads.
+                    </div>
+                  </div>
+                  <div class="card-actions">
+                    <span id="temp_points_badge" class="badge bg-cyan-lt text-cyan">0 points</span>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div id="temp_chart"></div>
+                  <div id="temp_status" class="alert alert-secondary py-2 px-3 mt-3 mb-0">Waiting for temperature
+                    logs...</div>
+                </div>
               </div>
-              <div class="col-12 col-md-auto">
-                <button class="btn btn-azure" id="time_request"><i class="ti ti-download me-1"></i>Request Current Unix Time</button>
+
+              <div id="card_dock_battery_level" class="card">
+                <div class="card-header">
+                  <div>
+                    <h3 class="card-title mb-0"><i class="ti ti-battery-3 me-1 text-green"></i>Dock Battery Level</h3>
+                    <div class="card-subtitle">Points are extracted from PPI_TYPE_PUSH / PPI_AD_DOCK_BATT_LEVEL_LOG
+                      payloads.</div>
+                  </div>
+                  <div class="card-actions">
+                    <span id="dock_batt_points_badge" class="badge bg-green-lt text-green">0 points</span>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div id="dock_batt_chart"></div>
+                  <div id="dock_batt_status" class="alert alert-secondary py-2 px-3 mt-3 mb-0">Waiting for dock battery
+                    logs...</div>
+                </div>
               </div>
-              <div class="col-12 col-md-auto">
-                <button class="btn btn-orange" id="time_push"><i class="ti ti-upload me-1"></i>Push New Unix Time</button>
+
+              <div id="card_ring_battery_level" class="card">
+                <div class="card-header">
+                  <div>
+                    <h3 class="card-title mb-0"><i class="ti ti-battery-2 me-1 text-lime"></i>Ring Battery Level</h3>
+                    <div class="card-subtitle">Points are extracted from PPI_TYPE_PUSH / PPI_AD_RING_BATT_LEVEL_LOG
+                      payloads.</div>
+                  </div>
+                  <div class="card-actions">
+                    <span id="ring_batt_points_badge" class="badge bg-lime-lt text-lime">0 points</span>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div id="ring_batt_chart"></div>
+                  <div id="ring_batt_status" class="alert alert-secondary py-2 px-3 mt-3 mb-0">Waiting for ring battery
+                    logs...</div>
+                </div>
               </div>
-            </div>
-            <div class="row g-2 mt-3">
-              <div class="col-12 col-md-6">
-                <div class="small text-secondary text-uppercase">Displayed Unix Seconds</div>
-                <div id="time_display_unix_s" class="font-monospace">0</div>
-              </div>
-              <div class="col-12 col-md-6">
-                <div class="small text-secondary text-uppercase">Displayed UTC</div>
-                <div id="time_display_utc" class="font-monospace">0 (unset)</div>
-              </div>
-            </div>
-            <div id="time_status" class="alert alert-secondary py-2 px-3 mt-3 mb-0">Unix time ready.</div>
-          </div>
             </div>
 
-            <div id="card_dock_status" class="card">
-          <div class="card-header">
-            <div>
-              <h3 class="card-title mb-0"><i class="ti ti-device-desktop-analytics me-1 text-azure"></i>Dock Status</h3>
-              <div class="card-subtitle">Request/response via PPI_TYPE_RQ+RE / PPI_AD_DOCK_STATUS.</div>
-            </div>
-            <div class="card-actions">
-              <button class="btn btn-azure btn-sm" id="dock_status_request">
-                <i class="ti ti-download me-1"></i>Request Dock Status
-              </button>
-            </div>
-          </div>
-          <div class="card-body">
-            <div class="row g-2">
-              <div class="col-12 col-md-6">
-                <div class="small text-secondary text-uppercase">Hardware Version</div>
-                <div id="dock_status_hw_version" class="font-monospace">-</div>
+            <div id="dashboard_col_right" class="col-12 col-xl-6 d-flex flex-column gap-3 dashboard-card-sortable">
+              <div id="card_unix_time" class="card">
+                <div class="card-header">
+                  <div>
+                    <h3 class="card-title mb-0"><i class="ti ti-clock-hour-4 me-1 text-orange"></i>Unix Time</h3>
+                    <div class="card-subtitle">Request current device time (RQ/RE) and push a new unix time (PUSH) via
+                      PPI_AD_TIME.</div>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="row g-2 align-items-end">
+                    <div class="col-12 col-md-6 col-lg-4">
+                      <label class="form-label">unix_time_s</label>
+                      <input class="form-control" id="time_unix_s" type="number" min="0" max="4294967295" step="1"
+                        value="0">
+                    </div>
+                    <div class="col-12 col-md-auto">
+                      <button class="btn btn-outline-secondary" id="time_populate_current"><i
+                          class="ti ti-clock me-1"></i>Populate Current Unix Time</button>
+                    </div>
+                    <div class="col-12 col-md-auto">
+                      <button class="btn btn-azure" id="time_request"><i class="ti ti-download me-1"></i>Request Current
+                        Unix Time</button>
+                    </div>
+                    <div class="col-12 col-md-auto">
+                      <button class="btn btn-orange" id="time_push"><i class="ti ti-upload me-1"></i>Push New Unix
+                        Time</button>
+                    </div>
+                  </div>
+                  <div class="row g-2 mt-3">
+                    <div class="col-12 col-md-6">
+                      <div class="small text-secondary text-uppercase">Displayed Unix Seconds</div>
+                      <div id="time_display_unix_s" class="font-monospace">0</div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                      <div class="small text-secondary text-uppercase">Displayed UTC</div>
+                      <div id="time_display_utc" class="font-monospace">0 (unset)</div>
+                    </div>
+                  </div>
+                  <div id="time_status" class="alert alert-secondary py-2 px-3 mt-3 mb-0">Unix time ready.</div>
+                </div>
               </div>
-              <div class="col-12 col-md-6">
-                <div class="small text-secondary text-uppercase">Firmware Version</div>
-                <div id="dock_status_fw_version" class="font-monospace">-</div>
+
+              <div id="card_dock_status" class="card">
+                <div class="card-header">
+                  <div>
+                    <h3 class="card-title mb-0"><i class="ti ti-device-desktop-analytics me-1 text-azure"></i>Dock
+                      Status</h3>
+                    <div class="card-subtitle">Request/response via PPI_TYPE_RQ+RE / PPI_AD_DOCK_STATUS.</div>
+                  </div>
+                  <div class="card-actions">
+                    <button class="btn btn-azure btn-sm" id="dock_status_request">
+                      <i class="ti ti-download me-1"></i>Request Dock Status
+                    </button>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="row g-2">
+                    <div class="col-12 col-md-6">
+                      <div class="small text-secondary text-uppercase">Hardware Version</div>
+                      <div id="dock_status_hw_version" class="font-monospace">-</div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                      <div class="small text-secondary text-uppercase">Firmware Version</div>
+                      <div id="dock_status_fw_version" class="font-monospace">-</div>
+                    </div>
+                    <div class="col-12">
+                      <div class="small text-secondary text-uppercase">DEVICE ID</div>
+                      <div id="dock_status_mac" class="font-monospace text-break">-</div>
+                    </div>
+                    <div class="col-12">
+                      <div class="small text-secondary text-uppercase">Timestamp</div>
+                      <div id="dock_status_timestamp" class="font-monospace">-</div>
+                    </div>
+                    <div class="col-12">
+                      <div class="small text-secondary text-uppercase">Ship Mode Exit Timestamp</div>
+                      <div id="dock_status_ship_mode_exit" class="font-monospace">-</div>
+                    </div>
+                    <div class="col-12">
+                      <div class="small text-secondary text-uppercase">Uptime</div>
+                      <div id="dock_status_uptime" class="font-monospace">-</div>
+                    </div>
+                  </div>
+                  <div id="dock_status_status" class="alert alert-secondary py-2 px-3 mt-3 mb-0">No dock status received
+                    yet.</div>
+                </div>
               </div>
-              <div class="col-12">
-                <div class="small text-secondary text-uppercase">DEVICE ID</div>
-                <div id="dock_status_mac" class="font-monospace text-break">-</div>
+
+              <div id="card_ring_status" class="card">
+                <div class="card-header">
+                  <div>
+                    <h3 class="card-title mb-0"><i class="ti ti-device-watch me-1 text-lime"></i>Ring Status</h3>
+                    <div class="card-subtitle">Request/response or push via PPI_AD_RING_STATUS.</div>
+                  </div>
+                  <div class="card-actions">
+                    <button class="btn btn-lime btn-sm" id="ring_status_request">
+                      <i class="ti ti-download me-1"></i>Request Ring Status
+                    </button>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                    <span class="text-secondary">Battery Charge State</span>
+                    <span id="ring_status_battery_badge" class="badge bg-secondary-lt text-secondary">Unknown</span>
+                  </div>
+                  <div class="row g-2">
+                    <div class="col-12 col-md-6">
+                      <div class="small text-secondary text-uppercase">Hardware Version</div>
+                      <div id="ring_status_hw_version" class="font-monospace">-</div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                      <div class="small text-secondary text-uppercase">Firmware Version</div>
+                      <div id="ring_status_fw_version" class="font-monospace">-</div>
+                    </div>
+                    <div class="col-12">
+                      <div class="small text-secondary text-uppercase">DEVICE ID</div>
+                      <div id="ring_status_mac" class="font-monospace text-break">-</div>
+                    </div>
+                    <div class="col-12">
+                      <div class="small text-secondary text-uppercase">Timestamp</div>
+                      <div id="ring_status_timestamp" class="font-monospace">-</div>
+                    </div>
+                    <div class="col-12">
+                      <div class="small text-secondary text-uppercase">Ship Mode Exit Timestamp</div>
+                      <div id="ring_status_ship_mode_exit" class="font-monospace">-</div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                      <div class="small text-secondary text-uppercase">Uptime</div>
+                      <div id="ring_status_uptime" class="font-monospace">-</div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                      <div class="small text-secondary text-uppercase">Temperature</div>
+                      <div id="ring_status_temp" class="font-monospace">-</div>
+                    </div>
+                    <div class="col-12">
+                      <div class="small text-secondary text-uppercase">Battery Sample Frequency</div>
+                      <div id="ring_status_batt_freq" class="font-monospace">-</div>
+                    </div>
+                  </div>
+                  <div class="row g-2 mt-1">
+                    <div class="col-12 col-md-6">
+                      <div class="small text-secondary text-uppercase">Dose FIFO (used / watermark)</div>
+                      <div id="ring_status_fifo_dose" class="font-monospace">-</div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                      <div class="small text-secondary text-uppercase">Battery FIFO (used / watermark)</div>
+                      <div id="ring_status_fifo_battery" class="font-monospace">-</div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                      <div class="small text-secondary text-uppercase">IMU FIFO (used / watermark)</div>
+                      <div id="ring_status_fifo_imu" class="font-monospace">-</div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                      <div class="small text-secondary text-uppercase">Error FIFO (used / watermark)</div>
+                      <div id="ring_status_fifo_error" class="font-monospace">-</div>
+                    </div>
+                  </div>
+                  <div id="ring_status_status" class="alert alert-secondary py-2 px-3 mt-3 mb-0">No ring status received
+                    yet.</div>
+                </div>
               </div>
-              <div class="col-12">
-                <div class="small text-secondary text-uppercase">Timestamp</div>
-                <div id="dock_status_timestamp" class="font-monospace">-</div>
+
+              <div id="card_ring_docked_status" class="card">
+                <div class="card-header">
+                  <div>
+                    <h3 class="card-title mb-0"><i class="ti ti-link me-1 text-yellow"></i>Ring Docked Status</h3>
+                    <div class="card-subtitle">Points are extracted from PPI_TYPE_PUSH / PPI_AD_RING_DOCKED_STATUS
+                      payloads.</div>
+                  </div>
+                  <div class="card-actions">
+                    <span id="ring_docked_points_badge" class="badge bg-yellow-lt text-yellow">0 points</span>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                    <span class="text-secondary">Latest State</span>
+                    <span id="ring_docked_state_badge" class="badge bg-secondary-lt text-secondary">Unknown</span>
+                  </div>
+                  <div class="row g-2">
+                    <div class="col-12 col-md-6">
+                      <div class="small text-secondary text-uppercase">timestamp_unix_s</div>
+                      <div id="ring_docked_timestamp_unix" class="font-monospace">-</div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                      <div class="small text-secondary text-uppercase">timestamp_utc</div>
+                      <div id="ring_docked_timestamp_utc" class="font-monospace">-</div>
+                    </div>
+                    <div class="col-12">
+                      <div class="small text-secondary text-uppercase">Ring NFC ID</div>
+                      <div id="ring_docked_ring_nfc_id" class="font-monospace text-break">-</div>
+                    </div>
+                    <div class="col-12">
+                      <div class="small text-secondary text-uppercase">medication_nfc_id_hex</div>
+                      <div id="ring_docked_med_nfc_id" class="font-monospace text-break">-</div>
+                    </div>
+                  </div>
+                  <div id="ring_docked_status" class="alert alert-secondary py-2 px-3 mt-3 mb-0">
+                    Waiting for ring docked status updates...
+                  </div>
+                </div>
               </div>
-              <div class="col-12">
-                <div class="small text-secondary text-uppercase">Ship Mode Exit Timestamp</div>
-                <div id="dock_status_ship_mode_exit" class="font-monospace">-</div>
+
+              <div id="card_dock_charge_status" class="card">
+                <div class="card-header">
+                  <div>
+                    <h3 class="card-title mb-0"><i class="ti ti-battery me-1 text-cyan"></i>Dock Charger Status</h3>
+                    <div class="card-subtitle">Points are extracted from PPI_TYPE_PUSH / PPI_AD_DOCK_CHARGE_STATUS
+                      payloads.</div>
+                  </div>
+                  <div class="card-actions">
+                    <span id="dock_charge_status_points_badge" class="badge bg-cyan-lt text-cyan">0 points</span>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                    <span class="text-secondary">Latest State</span>
+                    <span id="dock_charge_status_state_badge"
+                      class="badge bg-secondary-lt text-secondary">Unknown</span>
+                  </div>
+                  <div class="row g-2">
+                    <div class="col-12 col-md-6">
+                      <div class="small text-secondary text-uppercase">timestamp_unix_s</div>
+                      <div id="dock_charge_status_timestamp_unix" class="font-monospace">-</div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                      <div class="small text-secondary text-uppercase">timestamp_utc</div>
+                      <div id="dock_charge_status_timestamp_utc" class="font-monospace">-</div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div class="col-12">
-                <div class="small text-secondary text-uppercase">Uptime</div>
-                <div id="dock_status_uptime" class="font-monospace">-</div>
+
+              <div id="card_dose_events" class="card">
+                <div class="card-header">
+                  <div>
+                    <h3 class="card-title mb-0"><i class="ti ti-clipboard-list me-1 text-purple"></i>Dose Events</h3>
+                    <div class="card-subtitle">Events are extracted from PPI_TYPE_PUSH / PPI_AD_DOSE_EVENT_REPORT
+                      payloads.</div>
+                  </div>
+                  <div class="card-actions">
+                    <span id="dose_event_count_badge" class="badge bg-purple-lt text-purple">0 events</span>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div id="dose_event_status" class="alert alert-secondary py-2 px-3 mb-3">Waiting for dose events...
+                  </div>
+                  <div class="table-responsive">
+                    <table class="table table-sm table-vcenter mb-0">
+                      <thead>
+                        <tr>
+                          <th class="text-nowrap">Event ID</th>
+                          <th class="text-nowrap">Start UTC</th>
+                          <th class="text-nowrap">Duration</th>
+                          <th class="text-nowrap">In Time</th>
+                          <th class="text-nowrap">Tilts</th>
+                        </tr>
+                      </thead>
+                      <tbody id="dose_event_rows">
+                        <tr>
+                          <td colspan="5" class="text-secondary">No dose events yet.</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div id="dock_status_status" class="alert alert-secondary py-2 px-3 mt-3 mb-0">No dock status received yet.</div>
-          </div>
+
+              <div id="card_dock_weight_measurements" class="card">
+                <div class="card-header">
+                  <div>
+                    <h3 class="card-title mb-0"><i class="ti ti-scale me-1 text-azure"></i>Dock Weight Measurements</h3>
+                    <div class="card-subtitle">Events are extracted from PPI_TYPE_PUSH / PPI_AD_DOCK_WEIGHT_LOG
+                      payloads.</div>
+                  </div>
+                  <div class="card-actions">
+                    <span id="weight_measurement_count_badge" class="badge bg-azure-lt text-azure">0 events</span>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div id="weight_measurement_status" class="alert alert-secondary py-2 px-3 mb-3">Waiting for dock
+                    weight measurements...</div>
+                  <div class="table-responsive">
+                    <table class="table table-sm table-vcenter mb-0">
+                      <thead>
+                        <tr>
+                          <th class="text-nowrap">weight_mg</th>
+                          <th class="text-nowrap">total_dispensed_mg</th>
+                          <th class="text-nowrap">std_dev</th>
+                          <th class="text-nowrap">temperature_deg_c_div10</th>
+                          <th class="text-nowrap">timestamp_unix_s</th>
+                        </tr>
+                      </thead>
+                      <tbody id="weight_measurement_rows">
+                        <tr>
+                          <td colspan="5" class="text-secondary">No weight measurements yet.</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div id="card_ring_status" class="card">
-          <div class="card-header">
-            <div>
-              <h3 class="card-title mb-0"><i class="ti ti-device-watch me-1 text-lime"></i>Ring Status</h3>
-              <div class="card-subtitle">Request/response or push via PPI_AD_RING_STATUS.</div>
-            </div>
-            <div class="card-actions">
-              <button class="btn btn-lime btn-sm" id="ring_status_request">
-                <i class="ti ti-download me-1"></i>Request Ring Status
-              </button>
-            </div>
-          </div>
-          <div class="card-body">
-            <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-              <span class="text-secondary">Battery Charge State</span>
-              <span id="ring_status_battery_badge" class="badge bg-secondary-lt text-secondary">Unknown</span>
-            </div>
-            <div class="row g-2">
-              <div class="col-12 col-md-6">
-                <div class="small text-secondary text-uppercase">Hardware Version</div>
-                <div id="ring_status_hw_version" class="font-monospace">-</div>
+            <div class="col-12">
+              <div class="card">
+                <div class="card-header">
+                  <div>
+                    <h3 class="card-title mb-0"><i class="ti ti-inbox me-1 text-green"></i>Incoming messages</h3>
+                    <div class="card-subtitle">Live stream (newest rows appended at top).</div>
+                  </div>
+                  <div class="card-actions d-flex gap-2">
+                    <button class="btn btn-outline-primary btn-sm" id="export_csv"><i
+                        class="ti ti-file-export me-1"></i>Export Incoming CSV</button>
+                    <button class="btn btn-outline-primary btn-sm" id="export_all_csv"><i
+                        class="ti ti-files me-1"></i>Export All CSVs</button>
+                    <button class="btn btn-outline-secondary btn-sm" id="clear"><i class="ti ti-trash me-1"></i>Clear
+                      table</button>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div id="incoming_table_wrap" class="table-responsive">
+                    <table class="table table-sm table-vcenter table-hover card-table">
+                      <thead>
+                        <tr>
+                          <th class="text-nowrap">ID</th>
+                          <th class="text-nowrap">UTC Time</th>
+                          <th class="text-nowrap">Session ID</th>
+                          <th class="text-nowrap">Type</th>
+                          <th class="text-nowrap">PPI</th>
+                          <th class="text-nowrap">Len</th>
+                          <th>Payload (hex)</th>
+                        </tr>
+                      </thead>
+                      <tbody id="rows"></tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
-              <div class="col-12 col-md-6">
-                <div class="small text-secondary text-uppercase">Firmware Version</div>
-                <div id="ring_status_fw_version" class="font-monospace">-</div>
-              </div>
-              <div class="col-12">
-                <div class="small text-secondary text-uppercase">DEVICE ID</div>
-                <div id="ring_status_mac" class="font-monospace text-break">-</div>
-              </div>
-              <div class="col-12">
-                <div class="small text-secondary text-uppercase">Timestamp</div>
-                <div id="ring_status_timestamp" class="font-monospace">-</div>
-              </div>
-              <div class="col-12">
-                <div class="small text-secondary text-uppercase">Ship Mode Exit Timestamp</div>
-                <div id="ring_status_ship_mode_exit" class="font-monospace">-</div>
-              </div>
-              <div class="col-12 col-md-6">
-                <div class="small text-secondary text-uppercase">Uptime</div>
-                <div id="ring_status_uptime" class="font-monospace">-</div>
-              </div>
-              <div class="col-12 col-md-6">
-                <div class="small text-secondary text-uppercase">Temperature</div>
-                <div id="ring_status_temp" class="font-monospace">-</div>
-              </div>
-              <div class="col-12">
-                <div class="small text-secondary text-uppercase">Battery Sample Frequency</div>
-                <div id="ring_status_batt_freq" class="font-monospace">-</div>
-              </div>
-            </div>
-            <div class="row g-2 mt-1">
-              <div class="col-12 col-md-6">
-                <div class="small text-secondary text-uppercase">Dose FIFO (used / watermark)</div>
-                <div id="ring_status_fifo_dose" class="font-monospace">-</div>
-              </div>
-              <div class="col-12 col-md-6">
-                <div class="small text-secondary text-uppercase">Battery FIFO (used / watermark)</div>
-                <div id="ring_status_fifo_battery" class="font-monospace">-</div>
-              </div>
-              <div class="col-12 col-md-6">
-                <div class="small text-secondary text-uppercase">IMU FIFO (used / watermark)</div>
-                <div id="ring_status_fifo_imu" class="font-monospace">-</div>
-              </div>
-              <div class="col-12 col-md-6">
-                <div class="small text-secondary text-uppercase">Error FIFO (used / watermark)</div>
-                <div id="ring_status_fifo_error" class="font-monospace">-</div>
-              </div>
-            </div>
-            <div id="ring_status_status" class="alert alert-secondary py-2 px-3 mt-3 mb-0">No ring status received yet.</div>
-          </div>
-            </div>
-
-            <div id="card_ring_docked_status" class="card">
-          <div class="card-header">
-            <div>
-              <h3 class="card-title mb-0"><i class="ti ti-link me-1 text-yellow"></i>Ring Docked Status</h3>
-              <div class="card-subtitle">Points are extracted from PPI_TYPE_PUSH / PPI_AD_RING_DOCKED_STATUS payloads.</div>
-            </div>
-            <div class="card-actions">
-              <span id="ring_docked_points_badge" class="badge bg-yellow-lt text-yellow">0 points</span>
-            </div>
-          </div>
-          <div class="card-body">
-            <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-              <span class="text-secondary">Latest State</span>
-              <span id="ring_docked_state_badge" class="badge bg-secondary-lt text-secondary">Unknown</span>
-            </div>
-            <div class="row g-2">
-              <div class="col-12 col-md-6">
-                <div class="small text-secondary text-uppercase">timestamp_unix_s</div>
-                <div id="ring_docked_timestamp_unix" class="font-monospace">-</div>
-              </div>
-              <div class="col-12 col-md-6">
-                <div class="small text-secondary text-uppercase">timestamp_utc</div>
-                <div id="ring_docked_timestamp_utc" class="font-monospace">-</div>
-              </div>
-              <div class="col-12">
-                <div class="small text-secondary text-uppercase">Ring NFC ID</div>
-                <div id="ring_docked_ring_nfc_id" class="font-monospace text-break">-</div>
-              </div>
-              <div class="col-12">
-                <div class="small text-secondary text-uppercase">medication_nfc_id_hex</div>
-                <div id="ring_docked_med_nfc_id" class="font-monospace text-break">-</div>
-              </div>
-            </div>
-            <div id="ring_docked_status" class="alert alert-secondary py-2 px-3 mt-3 mb-0">
-              Waiting for ring docked status updates...
-            </div>
-          </div>
-            </div>
-
-            <div id="card_dose_events" class="card">
-          <div class="card-header">
-            <div>
-              <h3 class="card-title mb-0"><i class="ti ti-clipboard-list me-1 text-purple"></i>Dose Events</h3>
-              <div class="card-subtitle">Events are extracted from PPI_TYPE_PUSH / PPI_AD_DOSE_EVENT_REPORT payloads.</div>
-            </div>
-            <div class="card-actions">
-              <span id="dose_event_count_badge" class="badge bg-purple-lt text-purple">0 events</span>
-            </div>
-          </div>
-          <div class="card-body">
-            <div id="dose_event_status" class="alert alert-secondary py-2 px-3 mb-3">Waiting for dose events...</div>
-            <div class="table-responsive">
-              <table class="table table-sm table-vcenter mb-0">
-                <thead>
-                  <tr>
-                    <th class="text-nowrap">Event ID</th>
-                    <th class="text-nowrap">Start UTC</th>
-                    <th class="text-nowrap">Duration</th>
-                    <th class="text-nowrap">In Time</th>
-                    <th class="text-nowrap">Tilts</th>
-                  </tr>
-                </thead>
-                <tbody id="dose_event_rows">
-                  <tr>
-                    <td colspan="5" class="text-secondary">No dose events yet.</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-            </div>
-
-            <div id="card_dock_weight_measurements" class="card">
-          <div class="card-header">
-            <div>
-              <h3 class="card-title mb-0"><i class="ti ti-scale me-1 text-azure"></i>Dock Weight Measurements</h3>
-              <div class="card-subtitle">Events are extracted from PPI_TYPE_PUSH / PPI_AD_DOCK_WEIGHT_LOG payloads.</div>
-            </div>
-            <div class="card-actions">
-              <span id="weight_measurement_count_badge" class="badge bg-azure-lt text-azure">0 events</span>
-            </div>
-          </div>
-          <div class="card-body">
-            <div id="weight_measurement_status" class="alert alert-secondary py-2 px-3 mb-3">Waiting for dock weight measurements...</div>
-            <div class="table-responsive">
-              <table class="table table-sm table-vcenter mb-0">
-                <thead>
-                  <tr>
-                    <th class="text-nowrap">weight_mg</th>
-                    <th class="text-nowrap">total_dispensed_mg</th>
-                    <th class="text-nowrap">std_dev</th>
-                    <th class="text-nowrap">temperature_deg_c_div10</th>
-                    <th class="text-nowrap">timestamp_unix_s</th>
-                  </tr>
-                </thead>
-                <tbody id="weight_measurement_rows">
-                  <tr>
-                    <td colspan="5" class="text-secondary">No weight measurements yet.</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-            </div>
-          </div>
-
-          <div class="col-12">
-            <div class="card">
-          <div class="card-header">
-            <div>
-              <h3 class="card-title mb-0"><i class="ti ti-inbox me-1 text-green"></i>Incoming messages</h3>
-              <div class="card-subtitle">Live stream (newest rows appended at top).</div>
-            </div>
-            <div class="card-actions d-flex gap-2">
-              <button class="btn btn-outline-primary btn-sm" id="export_csv"><i class="ti ti-file-export me-1"></i>Export Incoming CSV</button>
-              <button class="btn btn-outline-primary btn-sm" id="export_all_csv"><i class="ti ti-files me-1"></i>Export All CSVs</button>
-              <button class="btn btn-outline-secondary btn-sm" id="clear"><i class="ti ti-trash me-1"></i>Clear table</button>
-            </div>
-          </div>
-          <div class="card-body">
-            <div id="incoming_table_wrap" class="table-responsive">
-              <table class="table table-sm table-vcenter table-hover card-table">
-                <thead>
-                  <tr>
-                    <th class="text-nowrap">ID</th>
-                    <th class="text-nowrap">UTC Time</th>
-                    <th class="text-nowrap">Session ID</th>
-                    <th class="text-nowrap">Type</th>
-                    <th class="text-nowrap">PPI</th>
-                    <th class="text-nowrap">Len</th>
-                    <th>Payload (hex)</th>
-                  </tr>
-                </thead>
-                <tbody id="rows"></tbody>
-              </table>
-            </div>
-          </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
     </div>
   </div>
 
@@ -615,6 +691,12 @@
     const ringDockedTimestampUtcEl = document.getElementById("ring_docked_timestamp_utc");
     const ringDockedRingNfcIdEl = document.getElementById("ring_docked_ring_nfc_id");
     const ringDockedMedNfcIdEl = document.getElementById("ring_docked_med_nfc_id");
+    const dockChargerStatusPointsBadgeEl = document.getElementById("dock_charge_status_points_badge");
+    const dockChargerStatusStateBadgeEl = document.getElementById("dock_charge_status_state_badge");
+    const dockChargerStatusTimestampUnixEl = document.getElementById("dock_charge_status_timestamp_unix");
+    const dockChargerStatusTimestampUtcEl = document.getElementById("dock_charge_status_timestamp_utc");
+    const dockChargerStatusChargeNameEl = document.getElementById("dock_charge_status_charge_name");
+    const dockChargerStatusStatusEl = document.getElementById("dock_charge_status_status");
     const doseEventStatusEl = document.getElementById("dose_event_status");
     const doseEventCountBadgeEl = document.getElementById("dose_event_count_badge");
     const doseEventRowsEl = document.getElementById("dose_event_rows");
@@ -640,6 +722,7 @@
     const maxRingBatteryLevelPoints = 2000;
     const ringBattChartHeightPx = 280;
     const maxRingDockedStatusPoints = 2000;
+    const maxDockChargerStatusPoints = 2000;
     const maxDoseEvents = 500;
     const maxDoseEventRows = 10;
     const maxWeightMeasurements = 500;
@@ -654,6 +737,7 @@
     let dockBatteryLevelPoints = [];
     let ringBatteryLevelPoints = [];
     let ringDockedStatusPoints = [];
+    let dockChargerStatusPoints = [];
     let doseEvents = [];
     let doseEventsHydrated = false;
     let weightMeasurements = [];
@@ -1591,6 +1675,93 @@
       };
     }
 
+    function setDockChargerStatusMessage(message, isError = false) {
+      dockChargerStatusStatusEl.textContent = message;
+      dockChargerStatusStatusEl.className = isError
+        ? "alert alert-danger py-2 px-3 mt-3 mb-0"
+        : "alert alert-secondary py-2 px-3 mt-3 mb-0";
+    }
+
+    function normalizeDockChargerStatusPoint(point) {
+      if (!point) {
+        return null;
+      }
+
+      const ts = Number(point.timestamp_unix_s);
+      if (!Number.isFinite(ts)) {
+        return null;
+      }
+
+      const status = normalizeBatteryChargeStatus(
+        point.charge_status,
+        point.charge_status_name
+      );
+
+      return {
+        timestamp_unix_s: ts,
+        timestamp_utc: point.timestamp_utc || formatUnixUtc(ts),
+        charge_status: status.value,
+        charge_status_name: status.name,
+      };
+    }
+
+    function updateDockChargerStatusCard() {
+      dockChargerStatusPointsBadgeEl.textContent = `${dockChargerStatusPoints.length} points`;
+      if (dockChargerStatusPoints.length === 0) {
+        dockChargerStatusStateBadgeEl.textContent = "Unknown";
+        dockChargerStatusStateBadgeEl.className = "badge bg-secondary-lt text-secondary";
+        dockChargerStatusTimestampUnixEl.textContent = "-";
+        dockChargerStatusTimestampUtcEl.textContent = "-";
+        dockChargerStatusChargeNameEl.textContent = "-";
+        setDockChargerStatusMessage("Waiting for dock charger status updates...");
+        return;
+      }
+      const last = dockChargerStatusPoints[dockChargerStatusPoints.length - 1];
+      dockChargerStatusStateBadgeEl.textContent = last.charge_status_name;
+      if (last.charge_status === 0) {
+        dockChargerStatusStateBadgeEl.className = "badge bg-green-lt text-yellow";
+      } else if (last.charge_status === 1) {
+        dockChargerStatusStateBadgeEl.className = "badge bg-orange-lt text-orange";
+      }
+      else if (last.charge_status === 2) {
+        dockChargerStatusStateBadgeEl.className = "badge bg-lime-lt text-teal";
+      }
+      else if (last.charge_status === 3) {
+        dockChargerStatusStateBadgeEl.className = "badge bg-green-lt text-green";
+      }
+      else if (last.charge_status === 4) {
+        dockChargerStatusStateBadgeEl.className = "badge bg-red-lt text-red";
+      } else {
+        dockChargerStatusStateBadgeEl.className = "badge bg-secondary-lt text-secondary";
+      }
+      const timestampUtc = last.timestamp_utc || formatUnixUtc(last.timestamp_unix_s);
+      dockChargerStatusTimestampUnixEl.textContent = `${last.timestamp_unix_s}`;
+      dockChargerStatusTimestampUtcEl.textContent = timestampUtc;
+      dockChargerStatusChargeNameEl.textContent = last.charge_status_name || "-";
+      setDockChargerStatusMessage(`Latest: ${last.charge_status_name} at ${timestampUtc}`);
+    }
+
+    function setDockChargerStatusPoints(points) {
+      const normalizedPoints = (Array.isArray(points) ? points : [])
+        .slice(-maxDockChargerStatusPoints)
+        .map(normalizeDockChargerStatusPoint)
+        .filter((point) => point !== null);
+      dockChargerStatusPoints = normalizedPoints;
+      updateDockChargerStatusCard();
+    }
+
+    function addDockChargerStatusPoint(point) {
+      const normalized = normalizeDockChargerStatusPoint(point);
+      if (!normalized) {
+        return;
+      }
+      dockChargerStatusPoints.push(normalized);
+      if (dockChargerStatusPoints.length > maxDockChargerStatusPoints) {
+        dockChargerStatusPoints.shift();
+      }
+      updateDockChargerStatusCard();
+    }
+
     function updateRingDockedStatusCard() {
       ringDockedPointsBadgeEl.textContent = `${ringDockedStatusPoints.length} points`;
       if (ringDockedStatusPoints.length === 0) {
@@ -2078,7 +2249,7 @@
       };
     }
 
-    function normalizeRingBatteryStatus(statusValue, statusNameRaw) {
+    function normalizeBatteryChargeStatus(statusValue, statusNameRaw) {
       const value = Number(statusValue);
       const isValidValue = Number.isFinite(value);
       const normalizedValue = isValidValue ? value : null;
@@ -2106,6 +2277,10 @@
         value: normalizedValue,
         name: normalizedName,
       };
+    }
+
+    function normalizeRingBatteryStatus(statusValue, statusNameRaw) {
+      return normalizeBatteryChargeStatus(statusValue, statusNameRaw);
     }
 
     function normalizePercent(value) {
@@ -2916,6 +3091,9 @@
           if (msg.ring_docked_status) {
             addRingDockedStatusPoint(msg.ring_docked_status);
           }
+          if (msg.dock_charge_status) {
+            addDockChargerStatusPoint(msg.dock_charge_status);
+          }
           if (msg.unix_time) {
             if (setTimeCard(msg.unix_time)) {
               setTimeStatus(`Latest: unix time received from device (${displayedUnixTimeS}).`);
@@ -3076,4 +3254,5 @@
     loadWeightMeasurements();
   </script>
 </body>
+
 </html>

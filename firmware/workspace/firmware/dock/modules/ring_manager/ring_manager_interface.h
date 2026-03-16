@@ -79,12 +79,11 @@ typedef struct ring_manager_interface
    result_t (*process)(const ring_manager_interface_t *const ifc, bool is_docked);
 
    /**
-    * @brief Set the cap detection poll period.
+    * @brief Start the cap detection monitoring interval.
     * @param ifc Pointer to the ring manager interface.
-    * @param poll_period_ms The new poll period in milliseconds.
     * @return result_t Result of the operation.
     */
-   result_t (*set_cap_detection_poll_period_ms)(const ring_manager_interface_t *const ifc, uint16_t poll_period_ms);
+   result_t (*start_cap_detection_monitoring_interval)(const ring_manager_interface_t *const ifc);
 
    /**
     * @brief Get the cap detection status.

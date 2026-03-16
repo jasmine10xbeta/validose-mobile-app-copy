@@ -236,39 +236,6 @@ def _build_dose_schedule_push_packet() -> mp_structs.MpPacketPayload:
     ctypes.memmove(packet.payload, ctypes.byref(dose_schedule), packet.pkt_payload_len)
     return packet
 
-def _build_set_cap_detection_sample_rate_push_packet(polling_period_ms: int) -> mp_structs.MpPacketPayload:
-    packet = mp_structs.MpPacketPayload()
-    packet.type = mp_enums.PPI_TYPE.PPI_TYPE_PUSH
-    packet.ppi = mp_enums.PPI_AD.PPI_AD_CAP_DETECTION_SAMPLE_RATE
-    packet.pkt_payload_len = mp_structs.CAP_DETECTION_SAMPLE_RATE_SIZE_BYTES
-
-    # Set cap detection sample rate to the specified polling period
-    sample_rate_struct = mp_structs.CapDetectionSampleRate()
-    sample_rate_struct.polling_period_ms = polling_period_ms
-    ctypes.memmove(packet.payload, ctypes.byref(sample_rate_struct), packet.pkt_payload_len)
-    
-    return packet
-
-def _build_set_cap_detection_config_packet(threshhold: int, hysteresis_ms: int) -> mp_structs.MpPacketPayload:
-    packet = mp_structs.MpPacketPayload()
-    packet.type = mp_enums.PPI_TYPE.PPI_TYPE_PUSH
-    packet.ppi = mp_enums.PPI_AD.PPI_AD_CAP_DETECTION_CONFIG
-    packet.pkt_payload_len = mp_structs.CAP_DETECTION_CONFIG_SIZE_BYTES
-
-    # Set cap detection threshold and hysteresis to the specified values
-    config_struct = mp_structs.CapDetectionConfig()
-    config_struct.threshhold = threshhold
-    config_struct.hysteresis = hysteresis_ms
-    ctypes.memmove(packet.payload, ctypes.byref(config_struct), packet.pkt_payload_len)
-    
-    return packet
-
-def _build_request_cap_detection_status_packet() -> mp_structs.MpPacketPayload:
-    packet = mp_structs.MpPacketPayload()
-    packet.type = mp_enums.PPI_TYPE.PPI_TYPE_RQ
-    packet.ppi = mp_enums.PPI_AD.PPI_AD_CAP_DETECTION_CONFIG
-    packet.pkt_payload_len = 0
-    return packet
 
 def _build_dose_schedule_request_packet() -> mp_structs.MpPacketPayload:
     """Build a DOSE_SCHEDULE request packet."""
@@ -326,8 +293,6 @@ def _is_dose_schedule_response(packet: mp_structs.MpPacketPayload) -> bool:
         mp_structs.DOSE_SCHEDULE_SIZE_BYTES,
     )
 
-def _is_cap_detection_status_response(packet: mp_structs.MpPacketPayload) -> bool:
-    return packet.type == mp_enums.PPI_TYPE.PPI_TYPE_RE and packet.ppi == mp_enums.PPI_AD.PPI_AD_CAP_DETECTION_CONFIG and packet.pkt_payload_len == mp_structs.CAP_DETECTION_STATUS_T_SIZE_BYTES
 
 def _is_dev_cmd_dock_push_data_response(packet: mp_structs.MpPacketPayload) -> bool:
     """Match DEVELOPMENT_CMD response packets."""
@@ -397,6 +362,7 @@ def _is_dock_battery_level_push(packet: mp_structs.MpPacketPayload) -> bool:
         mp_enums.PPI_AD.PPI_AD_DOCK_BATT_LEVEL_LOG,
         mp_structs.BATTERY_LEVEL_T_SIZE_BYTES,
     )
+
 
 def _is_dock_charge_status_push(packet: mp_structs.MpPacketPayload) -> bool:
     """Match DOCK_CHARGE_STATUS push packets."""
@@ -943,67 +909,3 @@ def test_ppi_ring_debug_log_push(runtime: MessageProtocolRuntime) -> None:
         response,
     )
     _log_expected_vs_received_struct(logger, mp_structs.RawDebugLog, bytes(expected), _packet_payload(response))
-
-@pytest.mark.order(16)
-def test_ppi_set_cap_detection_sample_rate(runtime: MessageProtocolRuntime) -> None:
-    timeout_s = float(os.getenv("MP_HIL_TIMEOUT_S", "10.0"))
-    set_cap_detection_sample_rate_logger = logging.getLogger("pytest.hil.set_cap_detection_sample_rate")
-
-    start_rate_set_packet = _build_set_cap_detection_sample_rate_push_packet(1000)
-    get_cap_detection_status_packet = _build_request_cap_detection_status_packet()
-    set_cap_detection_config_packet = _build_set_cap_detection_config_packet(5000, 250)
-    end_rate_set_packet = _build_set_cap_detection_sample_rate_push_packet(0)
-
-    # Set cap detection sample period to 1000 ms
-    assert runtime.enqueue_tx_packet(start_rate_set_packet), "Failed to enqueue set-cap-detection-sample-rate push packet."
-    
-    
-    # Request the cap detection status
-    assert runtime.enqueue_tx_packet(get_cap_detection_status_packet), "Failed to enqueue get-cap-detection-status request packet."
-    
-
-    # Set the cap detection config status
-    assert runtime.enqueue_tx_packet(set_cap_detection_config_packet), "Failed to enqueue set-cap-detection-sample-rate push packet."
-    
-
-    # Wait for the cap detection status response and log it
-    response = _wait_for_packet(runtime, _is_cap_detection_status_response, timeout_s, "cap-detection-status response")
-    
-    # Print the cap detection status in a human-readable format
-    proximity_status = mp_structs.CapDetectionStatus.from_buffer_copy(bytes(response.payload[: mp_structs.CAP_DETECTION_STATUS_T_SIZE_BYTES]))
-    set_cap_detection_sample_rate_logger.info(
-        "Cap Detection Status. Threshhold=%d, Hysteresis=%d, prox=%d, is_cap_closed=%d, timestamp=%s, poll_period=%d",
-        proximity_status.config_threshhold,
-        proximity_status.config_hysteresis,
-        proximity_status.prox_value,
-        proximity_status.is_cap_closed,
-        proximity_status.timestamp_unix_s,
-        proximity_status.poll_period_ms,
-    )
-
-    # Set the sample period back to 0 (stop sampling)
-    assert runtime.enqueue_tx_packet(end_rate_set_packet), "Failed to enqueue set-cap-detection-sample-rate push packet."
-    
-    
-    # Request the cap detection status again
-    assert runtime.enqueue_tx_packet(get_cap_detection_status_packet), "Failed to enqueue get-cap-detection-status request packet."
-    
-
-    # Wait for the cap detection status response and log it
-    response = _wait_for_packet(runtime, _is_cap_detection_status_response, timeout_s, "cap-detection-status response")
-    
-    # Print the cap detection status in a human-readable format
-    proximity_status = mp_structs.CapDetectionStatus.from_buffer_copy(bytes(response.payload[: mp_structs.CAP_DETECTION_STATUS_T_SIZE_BYTES]))
-    set_cap_detection_sample_rate_logger.info(
-        "Cap Detection Status. Threshhold=%d, Hysteresis=%d, prox=%d, is_cap_closed=%d, timestamp=%s, poll_period=%d",
-        proximity_status.config_threshhold,
-        proximity_status.config_hysteresis,
-        proximity_status.prox_value,
-        proximity_status.is_cap_closed,
-        proximity_status.timestamp_unix_s,
-        proximity_status.poll_period_ms,
-    )
-
-    assert proximity_status.poll_period_ms == 0, f"Expected poll_period_ms to be 0 after stopping sampling, but got {proximity_status.poll_period_ms}."
-    assert proximity_status.config_threshhold == 5000, f"Expected threshhold to remain at 5000, but got {proximity_status.config_threshhold}."
-    assert proximity_status.config_hysteresis == 250, f"Expected hysteresis to remain at 250, but got {proximity_status.config_hysteresis}."

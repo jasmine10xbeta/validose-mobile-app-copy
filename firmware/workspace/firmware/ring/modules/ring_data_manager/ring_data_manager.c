@@ -223,6 +223,8 @@ static result_t get_status(const ring_data_manager_interface_t *const ifc, ring_
    uint64_t uptime_ms = 0u;
    int16_t temperature_c = 0u;
    battery_status_t battery_status = {0};
+   CAP_STATE cap_state = CAP_STATE_CLOSED;
+   uint16_t prox = 0u;
 
    IMU_STATE initial_imu_state = IMU_STATE_DORMANT;
    IF_OK_RUN_AND_UPDATE(result, self->_imu_ifc->get_state(self->_imu_ifc, &initial_imu_state));
@@ -232,6 +234,7 @@ static result_t get_status(const ring_data_manager_interface_t *const ifc, ring_
    IF_OK_RUN_AND_UPDATE(result, self->_imu_ifc->set_state(self->_imu_ifc, IMU_STATE_ACTIVE));
    IF_OK_RUN_AND_UPDATE(result, self->_imu_ifc->get_temperature_celsius(self->_imu_ifc, &temperature_c));
    IF_OK_RUN_AND_UPDATE(result, battery_ifc->get_battery_status(battery_ifc, &battery_status));
+   IF_OK_RUN_AND_UPDATE(result, self->_cap_detection_ifc->get_cap_status(self->_cap_detection_ifc, &cap_state, &prox));
 
    // Update all relevant fields in the status structure
    if(IS_OK(result))
@@ -240,9 +243,9 @@ static result_t get_status(const ring_data_manager_interface_t *const ifc, ring_
       self->_current_status.timestamp_unix_s = (uint32_t)(current_time_ms / COMMON_1K_CST);
       self->_current_status.battery_charge_status = (uint8_t)battery_status.battery_state;
       self->_current_status.temperature_celsius = temperature_c;
+      self->_current_status.cap_detection_status = (uint8_t)(cap_state);
 
       // Hardware and firmware versions are set at initialization and do not need to be updated here
-
       *status = ifc->parent->_current_status;
    }
 
@@ -321,7 +324,7 @@ static result_t set_cap_detection_config(const ring_data_manager_interface_t *co
 
    // Store the new config in flash
    result = self->_fds_manager_ifc->store_uint16_t(
-      self->_fds_manager_ifc, RECORD_ID_CAP_DETECTION_THRESHOLD, config.threshhold);
+      self->_fds_manager_ifc, RECORD_ID_CAP_DETECTION_THRESHOLD, config.threshold);
    IF_OK_RUN_AND_UPDATE(result,
                         self->_fds_manager_ifc->store_uint16_t(
                            self->_fds_manager_ifc, RECORD_ID_CAP_DETECTION_HYSTERESIS, config.hysteresis));
@@ -329,7 +332,7 @@ static result_t set_cap_detection_config(const ring_data_manager_interface_t *co
    // Only update the cap detection module if the flash storage was successful to ensure consistency between the two
    IF_OK_RUN_AND_UPDATE(result,
                         ifc->parent->_cap_detection_ifc->set_config(
-                           ifc->parent->_cap_detection_ifc, config.threshhold, config.hysteresis));
+                           ifc->parent->_cap_detection_ifc, config.threshold, config.hysteresis));
 
    return result;
 }
@@ -351,16 +354,16 @@ static result_t get_cap_detection_status(const ring_data_manager_interface_t *co
    result = self->_cap_detection_ifc->get_cap_status(self->_cap_detection_ifc, &cap_state, &prox_value);
 
    // Get the current cap detection configuration from the cap detection module
-   uint16_t current_threshhold = 0u;
+   uint16_t current_threshold = 0u;
    uint16_t current_hysteresis = 0u;
 
    IF_OK_RUN_AND_UPDATE(
-      result, self->_cap_detection_ifc->get_config(self->_cap_detection_ifc, &current_threshhold, &current_hysteresis));
+      result, self->_cap_detection_ifc->get_config(self->_cap_detection_ifc, &current_threshold, &current_hysteresis));
 
    // Update the status structure with the retrieved values
    status->is_cap_closed = (cap_state == CAP_STATE_CLOSED);
    status->prox_value = prox_value;
-   status->config.threshhold = current_threshhold;
+   status->config.threshold = current_threshold;
    status->config.hysteresis = current_hysteresis;
 
    return result;

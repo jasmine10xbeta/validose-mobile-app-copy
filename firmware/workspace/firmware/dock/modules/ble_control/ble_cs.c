@@ -314,15 +314,8 @@ result_t ble_cs_characteristic_update(
 
       // Verify CCCD is enabled for notifications before attempting HVX to avoid NRF_ERROR_INVALID_STATE.
       uint16_t cccd_handle = BLE_GATT_HANDLE_INVALID;
-      if(handle == p_cs->error_handle.value_handle)
-      {
-         cccd_handle = p_cs->error_handle.cccd_handle;
-      }
-      else if(handle == p_cs->dose_event_handle.value_handle)
-      {
-         cccd_handle = p_cs->dose_event_handle.cccd_handle;
-      }
-      else if(handle == p_cs->data_tx_handle.value_handle)
+
+      if(handle == p_cs->data_tx_handle.value_handle)
       {
          cccd_handle = p_cs->data_tx_handle.cccd_handle;
       }

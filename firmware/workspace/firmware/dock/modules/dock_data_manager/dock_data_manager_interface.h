@@ -42,19 +42,20 @@ typedef enum
 
 typedef enum
 {
-   DATA_ID_DOSE_EVENT = 0,     /**< Expects dose_event_t type. Dose event Data */
-   DATA_ID_DOSE_DATAPOINT,     /**< Expects dose_data_t type. Dose IMU Datapoint */
-   DATA_ID_RING_DOCKED_STATUS, /**< Expects ring_docked_status_t type. Docking status of the ring */
-   DATA_ID_WEIGHT_MEASUREMENT, /**< Expects dock_weight_measurement_t type. Weight measurement data */
-   DATA_ID_TEMPERATURE_LOG,    /**< Expects temperature_log_t type. Temperature log from the dock */
-   DATA_ID_RING_BATTERY_LEVEL, /**< Expects battery_level_t type. Battery level of the ring */
-   DATA_ID_DOCK_BATTERY_LEVEL, /**< Expects battery_level_t type. Battery level of the dock */
-   DATA_ID_DOCK_CHARGE_STATUS, /**< Expects dock_charge_status_t type. Dock charge status */
-   DATA_ID_RING_STATUS,        /**< Expects ring_status_t type. Ring status */
-   DATA_ID_DOCK_STATUS,        /**< Expects dock_status_t type. Dock status */
-   DATA_ID_DOCK_DEBUG_LOG,     /**< Expects raw_debug_log_t type. Debug log from the dock */
-   DATA_ID_RING_DEBUG_LOG,     /**< Expects raw_debug_log_t type. Debug log from the ring */
-   DATA_ID_BLUETOOTH_STATUS,   /**< Expects bluetooth_status_t type. Current Bluetooth status of the dock */
+   DATA_ID_DOSE_EVENT = 0,       /**< Expects dose_event_t type. Dose event Data */
+   DATA_ID_DOSE_DATAPOINT,       /**< Expects dose_data_t type. Dose IMU Datapoint */
+   DATA_ID_RING_DOCKED_STATUS,   /**< Expects ring_docked_status_t type. Docking status of the ring */
+   DATA_ID_WEIGHT_MEASUREMENT,   /**< Expects dock_weight_measurement_t type. Weight measurement data */
+   DATA_ID_TEMPERATURE_LOG,      /**< Expects temperature_log_t type. Temperature log from the dock */
+   DATA_ID_RING_BATTERY_LEVEL,   /**< Expects battery_level_t type. Battery level of the ring */
+   DATA_ID_DOCK_BATTERY_LEVEL,   /**< Expects battery_level_t type. Battery level of the dock */
+   DATA_ID_DOCK_CHARGE_STATUS,   /**< Expects dock_charge_status_t type. Dock charge status */
+   DATA_ID_RING_STATUS,          /**< Expects ring_status_t type. Ring status */
+   DATA_ID_DOCK_STATUS,          /**< Expects dock_status_t type. Dock status */
+   DATA_ID_CAP_DETECTION_STATUS, /**< Expects cap_detection_status_t type. Cap detection status of the ring */
+   DATA_ID_DOCK_DEBUG_LOG,       /**< Expects raw_debug_log_t type. Debug log from the dock */
+   DATA_ID_RING_DEBUG_LOG,       /**< Expects raw_debug_log_t type. Debug log from the ring */
+   DATA_ID_BLUETOOTH_STATUS,     /**< Expects bluetooth_status_t type. Current Bluetooth status of the dock */
    DATA_ID_MAX,
 } DATA_ID;
 

@@ -43,7 +43,7 @@ struct cap_detection
    cap_detection_interface_t interface;
    const ir_proximity_driver_interface_t *_p_prox_ifc; /**< Pointer to the proximity sensor driver interface */
    CAP_STATE _cap_state;                               /** Current cap state */
-   uint16_t _threshhold;                               /** Proximity threshold for determining cap state */
+   uint16_t _threshold;                                /** Proximity threshold for determining cap state */
    uint16_t _hysteresis;                               /** Hysteresis value */
    bool _is_initialized;                               /** Whether the instance is initialized */
 };
@@ -63,7 +63,7 @@ struct cap_detection
 
 result_t cap_detection_init(cap_detection_t *const self,
                             const ir_proximity_driver_interface_t *const p_prox_ifc,
-                            uint16_t init_threshhold,
+                            uint16_t init_threshold,
                             uint16_t init_hysteresis);
 
 #endif // CAP_DETECTION_MODULE_H_

@@ -111,6 +111,19 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_GENERAL_CONTROL_DOCK;
 
 // #define DEBUG_DISABLE_WDT (1u) // Testing only
 
+#ifndef BLE_TX_THROUGHPUT_TEST_ENABLE
+#   define BLE_TX_THROUGHPUT_TEST_ENABLE (0u)
+#endif
+#if((BLE_TX_THROUGHPUT_TEST_ENABLE != 0u) && (BLE_TX_THROUGHPUT_TEST_ENABLE != 1u))
+#   error "BLE_TX_THROUGHPUT_TEST_ENABLE must be 0 or 1."
+#endif
+
+#if defined(DEBUG_DISABLE_WDT) || (BLE_TX_THROUGHPUT_TEST_ENABLE == 1u)
+#   define GC_WATCHDOG_ENABLED (0u)
+#else
+#   define GC_WATCHDOG_ENABLED (1u)
+#endif
+
 #define GRAVITY_EARTH                  (9.80665f)
 #define INIT_SYSTICK_PERIOD_MS         (1u) // Initial systick period during initialization.
 #define SYSTICK_BLE_PAIRING_TIMEOUT_MS (1000u * 60u)
@@ -135,6 +148,7 @@ STATIC_ASSERT(TEMPERATURE_UPDATE_INTERVAL_MS % 1000u == 0,
 // the Dock
 #define RING_REMOVAL_MAX_TIME_MS                     (1000u * 60u * 5u)
 #define RING_REMOVAL_NOTIFICATION_REPEAT_INTERVAL_MS (1000u * 60u * 5u)
+#define MEDICATION_CAP_OFF_MAX_TIME_S                (10u * 60u)
 
 #define MOVING_AVERAGE_TEMPERATURE_WINDOW_SIZE                                                                         \
    ((uint16_t)(DOSE_SCHEDULE_MAX_TEMP_AVG_WINDOW_SEC / (TEMPERATURE_UPDATE_INTERVAL_MS / COMMON_1K_FACTOR)))
@@ -256,8 +270,10 @@ typedef struct
 /***********************************************************************************************************************
  * Static function declarations
  **********************************************************************************************************************/
+#if(GC_WATCHDOG_ENABLED == 1u)
 static void wdt_event_handler(void);
 static void wdt_init(void);
+#endif
 static void feed_watchdog(void);
 
 static void button_event_handler(nrf_drv_gpiote_pin_t pin,
@@ -473,6 +489,15 @@ static inline bool is_ble_valid(void);
  */
 static result_t parse_dose_schedule(const uint8_t *p_data, uint16_t length, dose_schedule_t *p_sched);
 
+/**
+ * @brief Pushes the current dock charge status to the data manager for reporting, upon battery state change only.
+ *
+ * @param[in] battery_status Pointer to the current battery status
+ *
+ * @return Result of the operation
+ */
+static result_t push_dock_charge_status(BATTERY_STATE battery_status);
+
 /***********************************************************************************************************************
  * Global function declarations
  **********************************************************************************************************************/
@@ -534,7 +559,9 @@ static queue_t m_ble_notification_queue = {0};
 static ble_control_t m_ble_control = {0};
 static ble_control_status_t m_ble_status = {0};
 static uint8_t m_ble_notification_queue_data[NOTIFICATION_QUEUE_LEN * sizeof(result_t)];
+#if(GC_WATCHDOG_ENABLED == 1u)
 static nrf_drv_wdt_channel_id m_channel_id; // Watchdog timer channel
+#endif
 static battery_manager_t m_battery = {0};
 static npm1300_driver_t m_pmic = {0}; // Battery management IC driver
 static volatile flag_t m_flag;        // System flags
@@ -594,6 +621,9 @@ static sts30_dis_temp_sensor_driver_t m_temp_sensor;
 
 // Dose size detection
 static dose_size_detection_t m_dsd;
+
+// For detecting changes in battery charge status to trigger events like data reporting
+static BATTERY_STATE m_prev_dock_charge_status = BATTERY_STATE_MAX;
 
 // ============================ DEBUG/COMMAND UART ============================
 
@@ -1008,12 +1038,14 @@ static result_t application_timer_init(void)
    return result;
 }
 
+#if(GC_WATCHDOG_ENABLED == 1u)
 static void wdt_event_handler(void)
 {
    DEBUG_CRITICAL("Watchdog timer expired. Resetting device...");
    // @NOTE: The max amount of time we can spend in WDT interrupt is two cycles of 32768[Hz] clock - after that,
    // reset occurs
 }
+
 static void wdt_init(void)
 {
    // The details of the WDT configuration is set in sdk_config.h. Time is set by WDT_CONFIG_RELOAD_VALUE
@@ -1027,10 +1059,13 @@ static void wdt_init(void)
 
    nrf_drv_wdt_enable();
 }
+#endif
 
 static void feed_watchdog(void)
 {
+#if(GC_WATCHDOG_ENABLED == 1u)
    nrf_drv_wdt_channel_feed(m_channel_id);
+#endif
 }
 
 static void moving_average_set_length(uint16_t len)
@@ -3201,6 +3236,48 @@ static result_t get_dock_status(dock_status_t *dock_status)
    return result;
 }
 
+static result_t push_dock_charge_status(BATTERY_STATE battery_status)
+{
+   RETURN_OK_IF_TRUE(battery_status == m_prev_dock_charge_status);
+   result_t result = RESULT_OK;
+   uint32_t unix_time_s = 0u;
+   dock_charge_status_t charge_status = {0};
+
+   // Update current charge status
+   charge_status.charge_status = battery_status;
+
+   result = m_rtc.interface.get_time_unix(&m_rtc.interface, &unix_time_s);
+   ON_ERR_DEBUG_ERROR(
+      result, "Failed to get unix time. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
+
+   // Update dock charge status with unix timestamp of when the change was observed
+   if(IS_OK(result))
+   {
+      charge_status.timestamp_unix_s = unix_time_s;
+   }
+
+   // enqueue to dock manager
+   IF_OK_RUN_AND_UPDATE(result,
+                        m_dock_data_manager.interface.enqueue(&m_dock_data_manager.interface,
+                                                              DATA_ID_DOCK_CHARGE_STATUS,
+                                                              &charge_status,
+                                                              DOCK_CHARGE_STATUS_T_SIZE_BYTES,
+                                                              1u));
+
+   // Update previous charge status only if enqueue succeeded
+   if(IS_OK(result))
+   {
+      m_prev_dock_charge_status = battery_status;
+   }
+
+   ON_ERR_DEBUG_ERROR(result,
+                      "Failed to enqueue dock charge status message. Unit %d, Error: %d",
+                      GET_ERR_UNIT(result),
+                      GET_ERR_CODE(result));
+
+   return result;
+}
+
 #ifdef DEBUG
 static void clear_app_manager_in_flight_tx_for_hil_seed(void)
 {
@@ -4048,24 +4125,21 @@ static void process_incoming_app_messages(uint32_t *rx_calibration_weight_mg, bo
                }
             }
             ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-            else if((PPI_TYPE_PUSH == rx_msg.type) && (PPI_AD_CAP_DETECTION_SAMPLE_RATE == rx_msg.ppi))
+            else if((PPI_TYPE_PUSH == rx_msg.type) && (PPI_AD_START_CAP_DETECTION_CALIBRATION_INTERVAL == rx_msg.ppi))
             {
-               UPDATE_ERR_IF_TRUE(result, sizeof(uint16_t) != rx_msg.pkt_payload_len, GC_ERROR_INVALID_PARAM);
-               ON_ERR_DEBUG_ERROR(result,
-                                  "Invalid payload length for cap detection sample rate message. Expected %d, got %d.",
-                                  sizeof(uint16_t),
-                                  rx_msg.pkt_payload_len);
+               UPDATE_ERR_IF_TRUE(result, 0u != rx_msg.pkt_payload_len, GC_ERROR_INVALID_PARAM);
+               ON_ERR_DEBUG_ERROR(
+                  result,
+                  "Invalid payload length for cap detection report status message. Expected %d, got %d.",
+                  0u,
+                  rx_msg.pkt_payload_len);
 
                if(IS_OK(result))
                {
-                  // Parse payload
-                  uint16_t new_sample_period_ms
-                     = (uint16_t)((uint16_t)rx_msg.payload[0u] | ((uint16_t)rx_msg.payload[1u] << 8u));
-
-                  // Set new sample rate
-                  result = m_ring.interface.set_cap_detection_poll_period_ms(&m_ring.interface, new_sample_period_ms);
+                  // Start high rate sample for calibration period
+                  result = m_ring.interface.start_cap_detection_monitoring_interval(&m_ring.interface);
                   ON_ERR_DEBUG_ERROR(result,
-                                     "Failed to set new cap detection sample rate. Unit %d, Error: %d",
+                                     "Failed to start cap detection monitoring interval. Unit %d, Error: %d",
                                      GET_ERR_UNIT(result),
                                      GET_ERR_CODE(result));
                }
@@ -4084,7 +4158,7 @@ static void process_incoming_app_messages(uint32_t *rx_calibration_weight_mg, bo
                {
                   // Parse payload
                   cap_detection_cfg_t new_config = {0};
-                  new_config.threshhold
+                  new_config.threshold
                      = (uint16_t)((uint16_t)rx_msg.payload[0u] | ((uint16_t)rx_msg.payload[1u] << 8u));
                   new_config.hysteresis
                      = (uint16_t)((uint16_t)rx_msg.payload[2u] | ((uint16_t)rx_msg.payload[3u] << 8u));
@@ -4095,61 +4169,6 @@ static void process_incoming_app_messages(uint32_t *rx_calibration_weight_mg, bo
                                      "Failed to set new cap detection config. Unit %d, Error: %d",
                                      GET_ERR_UNIT(result),
                                      GET_ERR_CODE(result));
-               }
-            }
-            ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-            else if((PPI_TYPE_RQ == rx_msg.type) && (PPI_AD_CAP_DETECTION_CONFIG == rx_msg.ppi))
-            {
-               UPDATE_ERR_IF_TRUE(result, 0u != rx_msg.pkt_payload_len, GC_ERROR_INVALID_PARAM);
-               ON_ERR_DEBUG_ERROR(result,
-                                  "Invalid payload length for cap detection config message. Expected %d, got %d.",
-                                  sizeof(uint32_t),
-                                  rx_msg.pkt_payload_len);
-
-               cap_detection_status_t status = {0};
-
-               if(IS_OK(result))
-               {
-                  // App is requesting current cap detection config and status.
-
-                  IF_OK_RUN_AND_UPDATE(result, m_ring.interface.get_cap_detection_status(&m_ring.interface, &status));
-                  ON_ERR_DEBUG_ERROR(result,
-                                     "Failed to request cap detection config from ring. Unit %d, Error: %d",
-                                     GET_ERR_UNIT(result),
-                                     GET_ERR_CODE(result));
-               }
-
-               if(IS_OK(result))
-               {
-                  mp_packet_payload_t tx_msg = {0};
-                  tx_msg.type = PPI_TYPE_RE;
-                  tx_msg.ppi = PPI_AD_CAP_DETECTION_CONFIG;
-                  size_t offset = 0u;
-                  tx_msg.payload[offset++] = (uint8_t)((status.config.threshhold >> 0u) & 0xFFu);
-                  tx_msg.payload[offset++] = (uint8_t)((status.config.threshhold >> 8u) & 0xFFu);
-                  tx_msg.payload[offset++] = (uint8_t)((status.config.hysteresis >> 0u) & 0xFFu);
-                  tx_msg.payload[offset++] = (uint8_t)((status.config.hysteresis >> 8u) & 0xFFu);
-                  tx_msg.payload[offset++] = (uint8_t)((status.prox_value >> 0u) & 0xFFu);
-                  tx_msg.payload[offset++] = (uint8_t)((status.prox_value >> 8u) & 0xFFu);
-                  tx_msg.payload[offset++] = (uint8_t)((status.is_cap_closed >> 0u) & 0xFFu);
-                  tx_msg.payload[offset++] = (uint8_t)((status.timestamp_unix_s >> 0u) & 0xFFu);
-                  tx_msg.payload[offset++] = (uint8_t)((status.timestamp_unix_s >> 8u) & 0xFFu);
-                  tx_msg.payload[offset++] = (uint8_t)((status.timestamp_unix_s >> 16u) & 0xFFu);
-                  tx_msg.payload[offset++] = (uint8_t)((status.timestamp_unix_s >> 24u) & 0xFFu);
-                  tx_msg.payload[offset++] = (uint8_t)((status.poll_period_ms >> 0u) & 0xFFu);
-                  tx_msg.payload[offset++] = (uint8_t)((status.poll_period_ms >> 8u) & 0xFFu);
-                  tx_msg.payload[offset++] = (uint8_t)((status.poll_period_ms >> 16u) & 0xFFu);
-                  tx_msg.payload[offset++] = (uint8_t)((status.poll_period_ms >> 24u) & 0xFFu);
-                  tx_msg.pkt_payload_len = (uint16_t)offset;
-
-                  // Send response message
-                  IF_OK_RUN_AND_UPDATE(
-                     result, m_queue_app_manager_tx.interface.enqueue(&m_queue_app_manager_tx.interface, &tx_msg));
-                  ON_ERR_DEBUG_ERROR(
-                     result,
-                     "Failed to enqueue cap detection config response message to app manager. Unit %d, Error: %d",
-                     GET_ERR_UNIT(result),
-                     GET_ERR_CODE(result));
                }
             }
             ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -4311,6 +4330,96 @@ static void process_incoming_app_messages(uint32_t *rx_calibration_weight_mg, bo
    }
 }
 
+/**
+ * @brief Detect prolonged "cap open" conditions using only fresh ring status samples.
+ *
+ * This function intentionally advances timeout tracking only when a new ring status update is received.
+ * The ring manager returns its latest snapshot each loop, so duplicate timestamps are considered stale samples and are
+ * ignored to avoid false alarms when communication pauses.
+ *
+ * Behavior:
+ * - Cap open is detected when @p status_update->ring_status.cap_detection_status equals
+ *   @ref CAP_STATE_OPEN.
+ *
+ * - Freshness and elapsed time tracking are based on @p status_update->update_time_unix_s (time the dock received the
+ *   status update).
+ *
+ * - If cap-open duration exceeds @ref MEDICATION_CAP_OFF_MAX_TIME_S, a generic HMI error notification is raised once
+ * along with an appropriate DEBUG_ERROR log.
+ *
+ * - Timer and notification latch are reset when the cap is no longer open.
+ *
+ * @param[in] status_update Latest ring status update snapshot.
+ */
+static void handle_medication_cap_off_for_too_long(const status_update_t *status_update)
+{
+   if(NULL == status_update)
+   {
+      DEBUG_ERROR("NULL paramater received.");
+      return;
+   }
+
+   static uint32_t last_processed_timestamp_s = 0u;
+   static uint32_t cap_open_start_timestamp_s = 0u;
+   static bool has_reported_cap_off_too_long = false;
+
+   uint32_t sample_timestamp_s = status_update->update_time_unix_s; // Timestamp when current status was received
+   bool should_process_sample = true;
+   bool should_check_cap_open_duration = false;
+
+   if((0u == sample_timestamp_s) || (sample_timestamp_s == last_processed_timestamp_s))
+   {
+      // Ignore stale samples: only react to newly received timestamps.
+      should_process_sample = false;
+   }
+
+   if(should_process_sample)
+   {
+      if(sample_timestamp_s < last_processed_timestamp_s)
+      {
+         // Update timestamp restarted or moved backwards. Reset local tracking and continue from this sample.
+         cap_open_start_timestamp_s = 0u;
+         has_reported_cap_off_too_long = false;
+      }
+
+      last_processed_timestamp_s = sample_timestamp_s;
+
+      bool is_cap_open = (CAP_STATE_OPEN == (CAP_STATE)status_update->ring_status.cap_detection_status);
+      if(!is_cap_open)
+      {
+         cap_open_start_timestamp_s = 0u;
+         has_reported_cap_off_too_long = false;
+      }
+      else if(0u == cap_open_start_timestamp_s)
+      {
+         cap_open_start_timestamp_s = sample_timestamp_s;
+      }
+      else
+      {
+         should_check_cap_open_duration = true;
+      }
+   }
+
+   if(should_check_cap_open_duration)
+   {
+      uint32_t cap_open_duration_s = sample_timestamp_s - cap_open_start_timestamp_s;
+      if((cap_open_duration_s > MEDICATION_CAP_OFF_MAX_TIME_S) && !has_reported_cap_off_too_long)
+      {
+         DEBUG_ERROR("Medication cap open too long. Duration: %us, Threshold: %us.",
+                     cap_open_duration_s,
+                     MEDICATION_CAP_OFF_MAX_TIME_S);
+
+         result_t result = m_hmi.interface.set_notification_event(&m_hmi.interface, NOTIFICATION_EVENT_ERROR);
+         ON_ERR_DEBUG_ERROR(
+            result, "Failed to set HMI notification. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
+         if(IS_OK(result))
+         {
+            has_reported_cap_off_too_long = true;
+         }
+      }
+   }
+}
+
 static void handle_ring_off_for_too_long(bool is_ring_present)
 {
    uint64_t now_ms = 0u;
@@ -4398,6 +4507,10 @@ static void handle_medication_change_notification(uint8_t *medication_uid, uint8
       ON_ERR_DEBUG_ERROR(
          result, "Failed to get medication NFC UID. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
 
+      memcpy(prev_medication_uid,
+             medication_uid,
+             NFC_TAG_MAX_UID_SIZE); // Update the prev_medication_uid for next comparison
+
       if(IS_OK(result) && (0 != memcmp(medication_uid, prev_medication_uid, NFC_TAG_MAX_UID_SIZE)))
       {
          DEBUG_ERROR("Medication change detected!");
@@ -4475,12 +4588,11 @@ static void handle_dose_size_detection(bool *valid_weight_data, dock_weight_meas
          result = p_dsd->fetch_dose_size_data(p_dsd, &dsd_data);
          if(IS_OK(result))
          {
-            DEBUG_INFO("[DSD]: Dose size data ready! %d mg dispensed (%d mg total)",
+            DEBUG_INFO("[DSD]: Dose size data ready! %d mg dispensed (%u mg total)",
                        dsd_data.dose_size_mg,
                        dsd_data.total_dispensed_mg);
             local_weight_data.std_dev = dsd_data.sigma_total_mg;
-            local_weight_data.weight_mg
-               = (dsd_data.dose_size_mg > (uint32_t)INT32_MAX) ? INT32_MAX : (int32_t)dsd_data.dose_size_mg;
+            local_weight_data.weight_mg = dsd_data.dose_size_mg;
             local_weight_data.total_dispensed_mg = dsd_data.total_dispensed_mg;
             new_data_available = true;
          }
@@ -4501,7 +4613,7 @@ static void handle_dose_size_detection(bool *valid_weight_data, dock_weight_meas
          {
             DEBUG_WARNING("[DSD]: Dose size data is bad. Reason: %d", bad_reason);
 
-            // Fetch the bad data to clear the DSD_DATA_STATE and prepare for next measurement
+            // Fetch and report bad data to preserve visibility and keep downstream totals aligned.
             dose_size_data_out_t dsd_data = {0};
             result = p_dsd->fetch_dose_size_data(p_dsd, &dsd_data);
             if((DOSE_SIZE_DETECTION_ERROR_DATA_BAD == GET_ERR_CODE(result))
@@ -4514,6 +4626,18 @@ static void handle_dose_size_detection(bool *valid_weight_data, dock_weight_meas
                                "Failed to fetch bad dose size data. Unit %d, Error: %d",
                                GET_ERR_UNIT(result),
                                GET_ERR_CODE(result));
+            if(IS_OK(result))
+            {
+               DEBUG_WARNING("[DSD]: Reporting bad dose size data. Dose: %d mg, Total: %u mg, Reason: %d",
+                             dsd_data.dose_size_mg,
+                             dsd_data.total_dispensed_mg,
+                             bad_reason);
+
+               local_weight_data.std_dev = dsd_data.sigma_total_mg;
+               local_weight_data.weight_mg = dsd_data.dose_size_mg;
+               local_weight_data.total_dispensed_mg = dsd_data.total_dispensed_mg;
+               new_data_available = true;
+            }
          }
       }
       prev_data_state = data_state;
@@ -4635,17 +4759,24 @@ static void implement_control_loop(void)
    {
       uint32_t unix_time_s = 0u;
       result = m_rtc.interface.get_time_unix(&m_rtc.interface, &unix_time_s);
-      ring_docked_status.timestamp_unix_s = (IS_OK(result)) ? unix_time_s : 0u;
-      ring_docked_status.docked_status = is_ring_present;
+      ON_ERR_DEBUG_ERROR(
+         result, "Failed to get unix time. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
 
-      memcpy(ring_docked_status.ring_nfc_id, ring_uid, NFC_TAG_MAX_UID_SIZE);
-      memcpy(ring_docked_status.medication_nfc_id, medication_uid, NFC_TAG_MAX_UID_SIZE);
+      if(IS_OK(result))
+      {
+         ring_docked_status.timestamp_unix_s = (IS_OK(result)) ? unix_time_s : 0u;
+         ring_docked_status.docked_status = is_ring_present;
 
-      result = m_dock_data_manager.interface.enqueue(&m_dock_data_manager.interface,
-                                                     DATA_ID_RING_DOCKED_STATUS,
-                                                     &ring_docked_status,
-                                                     sizeof(ring_docked_status),
-                                                     1u);
+         memcpy(ring_docked_status.ring_nfc_id, ring_uid, NFC_TAG_MAX_UID_SIZE);
+         memcpy(ring_docked_status.medication_nfc_id, medication_uid, NFC_TAG_MAX_UID_SIZE);
+      }
+
+      IF_OK_RUN_AND_UPDATE(result,
+                           m_dock_data_manager.interface.enqueue(&m_dock_data_manager.interface,
+                                                                 DATA_ID_RING_DOCKED_STATUS,
+                                                                 &ring_docked_status,
+                                                                 sizeof(ring_docked_status),
+                                                                 1u));
       ON_ERR_DEBUG_ERROR(result,
                          "Failed to enqueue ring docked status. Unit %d, Error: %d",
                          GET_ERR_UNIT(result),
@@ -4757,6 +4888,8 @@ static void implement_control_loop(void)
 
    handle_ring_off_for_too_long(is_ring_present);
 
+   handle_medication_cap_off_for_too_long(&ring_status);
+
    if(STATEMACHINE_STATE_BASELINING != m_system_sm.current_state)
    {
       // Ignore medication changes during the baselining state since it's goal is to lock in a new medication UID
@@ -4794,6 +4927,11 @@ static void implement_control_loop(void)
       CLEAR_ERR(result);
    }
    ON_ERR_DEBUG_ERROR(result, "Failed to process DSD. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
+
+   // Push dock charge status on change
+   result = push_dock_charge_status(battery_status.battery_state);
+   ON_ERR_DEBUG_ERROR(
+      result, "Failed to push dock charge status. Unit %d, Error: %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
 }
 
 /***********************************************************************************************************************
@@ -4845,9 +4983,11 @@ result_t general_control_init(void)
 
    DEBUG_INFO("general_control_init start.");
 
-#ifndef DEBUG_DISABLE_WDT
+#if(GC_WATCHDOG_ENABLED == 1u)
    DEBUG_INFO("wdt_init");
    wdt_init();
+#else
+   DEBUG_INFO("wdt_init skipped.");
 #endif
 
    // Initialize the async SVCI interface to bootloader before any interrupts are enabled.

@@ -576,7 +576,9 @@ TEST_F(TiltDetectionTestSuite, get_tilts_happy_path)
       ASSERT_EQ(result, RESULT_OK);
       ASSERT_EQ(new_tilt_count, 1u);
       ASSERT_EQ(tilts[0].detected_at_time_ms, 1234u);
-      ASSERT_EQ(tilts[0].duration_ms, TILT_DETECTION_DURATION_THRESHOLD_MS);
+      // Duration is quantized to IMU sample periods and can include the boundary-closing sample.
+      ASSERT_GE(tilts[0].duration_ms, TILT_DETECTION_DURATION_THRESHOLD_MS);
+      ASSERT_LE(tilts[0].duration_ms, (TILT_DETECTION_DURATION_THRESHOLD_MS + TEST_IMU_MS_PER_SAMPLE));
    }
 }
 

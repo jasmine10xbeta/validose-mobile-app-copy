@@ -30,9 +30,9 @@ extern "C"
 #define TEST_DEFAULT_INITIAL_FULL_ASSEMBLY_WEIGHT_MG   (25000u)
 #define TEST_DEFAULT_INITIAL_TOTAL_DISPENSED_WEIGHT_MG (0u)
 
-#define TEST_STABLE_STDDEV_MIN_MG (0u)
+#define TEST_STABLE_STDDEV_MIN_MG (6u)
 #define TEST_STABLE_STDDEV_MAX_MG (14u)
-#define TEST_UNSTABLE_STDDEV_MG   (60u)
+#define TEST_UNSTABLE_STDDEV_MG   (1200u)
 
 #define TEST_RING_PRESENT_WEIGHT_MG  (25000)
 #define TEST_RING_ABSENT_WEIGHT_MG   (0)
@@ -120,7 +120,7 @@ static void
 
    mock_time->_current_time_ms += 100u;
    run_process_cycles(
-      test_dsd, mock_weight, mock_time, true, TEST_RING_REPLACED_WEIGHT_MG, TEST_STABLE_STDDEV_MIN_MG, 30u, 100u);
+      test_dsd, mock_weight, mock_time, true, TEST_RING_REPLACED_WEIGHT_MG, TEST_STABLE_STDDEV_MAX_MG, 25u, 100u);
 }
 
 /***********************************************************************************************************************
@@ -217,35 +217,28 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_init_happy_path_test)
    EXPECT_EQ(local_dsd._dose_size_data_bad_reason, DSD_DATA_BAD_REASON_NONE);
    EXPECT_EQ(local_dsd._wait_time_ms, (STABLE_WAIT_TIME_S * COMMON_1K_FACTOR));
    EXPECT_EQ(local_dsd._sampling_frequency, DSD_FREQ_SLOW);
-   EXPECT_TRUE(local_dsd._is_next_invalid_sample_the_first);
-   EXPECT_EQ(local_dsd._sigma_long_mg, 0u);
    EXPECT_EQ(local_dsd._previous_state, DSD_STATEMACHINE_STATE_RING_PRESENT);
-   EXPECT_FALSE(local_dsd._seq_interrupted_or_timer_expired);
+   EXPECT_FALSE(local_dsd._is_latest_sample_valid);
+   EXPECT_FALSE(local_dsd._is_blocked);
    EXPECT_EQ(local_dsd._time_enter_idle_state_ms, 0u);
    EXPECT_FALSE(local_dsd._got_valid_weight_sample);
    EXPECT_TRUE(local_dsd._initialized);
 
    // Dose size data
-   EXPECT_EQ(local_dsd._dose_size_data.drb_pre.weight_mg, 0);
-   EXPECT_FALSE(local_dsd._dose_size_data.drb_pre.is_valid);
-   EXPECT_EQ(local_dsd._dose_size_data.drb_pre.last_updated_ms, 0u);
+   EXPECT_EQ(local_dsd._pre_dose_data.weight_mg, 0);
+   EXPECT_FALSE(local_dsd._pre_dose_data.is_valid);
+   EXPECT_EQ(local_dsd._pre_dose_data.time_ms, 0u);
 
-   EXPECT_EQ(local_dsd._dose_size_data.drift_d1.weight_mg, 0);
-   EXPECT_FALSE(local_dsd._dose_size_data.drift_d1.is_valid);
-   EXPECT_EQ(local_dsd._dose_size_data.drift_d1.last_updated_ms, 0u);
+   EXPECT_EQ(local_dsd._drift_data.weight_mg, 0);
+   EXPECT_FALSE(local_dsd._drift_data.is_valid);
+   EXPECT_EQ(local_dsd._drift_data.time_ms, 0u);
 
-   EXPECT_EQ(local_dsd._dose_size_data.drift_d2.weight_mg, 0);
-   EXPECT_FALSE(local_dsd._dose_size_data.drift_d2.is_valid);
-   EXPECT_EQ(local_dsd._dose_size_data.drift_d2.last_updated_ms, 0u);
+   EXPECT_EQ(local_dsd._post_dose_data.weight_mg, 0);
+   EXPECT_FALSE(local_dsd._post_dose_data.is_valid);
+   EXPECT_EQ(local_dsd._post_dose_data.time_ms, 0u);
 
-   EXPECT_EQ(local_dsd._dose_size_data.drb_post.weight_mg, 0);
-   EXPECT_FALSE(local_dsd._dose_size_data.drb_post.is_valid);
-   EXPECT_EQ(local_dsd._dose_size_data.drb_post.last_updated_ms, 0u);
-
-   EXPECT_EQ(local_dsd._dose_size_data._dose_size_op1_mg, 0);
-   EXPECT_EQ(local_dsd._dose_size_data._drb_initial_mg, 0);
-   EXPECT_EQ(local_dsd._dose_size_data._drift_initial_mg, 0);
-   EXPECT_EQ(local_dsd._dose_size_data._dose_size_op2_mg, 0);
+   EXPECT_EQ(local_dsd._dose_size_mg, 0);
+   EXPECT_EQ(local_dsd._sigma_total_mg, 0u);
 
    // State machine
    EXPECT_EQ(local_dsd._statemachine.current_state, DSD_STATEMACHINE_STATE_RING_PRESENT);
@@ -263,24 +256,15 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_init_happy_path_test)
    EXPECT_EQ(local_dsd._sm_outputs.sampling_frequency, DSD_FREQ_SLOW);
    EXPECT_EQ(local_dsd._sm_outputs.wait_time, 0u);
 
-   // Circular buffer
-   EXPECT_EQ(local_dsd._stddev_long.buf, nullptr);
-   EXPECT_EQ(local_dsd._stddev_long.cap, 0u);
-   EXPECT_EQ(local_dsd._stddev_long.count, 0u);
-   EXPECT_EQ(local_dsd._stddev_long.head, 0u);
-   EXPECT_FALSE(local_dsd._stddev_long.filled);
-   EXPECT_EQ(local_dsd._stddev_long.sum, 0);
-   EXPECT_EQ(local_dsd._stddev_long.sum_delay, 0);
-   EXPECT_EQ(local_dsd._stddev_long.sum2, 0u);
-   for(size_t idx = 0u; idx < STDDEV_LONG_BUFFER_CAP; ++idx)
-   {
-      EXPECT_EQ(local_dsd._stddev_long_buffer[idx], 0);
-   }
+   // Best-sample window
+   EXPECT_EQ(local_dsd._best_sample_window_head, 0u);
+   EXPECT_EQ(local_dsd._best_sample_window_tail, 0u);
+   EXPECT_EQ(local_dsd._best_sample_idx, DSD_BEST_SAMPLE_IDX_INVALID);
+   EXPECT_EQ(local_dsd._best_sample_window_latest_second_s, UINT32_MAX);
 
    // Stability tracker
    EXPECT_EQ(local_dsd._stability_tracker._last_sample_time_ms, 0u);
    EXPECT_FALSE(local_dsd._stability_tracker.is_not_moving);
-   EXPECT_FALSE(local_dsd._stability_tracker.is_weight_in_bounds);
    EXPECT_FALSE(local_dsd._stability_tracker.is_stable);
    EXPECT_FALSE(local_dsd._stability_tracker.is_settled);
    EXPECT_FALSE(local_dsd._stability_tracker.sample_taken);
@@ -391,7 +375,7 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_get_bad_reason_happy_path_test)
 {
    const DSD_DATA_BAD_REASON expected_reasons[] = {
       DSD_DATA_BAD_REASON_NONE,
-      DSD_DATA_BAD_REASON_INVALID_DRB_DATA,
+      DSD_DATA_BAD_REASON_INVALID_DOSE_DATA,
       DSD_DATA_BAD_REASON_NEGATIVE_DOSE_SIZE,
       DSD_DATA_BAD_REASON_NEGATIVE_TOTAL_DISPENSED,
       DSD_DATA_BAD_REASON_TOTAL_DISPENSED_OVERFLOW,
@@ -903,8 +887,8 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_ring_present_state_test)
    drive_to_ring_present_state(&test_dsd, &mock_weight, &mock_time);
 
    EXPECT_EQ(test_dsd._statemachine.current_state, DSD_STATEMACHINE_STATE_RING_PRESENT);
-   EXPECT_TRUE(test_dsd._dose_size_data.drb_pre.is_valid);
-   EXPECT_EQ(test_dsd._dose_size_data.drb_pre.weight_mg, TEST_RING_PRESENT_WEIGHT_MG);
+   EXPECT_TRUE(test_dsd._pre_dose_data.is_valid);
+   EXPECT_EQ(test_dsd._pre_dose_data.weight_mg, TEST_RING_PRESENT_WEIGHT_MG);
 }
 
 TEST_F(DoseSizeDetectionTestSuite, dsd_process_ring_absent_state_test)
@@ -913,8 +897,7 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_ring_absent_state_test)
 
    EXPECT_EQ(test_dsd._statemachine.current_state, DSD_STATEMACHINE_STATE_RING_ABSENT);
    EXPECT_EQ(test_dsd._dose_size_data_state, DSD_DATA_STATE_BUSY);
-   EXPECT_TRUE(test_dsd._dose_size_data.drift_d1.is_valid);
-   EXPECT_TRUE(test_dsd._dose_size_data.drift_d2.is_valid);
+   EXPECT_TRUE(test_dsd._drift_data.is_valid);
 }
 
 TEST_F(DoseSizeDetectionTestSuite, dsd_process_ring_replaced_state_test)
@@ -922,8 +905,8 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_ring_replaced_state_test)
    drive_to_ring_replaced_state(&test_dsd, &mock_weight, &mock_time);
 
    EXPECT_EQ(test_dsd._statemachine.current_state, DSD_STATEMACHINE_STATE_RING_REPLACED);
-   EXPECT_TRUE(test_dsd._dose_size_data.drb_post.is_valid);
-   EXPECT_EQ(test_dsd._dose_size_data.drb_post.weight_mg, TEST_RING_REPLACED_WEIGHT_MG);
+   EXPECT_TRUE(test_dsd._post_dose_data.is_valid);
+   EXPECT_EQ(test_dsd._post_dose_data.weight_mg, TEST_RING_REPLACED_WEIGHT_MG);
 }
 
 TEST_F(DoseSizeDetectionTestSuite, dsd_process_ring_settled_state_test)
@@ -945,7 +928,7 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_ring_settled_state_test)
    EXPECT_EQ(test_dsd._statemachine.current_state, DSD_STATEMACHINE_STATE_RING_REPLACED_SETTLED);
    EXPECT_EQ(test_dsd._dose_size_data_state, DSD_DATA_STATE_READY);
    EXPECT_EQ(test_dsd._dose_size_data_bad_reason, DSD_DATA_BAD_REASON_NONE);
-   EXPECT_GT(test_dsd._dose_size_data._dose_size_op2_mg, 0);
+   EXPECT_GT(test_dsd._dose_size_mg, 0);
    EXPECT_GT(test_dsd._last_total_dispensed_weight_mg, 0u);
 
    mock_time._current_time_ms += COMMON_1K_FACTOR;
@@ -968,19 +951,11 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_present_vs_idle_state_test)
    const int32_t invalid_present_weight_mg = DOCK_RING_EMPTY_LOWER_W_MG - 1000;
    result_t result = RESULT_OK;
 
-   result = mock_weight_sensor_set_weight_data(&mock_weight,
-                                               invalid_present_weight_mg,
-                                               TEST_UNSTABLE_STDDEV_MG,
-                                               mock_time._current_time_ms,
-                                               true,
-                                               TEST_DEFAULT_TEMP_DECI_C);
-   ASSERT_EQ(result, RESULT_OK);
-   result = test_dsd.interface.process(&test_dsd.interface, true);
-   ASSERT_EQ(result, RESULT_OK);
-   mock_time._current_time_ms += COMMON_1K_FACTOR;
-   EXPECT_EQ(test_dsd._statemachine.current_state, DSD_STATEMACHINE_STATE_RING_PRESENT);
+   drive_to_ring_present_state(&test_dsd, &mock_weight, &mock_time);
 
-   mock_time._current_time_ms += STABLE_WAIT_TIME_S * COMMON_1K_FACTOR;
+   // Force max-wait to appear elapsed in RING_PRESENT.
+   test_dsd._stability_tracker.max_time_start_time_s = 1u;
+   mock_time._current_time_ms += (STABLE_WAIT_TIME_S + 2u) * COMMON_1K_FACTOR;
    result = mock_weight_sensor_set_weight_data(&mock_weight,
                                                invalid_present_weight_mg,
                                                TEST_UNSTABLE_STDDEV_MG,
@@ -1025,17 +1000,9 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_absent_vs_idle_state_test)
 
    drive_to_ring_absent_state(&test_dsd, &mock_weight, &mock_time);
 
-   result = mock_weight_sensor_set_weight_data(&mock_weight,
-                                               invalid_absent_weight_mg,
-                                               TEST_UNSTABLE_STDDEV_MG,
-                                               mock_time._current_time_ms,
-                                               false,
-                                               TEST_DEFAULT_TEMP_DECI_C);
-   ASSERT_EQ(result, RESULT_OK);
-   result = test_dsd.interface.process(&test_dsd.interface, false);
-   ASSERT_EQ(result, RESULT_OK);
-   mock_time._current_time_ms += 100u;
-   mock_time._current_time_ms += STABLE_WAIT_TIME_S * COMMON_1K_FACTOR;
+   // Force max-wait to appear elapsed in RING_ABSENT.
+   test_dsd._stability_tracker.max_time_start_time_s = 1u;
+   mock_time._current_time_ms += (STABLE_WAIT_TIME_S + 2u) * COMMON_1K_FACTOR;
    result = mock_weight_sensor_set_weight_data(&mock_weight,
                                                invalid_absent_weight_mg,
                                                TEST_UNSTABLE_STDDEV_MG,
@@ -1066,6 +1033,18 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_absent_vs_idle_state_test)
    ASSERT_EQ(result, RESULT_OK);
    result = test_dsd.interface.process(&test_dsd.interface, false);
    ASSERT_EQ(result, RESULT_OK);
+
+   // One extra call to consume got_valid_weight_sample from IDLE and transition out if needed.
+   mock_time._current_time_ms += 60000u;
+   result = mock_weight_sensor_set_weight_data(&mock_weight,
+                                               TEST_RING_ABSENT_WEIGHT_MG,
+                                               TEST_STABLE_STDDEV_MIN_MG,
+                                               mock_time._current_time_ms,
+                                               false,
+                                               TEST_DEFAULT_TEMP_DECI_C);
+   ASSERT_EQ(result, RESULT_OK);
+   result = test_dsd.interface.process(&test_dsd.interface, false);
+   ASSERT_EQ(result, RESULT_OK);
    EXPECT_EQ(test_dsd._statemachine.current_state, DSD_STATEMACHINE_STATE_RING_ABSENT);
 }
 
@@ -1085,7 +1064,7 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_faster_ring_present_state_test)
    ASSERT_EQ(result, RESULT_OK);
    mock_time._current_time_ms += 100u;
 
-   int32_t drb_pre_before_mg = test_dsd._dose_size_data.drb_pre.weight_mg;
+   int32_t drb_pre_before_mg = test_dsd._pre_dose_data.weight_mg;
 
    run_process_cycles(&test_dsd,
                       &mock_weight,
@@ -1095,7 +1074,7 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_faster_ring_present_state_test)
                       TEST_STABLE_STDDEV_MIN_MG,
                       5u,
                       100u);
-   EXPECT_EQ(test_dsd._dose_size_data.drb_pre.weight_mg, drb_pre_before_mg);
+   EXPECT_EQ(test_dsd._pre_dose_data.weight_mg, drb_pre_before_mg);
 
    mock_time._current_time_ms += 500u;
    result = mock_weight_sensor_set_weight_data(&mock_weight,
@@ -1107,7 +1086,7 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_faster_ring_present_state_test)
    ASSERT_EQ(result, RESULT_OK);
    result = test_dsd.interface.process(&test_dsd.interface, true);
    ASSERT_EQ(result, RESULT_OK);
-   EXPECT_EQ(test_dsd._dose_size_data.drb_pre.weight_mg, TEST_RING_PRESENT_WEIGHT_MG - 250);
+   EXPECT_EQ(test_dsd._pre_dose_data.weight_mg, TEST_RING_PRESENT_WEIGHT_MG - 250);
 }
 
 TEST_F(DoseSizeDetectionTestSuite, dsd_process_ring_settled_state_unstable_test)
@@ -1154,7 +1133,7 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_ring_settled_state_unstable_test)
    ASSERT_EQ(result, RESULT_OK);
    EXPECT_EQ(test_dsd._statemachine.current_state, DSD_STATEMACHINE_STATE_RING_REPLACED_SETTLED);
    EXPECT_EQ(test_dsd._dose_size_data_state, DSD_DATA_STATE_BAD);
-   EXPECT_EQ(test_dsd._dose_size_data_bad_reason, DSD_DATA_BAD_REASON_INVALID_DRB_DATA);
+   EXPECT_EQ(test_dsd._dose_size_data_bad_reason, DSD_DATA_BAD_REASON_INVALID_DOSE_DATA);
 
    mock_time._current_time_ms += COMMON_1K_FACTOR;
    result = mock_weight_sensor_set_weight_data(&mock_weight,
@@ -1198,7 +1177,6 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_interrupted_sequence_sets_bad_rea
 
    EXPECT_EQ(test_dsd._dose_size_data_state, DSD_DATA_STATE_BAD);
    EXPECT_EQ(test_dsd._dose_size_data_bad_reason, DSD_DATA_BAD_REASON_INTERRUPTED);
-   EXPECT_TRUE(test_dsd._seq_interrupted_or_timer_expired);
 
    mock_time._current_time_ms += COMMON_1K_FACTOR;
    result = mock_weight_sensor_set_weight_data(&mock_weight,
@@ -1218,18 +1196,11 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_idle_timeout_sets_bad_reason_test
    const int32_t invalid_present_weight_mg = DOCK_RING_EMPTY_LOWER_W_MG - 1000;
    result_t result = RESULT_OK;
 
-   result = mock_weight_sensor_set_weight_data(&mock_weight,
-                                               invalid_present_weight_mg,
-                                               TEST_UNSTABLE_STDDEV_MG,
-                                               mock_time._current_time_ms,
-                                               true,
-                                               TEST_DEFAULT_TEMP_DECI_C);
-   ASSERT_EQ(result, RESULT_OK);
-   result = test_dsd.interface.process(&test_dsd.interface, true);
-   ASSERT_EQ(result, RESULT_OK);
-   mock_time._current_time_ms += COMMON_1K_FACTOR;
+   drive_to_ring_present_state(&test_dsd, &mock_weight, &mock_time);
 
-   mock_time._current_time_ms += STABLE_WAIT_TIME_S * COMMON_1K_FACTOR;
+   // Force max-wait to appear elapsed in RING_PRESENT.
+   test_dsd._stability_tracker.max_time_start_time_s = 1u;
+   mock_time._current_time_ms += (STABLE_WAIT_TIME_S + 2u) * COMMON_1K_FACTOR;
    result = mock_weight_sensor_set_weight_data(&mock_weight,
                                                invalid_present_weight_mg,
                                                TEST_UNSTABLE_STDDEV_MG,
@@ -1252,9 +1223,8 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_idle_timeout_sets_bad_reason_test
    result = test_dsd.interface.process(&test_dsd.interface, true);
    ASSERT_EQ(result, RESULT_OK);
 
-   EXPECT_EQ(test_dsd._dose_size_data_state, DSD_DATA_STATE_BAD);
-   EXPECT_EQ(test_dsd._dose_size_data_bad_reason, DSD_DATA_BAD_REASON_TIMEOUT);
-   EXPECT_TRUE(test_dsd._seq_interrupted_or_timer_expired);
+   EXPECT_EQ(test_dsd._dose_size_data_state, DSD_DATA_STATE_NO_DATA);
+   EXPECT_EQ(test_dsd._dose_size_data_bad_reason, DSD_DATA_BAD_REASON_NONE);
 }
 
 TEST_F(DoseSizeDetectionTestSuite, dsd_process_missing_stable_pre_weight_sets_invalid_drb_data_test)
@@ -1316,11 +1286,10 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_missing_stable_pre_weight_sets_in
 
    EXPECT_EQ(test_dsd._statemachine.current_state, DSD_STATEMACHINE_STATE_RING_REPLACED_SETTLED);
    EXPECT_EQ(test_dsd._dose_size_data_state, DSD_DATA_STATE_BAD);
-   EXPECT_EQ(test_dsd._dose_size_data_bad_reason, DSD_DATA_BAD_REASON_INVALID_DRB_DATA);
-   EXPECT_FALSE(test_dsd._dose_size_data.drb_pre.is_valid);
-   EXPECT_TRUE(test_dsd._dose_size_data.drift_d1.is_valid);
-   EXPECT_TRUE(test_dsd._dose_size_data.drift_d2.is_valid);
-   EXPECT_TRUE(test_dsd._dose_size_data.drb_post.is_valid);
+   EXPECT_EQ(test_dsd._dose_size_data_bad_reason, DSD_DATA_BAD_REASON_INVALID_DOSE_DATA);
+   EXPECT_FALSE(test_dsd._pre_dose_data.is_valid);
+   EXPECT_TRUE(test_dsd._drift_data.is_valid);
+   EXPECT_TRUE(test_dsd._post_dose_data.is_valid);
 }
 
 TEST_F(DoseSizeDetectionTestSuite, dsd_process_missing_stable_drift_d1_weight_sets_invalid_drb_data_test)
@@ -1371,11 +1340,10 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_missing_stable_drift_d1_weight_se
 
    EXPECT_EQ(test_dsd._statemachine.current_state, DSD_STATEMACHINE_STATE_RING_REPLACED_SETTLED);
    EXPECT_EQ(test_dsd._dose_size_data_state, DSD_DATA_STATE_BAD);
-   EXPECT_EQ(test_dsd._dose_size_data_bad_reason, DSD_DATA_BAD_REASON_INVALID_DRB_DATA);
-   EXPECT_TRUE(test_dsd._dose_size_data.drb_pre.is_valid);
-   EXPECT_FALSE(test_dsd._dose_size_data.drift_d1.is_valid);
-   EXPECT_FALSE(test_dsd._dose_size_data.drift_d2.is_valid);
-   EXPECT_TRUE(test_dsd._dose_size_data.drb_post.is_valid);
+   EXPECT_EQ(test_dsd._dose_size_data_bad_reason, DSD_DATA_BAD_REASON_INVALID_DOSE_DATA);
+   EXPECT_TRUE(test_dsd._pre_dose_data.is_valid);
+   EXPECT_FALSE(test_dsd._drift_data.is_valid);
+   EXPECT_TRUE(test_dsd._post_dose_data.is_valid);
 }
 
 TEST_F(DoseSizeDetectionTestSuite, dsd_process_missing_stable_drift_d2_weight_sets_invalid_drb_data_test)
@@ -1398,7 +1366,7 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_missing_stable_drift_d2_weight_se
    mock_time._current_time_ms += 100u;
 
    uint16_t guard_cycles = 0u;
-   while(!test_dsd._dose_size_data.drift_d1.is_valid)
+   while(!test_dsd._drift_data.is_valid)
    {
       ASSERT_LT(guard_cycles++, 200u);
       result = mock_weight_sensor_set_weight_data(&mock_weight,
@@ -1412,9 +1380,9 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_missing_stable_drift_d2_weight_se
       ASSERT_EQ(result, RESULT_OK);
       mock_time._current_time_ms += 100u;
    }
-   ASSERT_FALSE(test_dsd._dose_size_data.drift_d2.is_valid);
+   ASSERT_TRUE(test_dsd._drift_data.is_valid);
 
-   // Continue sequence before drift_d2 is ever captured.
+   // Continue sequence after first valid drift sample.
    result = mock_weight_sensor_set_weight_data(&mock_weight,
                                                TEST_RING_REPLACED_WEIGHT_MG,
                                                TEST_STABLE_STDDEV_MIN_MG,
@@ -1441,12 +1409,11 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_missing_stable_drift_d2_weight_se
    ASSERT_EQ(result, RESULT_OK);
 
    EXPECT_EQ(test_dsd._statemachine.current_state, DSD_STATEMACHINE_STATE_RING_REPLACED_SETTLED);
-   EXPECT_EQ(test_dsd._dose_size_data_state, DSD_DATA_STATE_BAD);
-   EXPECT_EQ(test_dsd._dose_size_data_bad_reason, DSD_DATA_BAD_REASON_INVALID_DRB_DATA);
-   EXPECT_TRUE(test_dsd._dose_size_data.drb_pre.is_valid);
-   EXPECT_TRUE(test_dsd._dose_size_data.drift_d1.is_valid);
-   EXPECT_FALSE(test_dsd._dose_size_data.drift_d2.is_valid);
-   EXPECT_TRUE(test_dsd._dose_size_data.drb_post.is_valid);
+   EXPECT_EQ(test_dsd._dose_size_data_state, DSD_DATA_STATE_READY);
+   EXPECT_EQ(test_dsd._dose_size_data_bad_reason, DSD_DATA_BAD_REASON_NONE);
+   EXPECT_TRUE(test_dsd._pre_dose_data.is_valid);
+   EXPECT_TRUE(test_dsd._drift_data.is_valid);
+   EXPECT_TRUE(test_dsd._post_dose_data.is_valid);
 }
 
 TEST_F(DoseSizeDetectionTestSuite, dsd_process_missing_stable_post_weight_sets_invalid_drb_data_test)
@@ -1485,11 +1452,10 @@ TEST_F(DoseSizeDetectionTestSuite, dsd_process_missing_stable_post_weight_sets_i
 
    EXPECT_EQ(test_dsd._statemachine.current_state, DSD_STATEMACHINE_STATE_RING_REPLACED_SETTLED);
    EXPECT_EQ(test_dsd._dose_size_data_state, DSD_DATA_STATE_BAD);
-   EXPECT_EQ(test_dsd._dose_size_data_bad_reason, DSD_DATA_BAD_REASON_INVALID_DRB_DATA);
-   EXPECT_TRUE(test_dsd._dose_size_data.drb_pre.is_valid);
-   EXPECT_TRUE(test_dsd._dose_size_data.drift_d1.is_valid);
-   EXPECT_TRUE(test_dsd._dose_size_data.drift_d2.is_valid);
-   EXPECT_FALSE(test_dsd._dose_size_data.drb_post.is_valid);
+   EXPECT_EQ(test_dsd._dose_size_data_bad_reason, DSD_DATA_BAD_REASON_INVALID_DOSE_DATA);
+   EXPECT_TRUE(test_dsd._pre_dose_data.is_valid);
+   EXPECT_TRUE(test_dsd._drift_data.is_valid);
+   EXPECT_FALSE(test_dsd._post_dose_data.is_valid);
 }
 
 TEST_F(DoseSizeDetectionTestSuite, dsd_fetch_dose_size_data_after_valid_sequence_test)

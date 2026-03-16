@@ -30,7 +30,9 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_TILT_DETECTION_MODULE;
  * Definitions
  **********************************************************************************************************************/
 
-#define M_PI 3.14159265358979323846f /* Pi */
+#ifndef M_PI
+#define M_PI 3.14159265358979323846 /* Pi fallback when platform math.h does not provide M_PI */
+#endif
 
 #define DEG_TO_RAD(_deg_) ((_deg_) * (M_PI / 180.0f))
 #define RAD_TO_DEG(_rad_) ((_rad_) * (180.0f / M_PI))

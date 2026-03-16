@@ -92,16 +92,16 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_BLE_CONTROL;
                                   // value. @note do not add brackets to this value, it upsets the compiler.
 #define APP_BLE_CONN_CFG_TAG (1u) // A tag identifying the SoftDevice BLE configuration.
 
-#define MIN_CONN_INTERVAL MSEC_TO_UNITS(100, UNIT_1_25_MS) // Minimum acceptable connection interval (0.1 seconds).
+#define MIN_CONN_INTERVAL MSEC_TO_UNITS(15, UNIT_1_25_MS) // Minimum acceptable connection interval (0.015 seconds).
 
-#define MAX_CONN_INTERVAL MSEC_TO_UNITS(200, UNIT_1_25_MS) // Maximum acceptable connection interval (0.2 second).
+#define MAX_CONN_INTERVAL MSEC_TO_UNITS(30, UNIT_1_25_MS) // Maximum acceptable connection interval (0.03 second).
 
 #define SLAVE_LATENCY    (0u)                            // Slave latency.
 #define CONN_SUP_TIMEOUT MSEC_TO_UNITS(4000, UNIT_10_MS) // Connection supervisory timeout (4 seconds).
 
 #define FIRST_CONN_PARAMS_UPDATE_DELAY                                                                                 \
-   APP_TIMER_TICKS(5000) // Time from initiating event (connect or start of notification) to
-                         // first time sd_ble_gap_conn_param_update is called (5 seconds).
+   APP_TIMER_TICKS(500) // Time from initiating event (connect or start of notification) to
+                        // first time sd_ble_gap_conn_param_update is called (0.5 seconds).
 #define NEXT_CONN_PARAMS_UPDATE_DELAY                                                                                  \
    APP_TIMER_TICKS(30000)              // Time between each call to sd_ble_gap_conn_param_update after the
                                        // first call (30 seconds).
@@ -134,6 +134,35 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_BLE_CONTROL;
 #define FAILURE_MAX_RETRY_COUNT          (3u)
 #define STOP_ADVERTISING_MAX_RETRY_COUNT (5u)
 
+#ifdef BLE_GAP_PHY_2MBPS
+#   define PREFERRED_BLE_PHY BLE_GAP_PHY_2MBPS
+#else
+#   define PREFERRED_BLE_PHY BLE_GAP_PHY_AUTO
+#endif
+
+#ifndef BLE_TX_THROUGHPUT_TEST_ENABLE
+#   define BLE_TX_THROUGHPUT_TEST_ENABLE (0u)
+#endif
+#if((BLE_TX_THROUGHPUT_TEST_ENABLE != 0u) && (BLE_TX_THROUGHPUT_TEST_ENABLE != 1u))
+#   error "BLE_TX_THROUGHPUT_TEST_ENABLE must be 0 or 1."
+#endif
+
+#if(BLE_TX_THROUGHPUT_TEST_ENABLE == 1u)
+/**
+ * BLE TX throughput test mode:
+ * - Runs once whenever TX notifications are enabled on the custom service.
+ * - Pushes max-size notifications as fast as the SoftDevice allows for a fixed duration.
+ * - Emits one binary result notification at test completion.
+ *   Packet format (little-endian):
+ *   [magic=0xA6][type=0x02][payload_len:u16][duration_ms:u16][elapsed_ms:u16][bytes:u32][bytes_per_sec:u32]
+ *   [kilo_bytes_per_sec:u32]
+ */
+#   define BLE_TX_THROUGHPUT_TEST_DURATION_MS        (10000u)
+#   define BLE_TX_THROUGHPUT_TEST_REPORT_INTERVAL_MS (1000u)
+#   define BLE_TX_THROUGHPUT_TEST_PACKET_MAGIC       (0xA6u)
+#   define BLE_TX_THROUGHPUT_TEST_PACKET_RESULT      (0x02u)
+#endif
+
 NRF_BLE_GATT_DEF(m_gatt);
 NRF_BLE_QWR_DEF(m_qwr); // GATT module instance.
 BLE_CS_DEF(m_cs);
@@ -141,6 +170,7 @@ BLE_ADVERTISING_DEF(m_advertising); // Advertising module instance.
 
 APP_TIMER_DEF(m_pairing_timer); // Pairing block timer instance.
 APP_TIMER_DEF(m_gap_evt_phy_update_retry_timer);
+APP_TIMER_DEF(m_gap_evt_data_length_update_retry_timer);
 APP_TIMER_DEF(m_disconnect_retry_timer);
 APP_TIMER_DEF(m_connect_qwr_retry_timer);
 APP_TIMER_DEF(m_stop_advertising_timer);
@@ -154,6 +184,45 @@ typedef struct
    ble_gap_addr_t addr; // Peer's Bluetooth address. @note this could be a Resolvable Private Address (RPA).
    ble_gap_irk_t irk;   // Identity Resolving Key.
 } bonded_device_t;
+
+#if(BLE_TX_THROUGHPUT_TEST_ENABLE == 1u)
+typedef enum
+{
+   BLE_TX_THROUGHPUT_TEST_STATE_IDLE = 0,
+   BLE_TX_THROUGHPUT_TEST_STATE_RUNNING,
+   BLE_TX_THROUGHPUT_TEST_STATE_DRAINING
+} ble_tx_throughput_test_state_t;
+
+typedef struct
+{
+   uint8_t magic;
+   uint8_t packet_type;
+   uint16_t payload_len;
+   uint16_t duration_ms;
+   uint16_t elapsed_ms;
+   uint32_t bytes_confirmed;
+   uint32_t bytes_per_sec;
+   uint32_t kilo_bytes_per_sec;
+} ble_tx_throughput_test_packet_t;
+
+typedef struct
+{
+   ble_tx_throughput_test_state_t state;
+   bool notifications_enabled;
+   bool has_run_since_notify_enable;
+   uint16_t payload_len;
+   uint32_t start_tick;
+   uint32_t stop_tick;
+   uint32_t last_progress_tick;
+   uint32_t packets_attempted;
+   uint32_t packets_confirmed;
+   uint32_t bytes_attempted;
+   uint32_t bytes_confirmed;
+} ble_tx_throughput_test_ctx_t;
+
+STATIC_ASSERT(sizeof(ble_tx_throughput_test_packet_t) <= (BLE_GATT_ATT_MTU_DEFAULT - OPCODE_LENGTH - HANDLE_LENGTH),
+              "BLE throughput test packet must fit default ATT payload.");
+#endif
 
 /***********************************************************************************************************************
  * Static function declarations
@@ -304,9 +373,16 @@ static result_t services_init(void);
  *
  * @details This function will be called for all events in the Connection
  * Parameters Module which are passed to the application.
- *          @note All this function does is to disconnect. This could have been
- * done by simply setting the disconnect_on_fail config parameter, but instead
- * we use the event handler mechanism to demonstrate its use.
+ *
+ * Throughput-oriented connection intervals are treated as a QoS preference,
+ * not a security requirement. If the peer rejects our preferred interval
+ * update, we keep the connection alive and continue with the currently active
+ * parameters.
+ *
+ * Security posture is preserved because BLE link security (bonding, encryption,
+ * MITM requirements, peer validation, and disconnect-on-security-failure)
+ * remains enforced by the GAP/Peer Manager security event flow and is not
+ * relaxed by this handler.
  *
  * @param[in] p_evt  Event received from the Connection Parameters Module.
  */
@@ -402,6 +478,11 @@ static result_t conn_params_init(void);
 static void manual_whitelist_populate(void);
 
 /**
+ * @brief Refresh the manual whitelist from currently stored bonded peers.
+ */
+static void manual_whitelist_refresh(void);
+
+/**
  * @brief Function to check if a device address is in the whitelist.
  *
  * This function checks if a given device address is present in the manual
@@ -466,6 +547,27 @@ static void ble_advertising_error_handler(uint32_t nrf_error);
 static void retry_timer_handler_gap_evt_phy_update(void *p_context);
 
 /**
+ * @brief Retry handler for data length update requests deferred by invalid state.
+ *
+ * @param[in] p_context Pointer to context. Not used in this function.
+ */
+static void retry_timer_handler_gap_evt_data_length_update(void *p_context);
+
+/**
+ * @brief Request a data length update for the active BLE connection.
+ *
+ * @param[in] conn_handle The BLE connection handle.
+ */
+static void request_data_length_update(uint16_t conn_handle);
+
+/**
+ * @brief Request preferred PHY update for the active BLE connection.
+ *
+ * @param[in] conn_handle The BLE connection handle.
+ */
+static void request_preferred_phy_update(uint16_t conn_handle);
+
+/**
  * @brief Function to retrieve the security parameters for BLE connections. This
  * is the single source of truth for security parameters.
  *
@@ -520,6 +622,12 @@ static void stop_advertising_retry_timer_handler(void *p_context);
 static void cs_rx_data_handler(const uint8_t *p_data, uint16_t length);
 
 static result_t ble_control_get_bonded_status(volatile bool *is_bonded);
+
+#if(BLE_TX_THROUGHPUT_TEST_ENABLE == 1u)
+static void ble_tx_throughput_test_on_notification_state_changed(bool notifications_enabled);
+static void ble_tx_throughput_test_on_disconnect(void);
+static void ble_tx_throughput_test_on_hvn_tx_complete(uint16_t completed_packet_count);
+#endif
 /***********************************************************************************************************************
  * Variables
  **********************************************************************************************************************/
@@ -542,6 +650,8 @@ static ble_opt_t m_static_pin_option; // Pointer to the struct containing static
 static uint16_t m_conn_handle = BLE_CONN_HANDLE_INVALID; // Handle of the current connection. */
 static uint16_t m_retry_conn_handle = BLE_CONN_HANDLE_INVALID;
 static uint16_t m_qwr_retry_count = 0;
+static uint16_t m_data_length_update_retry_conn_handle = BLE_CONN_HANDLE_INVALID;
+static uint8_t m_data_length_update_retry_count = 0;
 
 // Manual whitelist
 static bonded_device_t m_whitelist[MAX_BONDED_DEVICES];
@@ -561,6 +671,23 @@ static const queue_interface_t *m_ble_rx_queue_ifc;
 static uint16_t m_ble_max_data_len = BLE_GATT_ATT_MTU_DEFAULT - OPCODE_LENGTH - HANDLE_LENGTH;
 
 static ble_control_status_t m_ble_status = {0};
+
+#if(BLE_TX_THROUGHPUT_TEST_ENABLE == 1u)
+static ble_tx_throughput_test_ctx_t m_ble_tx_throughput_test = {
+   .state = BLE_TX_THROUGHPUT_TEST_STATE_IDLE,
+   .notifications_enabled = false,
+   .has_run_since_notify_enable = false,
+   .payload_len = 0u,
+   .start_tick = 0u,
+   .stop_tick = 0u,
+   .last_progress_tick = 0u,
+   .packets_attempted = 0u,
+   .packets_confirmed = 0u,
+   .bytes_attempted = 0u,
+   .bytes_confirmed = 0u,
+};
+static uint8_t m_ble_tx_throughput_test_payload[BLE_RX_PACKET_ELEMENT_SIZE] = {0};
+#endif
 
 /**
  * @brief UUIDs to be included in the advertisement packet.
@@ -600,7 +727,7 @@ static result_t stop_advertising(const ble_control_interface_t *const interface)
    ret_code_t err_code = app_timer_start(m_stop_advertising_timer, APP_TIMER_TICKS(FAILURE_RETRY_DELAY_MS), NULL);
    if(err_code != NRF_SUCCESS)
    {
-      DEBUG_WARNING("Failed to start stop advertising timer. Error: 0x%02X", err_code);
+      DEBUG_WARNING("Failed to start stop advertising timer. Error: %u", err_code);
       SET_ERR(err_code, BLE_CONTROL_ERROR_ADV_STOP);
    }
    return result;
@@ -648,11 +775,13 @@ static result_t get_ble_status(const ble_control_interface_t *const interface, b
    RETURN_ERR_IF_NULL(status, BLE_CONTROL_ERROR_PTR_NULL);
 
    volatile bool is_bonded = false;
+   bool is_connection_active = (BLE_CONN_HANDLE_INVALID != m_conn_handle);
 
    result_t result = ble_control_get_bonded_status(&is_bonded);
    m_ble_status.is_bonded = is_bonded;
    m_ble_status.is_advertising = m_is_advertising;
    m_ble_status.allow_new_bond = !m_is_whitelist_enabled;
+   m_ble_status.is_connected = is_connection_active;
 
    status->allow_new_bond = m_ble_status.allow_new_bond;
    status->is_advertising = m_ble_status.is_advertising;
@@ -671,6 +800,12 @@ static result_t send_packet(const comms_driver_interface_t *const interface, con
    RETURN_ERR_IF_TRUE(!self->_initialized, COMMS_DRIVER_ERROR_UNINITIALIZED);
    RETURN_ERR_IF_TRUE(BLE_CONN_HANDLE_INVALID == m_conn_handle,
                       COMMS_DRIVER_ERROR_DEVICE_NOT_FOUND); // No central connected
+#if(BLE_TX_THROUGHPUT_TEST_ENABLE == 1u)
+   // Keep the app TX path blocked for the whole test session once throughput test starts.
+   RETURN_ERR_IF_TRUE(m_ble_tx_throughput_test.notifications_enabled
+                         && m_ble_tx_throughput_test.has_run_since_notify_enable,
+                      COMMS_DRIVER_ERROR_BUSY);
+#endif
    RETURN_ERR_IF_TRUE(length > m_ble_max_data_len, COMMS_DRIVER_ERROR_INVALID_TX_LENGTH);
 
    result_t result = RESULT_OK;
@@ -706,7 +841,7 @@ static result_t get_packet(const comms_driver_interface_t *const interface, uint
       }
       else
       {
-         DEBUG_ERROR("Failed to dequeue received BLE RX data from the queue. Result: %d", result);
+         DEBUG_ERROR("Failed to dequeue received BLE RX data from the queue. Result: %u", result);
          SET_ERR(result, COMMS_DRIVER_ERROR_COMM_RX);
       }
    }
@@ -757,6 +892,338 @@ static result_t get_mac_address(const ble_control_interface_t *const interface,
    return result;
 }
 
+#if(BLE_TX_THROUGHPUT_TEST_ENABLE == 1u)
+static uint32_t ble_tx_throughput_test_ticks_to_ms(uint32_t ticks)
+{
+   uint64_t ms
+      = ((uint64_t)ticks * 1000u * (uint64_t)(APP_TIMER_CONFIG_RTC_FREQUENCY + 1u)) / (uint64_t)APP_TIMER_CLOCK_FREQ;
+   return (uint32_t)ms;
+}
+
+static uint32_t ble_tx_throughput_test_elapsed_ms(uint32_t start_tick, uint32_t end_tick)
+{
+   uint32_t tick_diff = app_timer_cnt_diff_compute(end_tick, start_tick);
+   return ble_tx_throughput_test_ticks_to_ms(tick_diff);
+}
+
+static uint32_t ble_tx_throughput_test_calculate_bytes_per_sec(uint32_t bytes, uint32_t elapsed_ms)
+{
+   if(elapsed_ms == 0u)
+   {
+      return 0u;
+   }
+
+   uint64_t bytes_per_sec = ((uint64_t)bytes * 1000u) / (uint64_t)elapsed_ms;
+   if(bytes_per_sec > UINT32_MAX)
+   {
+      return UINT32_MAX;
+   }
+   return (uint32_t)bytes_per_sec;
+}
+
+static uint32_t ble_tx_throughput_test_calculate_kilo_bytes_per_sec(uint32_t bytes_per_sec)
+{
+   return bytes_per_sec / COMMON_1K_FACTOR;
+}
+
+static ret_code_t ble_tx_throughput_test_send_control_packet(uint8_t packet_type,
+                                                             uint32_t elapsed_ms,
+                                                             uint32_t bytes_confirmed,
+                                                             uint32_t bytes_per_sec,
+                                                             uint32_t kilo_bytes_per_sec)
+{
+   if((BLE_CONN_HANDLE_INVALID == m_conn_handle) || !m_ble_tx_throughput_test.notifications_enabled)
+   {
+      return NRF_ERROR_INVALID_STATE;
+   }
+
+   uint16_t duration_ms_limited
+      = (BLE_TX_THROUGHPUT_TEST_DURATION_MS > UINT16_MAX) ? UINT16_MAX : (uint16_t)BLE_TX_THROUGHPUT_TEST_DURATION_MS;
+   uint16_t elapsed_ms_limited = (elapsed_ms > UINT16_MAX) ? UINT16_MAX : (uint16_t)elapsed_ms;
+
+   ble_tx_throughput_test_packet_t packet = {
+      .magic = BLE_TX_THROUGHPUT_TEST_PACKET_MAGIC,
+      .packet_type = packet_type,
+      .payload_len = m_ble_tx_throughput_test.payload_len,
+      .duration_ms = duration_ms_limited,
+      .elapsed_ms = elapsed_ms_limited,
+      .bytes_confirmed = bytes_confirmed,
+      .bytes_per_sec = bytes_per_sec,
+      .kilo_bytes_per_sec = kilo_bytes_per_sec,
+   };
+
+   uint16_t packet_len = sizeof(packet);
+   ble_gatts_hvx_params_t hvx_params = {0};
+   hvx_params.handle = m_cs.data_tx_handle.value_handle;
+   hvx_params.type = BLE_GATT_HVX_NOTIFICATION;
+   hvx_params.p_data = (const uint8_t *)&packet;
+   hvx_params.p_len = &packet_len;
+
+   return sd_ble_gatts_hvx(m_conn_handle, &hvx_params);
+}
+
+static void ble_tx_throughput_test_log_progress(void)
+{
+   uint32_t now_tick = app_timer_cnt_get();
+   uint32_t since_last_ms = ble_tx_throughput_test_elapsed_ms(m_ble_tx_throughput_test.last_progress_tick, now_tick);
+   if(since_last_ms < BLE_TX_THROUGHPUT_TEST_REPORT_INTERVAL_MS)
+   {
+      return;
+   }
+
+   uint32_t elapsed_ms = ble_tx_throughput_test_elapsed_ms(m_ble_tx_throughput_test.start_tick, now_tick);
+   uint32_t bytes_per_sec
+      = ble_tx_throughput_test_calculate_bytes_per_sec(m_ble_tx_throughput_test.bytes_confirmed, elapsed_ms);
+   uint32_t kilo_bytes_per_sec = ble_tx_throughput_test_calculate_kilo_bytes_per_sec(bytes_per_sec);
+   SEGGER_RTT_SetTerminal(2);
+   SEGGER_RTT_printf(0,
+                     "BLE throughput progress: elapsed=%u ms, bytes=%u, bytes_per_sec=%u, kilo_bytes_per_sec=%u\n",
+                     elapsed_ms,
+                     m_ble_tx_throughput_test.bytes_confirmed,
+                     bytes_per_sec,
+                     kilo_bytes_per_sec);
+   SEGGER_RTT_SetTerminal(0);
+   // DEBUG_INFO("BLE throughput progress: elapsed=%u ms, bytes=%u, bytes_per_sec=%u, kilo_bytes_per_sec=%u",
+   //            elapsed_ms,
+   //            m_ble_tx_throughput_test.bytes_confirmed,
+   //            bytes_per_sec,
+   //            kilo_bytes_per_sec);
+   m_ble_tx_throughput_test.last_progress_tick = now_tick;
+}
+
+static void ble_tx_throughput_test_finalize(void)
+{
+   uint32_t elapsed_ms
+      = ble_tx_throughput_test_elapsed_ms(m_ble_tx_throughput_test.start_tick, m_ble_tx_throughput_test.stop_tick);
+   if(elapsed_ms == 0u)
+   {
+      elapsed_ms = 1u;
+   }
+
+   uint32_t bytes_per_sec
+      = ble_tx_throughput_test_calculate_bytes_per_sec(m_ble_tx_throughput_test.bytes_confirmed, elapsed_ms);
+   uint32_t kilo_bytes_per_sec = ble_tx_throughput_test_calculate_kilo_bytes_per_sec(bytes_per_sec);
+   SEGGER_RTT_SetTerminal(2);
+   SEGGER_RTT_printf(0,
+                     "BLE throughput test result: payload=%u bytes, elapsed=%u ms, packets=%u, bytes=%u, "
+                     "bytes_per_sec=%u, kilo_bytes_per_sec=%u\n",
+                     m_ble_tx_throughput_test.payload_len,
+                     elapsed_ms,
+                     m_ble_tx_throughput_test.packets_confirmed,
+                     m_ble_tx_throughput_test.bytes_confirmed,
+                     bytes_per_sec,
+                     kilo_bytes_per_sec);
+   SEGGER_RTT_SetTerminal(0);
+
+   ret_code_t packet_err = ble_tx_throughput_test_send_control_packet(BLE_TX_THROUGHPUT_TEST_PACKET_RESULT,
+                                                                      elapsed_ms,
+                                                                      m_ble_tx_throughput_test.bytes_confirmed,
+                                                                      bytes_per_sec,
+                                                                      kilo_bytes_per_sec);
+   if((packet_err != NRF_SUCCESS) && (packet_err != NRF_ERROR_INVALID_STATE))
+   {
+      SEGGER_RTT_SetTerminal(2);
+      SEGGER_RTT_printf(0, "Failed to send BLE throughput result packet. Error: 0x%02X\n", packet_err);
+      SEGGER_RTT_SetTerminal(0);
+      // DEBUG_WARNING("Failed to send BLE throughput result packet. Error: %u", packet_err);
+   }
+
+   SEGGER_RTT_SetTerminal(2);
+   SEGGER_RTT_printf(0, "BLE throughput test complete. App TX is blocked until notifications are disabled.\n");
+   SEGGER_RTT_SetTerminal(0);
+
+   m_ble_tx_throughput_test.state = BLE_TX_THROUGHPUT_TEST_STATE_IDLE;
+}
+
+static void ble_tx_throughput_test_request_stop(void)
+{
+   if(BLE_TX_THROUGHPUT_TEST_STATE_RUNNING != m_ble_tx_throughput_test.state)
+   {
+      return;
+   }
+
+   m_ble_tx_throughput_test.stop_tick = app_timer_cnt_get();
+   m_ble_tx_throughput_test.state = BLE_TX_THROUGHPUT_TEST_STATE_DRAINING;
+
+   if(m_ble_tx_throughput_test.packets_confirmed >= m_ble_tx_throughput_test.packets_attempted)
+   {
+      ble_tx_throughput_test_finalize();
+   }
+}
+
+static void ble_tx_throughput_test_pump(void)
+{
+   if(BLE_TX_THROUGHPUT_TEST_STATE_RUNNING != m_ble_tx_throughput_test.state)
+   {
+      return;
+   }
+
+   if((BLE_CONN_HANDLE_INVALID == m_conn_handle) || !m_ble_tx_throughput_test.notifications_enabled)
+   {
+      ble_tx_throughput_test_request_stop();
+      return;
+   }
+
+   uint32_t now_tick = app_timer_cnt_get();
+   uint32_t elapsed_ms = ble_tx_throughput_test_elapsed_ms(m_ble_tx_throughput_test.start_tick, now_tick);
+   if(elapsed_ms >= BLE_TX_THROUGHPUT_TEST_DURATION_MS)
+   {
+      ble_tx_throughput_test_request_stop();
+      return;
+   }
+
+   while(BLE_TX_THROUGHPUT_TEST_STATE_RUNNING == m_ble_tx_throughput_test.state)
+   {
+      uint16_t payload_len = m_ble_tx_throughput_test.payload_len;
+      ble_gatts_hvx_params_t hvx_params = {0};
+      hvx_params.handle = m_cs.data_tx_handle.value_handle;
+      hvx_params.type = BLE_GATT_HVX_NOTIFICATION;
+      hvx_params.p_data = m_ble_tx_throughput_test_payload;
+      hvx_params.p_len = &payload_len;
+
+      ret_code_t err_code = sd_ble_gatts_hvx(m_conn_handle, &hvx_params);
+      if(NRF_SUCCESS == err_code)
+      {
+         m_ble_tx_throughput_test.packets_attempted++;
+         m_ble_tx_throughput_test.bytes_attempted += payload_len;
+      }
+      else if((NRF_ERROR_RESOURCES == err_code) || (NRF_ERROR_BUSY == err_code))
+      {
+         break;
+      }
+      else
+      {
+         SEGGER_RTT_SetTerminal(2);
+         SEGGER_RTT_printf(0, "BLE throughput test pump error: 0x%02X\n", err_code);
+         SEGGER_RTT_SetTerminal(0);
+         ble_tx_throughput_test_request_stop();
+         break;
+      }
+
+      // Reduce timer reads while still enforcing test duration.
+      if((m_ble_tx_throughput_test.packets_attempted & 0x1Fu) == 0u)
+      {
+         now_tick = app_timer_cnt_get();
+         elapsed_ms = ble_tx_throughput_test_elapsed_ms(m_ble_tx_throughput_test.start_tick, now_tick);
+         if(elapsed_ms >= BLE_TX_THROUGHPUT_TEST_DURATION_MS)
+         {
+            ble_tx_throughput_test_request_stop();
+         }
+      }
+   }
+}
+
+static void ble_tx_throughput_test_start(void)
+{
+   if((BLE_CONN_HANDLE_INVALID == m_conn_handle) || !m_ble_tx_throughput_test.notifications_enabled
+      || m_ble_tx_throughput_test.has_run_since_notify_enable
+      || (BLE_TX_THROUGHPUT_TEST_STATE_IDLE != m_ble_tx_throughput_test.state))
+   {
+      return;
+   }
+
+   uint16_t payload_len = m_ble_max_data_len;
+   if(payload_len == 0u)
+   {
+      payload_len = 1u;
+   }
+   if(payload_len > (uint16_t)sizeof(m_ble_tx_throughput_test_payload))
+   {
+      payload_len = (uint16_t)sizeof(m_ble_tx_throughput_test_payload);
+   }
+
+   for(uint16_t idx = 0; idx < payload_len; idx++)
+   {
+      m_ble_tx_throughput_test_payload[idx] = (uint8_t)(idx & 0xFFu);
+   }
+
+   m_ble_tx_throughput_test.state = BLE_TX_THROUGHPUT_TEST_STATE_RUNNING;
+   m_ble_tx_throughput_test.has_run_since_notify_enable = true;
+   m_ble_tx_throughput_test.payload_len = payload_len;
+   m_ble_tx_throughput_test.packets_attempted = 0u;
+   m_ble_tx_throughput_test.packets_confirmed = 0u;
+   m_ble_tx_throughput_test.bytes_attempted = 0u;
+   m_ble_tx_throughput_test.bytes_confirmed = 0u;
+   m_ble_tx_throughput_test.start_tick = app_timer_cnt_get();
+   m_ble_tx_throughput_test.stop_tick = m_ble_tx_throughput_test.start_tick;
+   m_ble_tx_throughput_test.last_progress_tick = m_ble_tx_throughput_test.start_tick;
+
+   SEGGER_RTT_SetTerminal(2);
+   SEGGER_RTT_printf(0,
+                     "BLE throughput test started: duration=%u ms, payload=%u bytes\n",
+                     BLE_TX_THROUGHPUT_TEST_DURATION_MS,
+                     payload_len);
+   SEGGER_RTT_SetTerminal(0);
+
+   ble_tx_throughput_test_pump();
+}
+
+static void ble_tx_throughput_test_on_notification_state_changed(bool notifications_enabled)
+{
+   m_ble_tx_throughput_test.notifications_enabled = notifications_enabled;
+
+   if(!notifications_enabled)
+   {
+      if(BLE_TX_THROUGHPUT_TEST_STATE_IDLE != m_ble_tx_throughput_test.state)
+      {
+         DEBUG_INFO("BLE throughput test stopped: notifications disabled.");
+      }
+      m_ble_tx_throughput_test.state = BLE_TX_THROUGHPUT_TEST_STATE_IDLE;
+      m_ble_tx_throughput_test.has_run_since_notify_enable = false;
+      return;
+   }
+
+   m_ble_tx_throughput_test.has_run_since_notify_enable = false;
+   ble_tx_throughput_test_start();
+}
+
+static void ble_tx_throughput_test_on_disconnect(void)
+{
+   if(BLE_TX_THROUGHPUT_TEST_STATE_IDLE != m_ble_tx_throughput_test.state)
+   {
+      DEBUG_INFO("BLE throughput test stopped: disconnected.");
+   }
+
+   m_ble_tx_throughput_test.state = BLE_TX_THROUGHPUT_TEST_STATE_IDLE;
+   m_ble_tx_throughput_test.notifications_enabled = false;
+   m_ble_tx_throughput_test.has_run_since_notify_enable = false;
+}
+
+static void ble_tx_throughput_test_on_hvn_tx_complete(uint16_t completed_packet_count)
+{
+   if(BLE_TX_THROUGHPUT_TEST_STATE_IDLE == m_ble_tx_throughput_test.state)
+   {
+      return;
+   }
+
+   m_ble_tx_throughput_test.packets_confirmed += completed_packet_count;
+   m_ble_tx_throughput_test.bytes_confirmed
+      += ((uint32_t)completed_packet_count * (uint32_t)m_ble_tx_throughput_test.payload_len);
+
+   if(BLE_TX_THROUGHPUT_TEST_STATE_RUNNING == m_ble_tx_throughput_test.state)
+   {
+      ble_tx_throughput_test_log_progress();
+
+      uint32_t now_tick = app_timer_cnt_get();
+      uint32_t elapsed_ms = ble_tx_throughput_test_elapsed_ms(m_ble_tx_throughput_test.start_tick, now_tick);
+      if(elapsed_ms >= BLE_TX_THROUGHPUT_TEST_DURATION_MS)
+      {
+         ble_tx_throughput_test_request_stop();
+      }
+      else
+      {
+         ble_tx_throughput_test_pump();
+      }
+   }
+
+   if((BLE_TX_THROUGHPUT_TEST_STATE_DRAINING == m_ble_tx_throughput_test.state)
+      && (m_ble_tx_throughput_test.packets_confirmed >= m_ble_tx_throughput_test.packets_attempted))
+   {
+      ble_tx_throughput_test_finalize();
+   }
+}
+#endif
+
 /***********************************************************************************************************************
  * Static non-interface function definitions
  **********************************************************************************************************************/
@@ -777,7 +1244,7 @@ static void cs_rx_data_handler(const uint8_t *p_data, uint16_t length)
 
    if(length > BLE_RX_PACKET_ELEMENT_SIZE)
    {
-      DEBUG_ERROR("BLE RX data handler received data length (%d) exceeding maximum MTU size (%d).",
+      DEBUG_ERROR("BLE RX data handler received data length (%u) exceeding maximum MTU size (%u).",
                   length,
                   BLE_RX_PACKET_ELEMENT_SIZE);
       return;
@@ -791,7 +1258,7 @@ static void cs_rx_data_handler(const uint8_t *p_data, uint16_t length)
 
    if(IS_ERR(result))
    {
-      DEBUG_ERROR("Failed to enqueue received BLE RX data into the queue. Result: %d", result);
+      DEBUG_ERROR("Failed to enqueue received BLE RX data into the queue. Result: %u", result);
    }
 
    return;
@@ -811,7 +1278,7 @@ static void stop_advertising_retry_timer_handler(void *p_context) // NOSONAR: p_
    ret_code_t err_code = NRF_SUCCESS;
    bool is_success = false;
 
-   DEBUG_INFO("Trying to stop advertising (Attempt %d/%d)...", retry_count + 1, STOP_ADVERTISING_MAX_RETRY_COUNT);
+   DEBUG_INFO("Trying to stop advertising (Attempt %u/%u)...", retry_count + 1, STOP_ADVERTISING_MAX_RETRY_COUNT);
 
    // Check if there are active connections. If so, wait for disconnection before
    // retrying
@@ -822,7 +1289,6 @@ static void stop_advertising_retry_timer_handler(void *p_context) // NOSONAR: p_
       {
          DEBUG_INFO("Advertising stopped successfully.");
          m_is_advertising = false;
-         m_is_pairing_allowed = false;
          retry_count = 0;
          is_success = true;
       }
@@ -833,7 +1299,7 @@ static void stop_advertising_retry_timer_handler(void *p_context) // NOSONAR: p_
       }
       else
       {
-         DEBUG_WARNING("Failed to stop advertising. Error: 0x%02X", err_code);
+         DEBUG_WARNING("Failed to stop advertising. Error: %u", err_code);
          retry_count++;
       }
    }
@@ -851,7 +1317,7 @@ static void stop_advertising_retry_timer_handler(void *p_context) // NOSONAR: p_
                                  NULL);
       if(err_code != NRF_SUCCESS)
       {
-         DEBUG_WARNING("Failed to start stop advertising timer. Error: 0x%02X", err_code);
+         DEBUG_WARNING("Failed to start stop advertising timer. Error: %u", err_code);
       }
    }
    else if(!is_success)
@@ -907,10 +1373,12 @@ static void connect_qwr_timeout_handler(void *p_context) // NOSONAR: p_context r
       }
       m_ble_status.is_connected = true;
       m_conn_handle = m_retry_conn_handle; // Store the connection handle globally
+      request_data_length_update(m_conn_handle);
+      request_preferred_phy_update(m_conn_handle);
    }
    else
    {
-      DEBUG_WARNING("Failed to assign QWR conn handle (retry %d). Error: 0x%02X", m_qwr_retry_count + 1, err_code);
+      DEBUG_WARNING("Failed to assign QWR conn handle (retry %u). Error: %u", m_qwr_retry_count + 1, err_code);
       m_qwr_retry_count++;
 
       if(m_qwr_retry_count <= FAILURE_MAX_RETRY_COUNT)
@@ -919,7 +1387,7 @@ static void connect_qwr_timeout_handler(void *p_context) // NOSONAR: p_context r
          err_code = app_timer_start(m_connect_qwr_retry_timer, APP_TIMER_TICKS(FAILURE_RETRY_DELAY_MS), NULL);
          if(err_code != NRF_SUCCESS)
          {
-            DEBUG_WARNING("Failed to restart QWR retry timer. Error: 0x%02X", err_code);
+            DEBUG_WARNING("Failed to restart QWR retry timer. Error: %u", err_code);
          }
       }
       else
@@ -951,13 +1419,13 @@ static void pairing_failed_handler(void)
 static void ble_advertising_error_handler(uint32_t nrf_error)
 {
    UNUSED_PARAMETER(nrf_error); // Unused if debug disabled
-   DEBUG_WARNING("Advertising failed with error code: %d", nrf_error);
+   DEBUG_WARNING("Advertising failed with error code: %u", nrf_error);
 }
 
 static void print_ble_gap_addr(const ble_gap_addr_t *addr)
 {
    UNUSED_PARAMETER(addr); // Unused if debug disabled
-   DEBUG_INFO("Address: %02X:%02X:%02X:%02X:%02X:%02X",
+   DEBUG_INFO("Address: %u:%u:%u:%u:%u:%u",
               addr->addr[5],
               addr->addr[4],
               addr->addr[3],
@@ -974,6 +1442,12 @@ void manual_whitelist_clear(void)
    DEBUG_INFO("Manual whitelist cleared.");
 }
 
+static void manual_whitelist_refresh(void)
+{
+   manual_whitelist_clear();
+   manual_whitelist_populate();
+}
+
 static void manual_whitelist_populate(void)
 {
    pm_peer_id_t peer_ids[MAX_BONDED_DEVICES];
@@ -983,7 +1457,7 @@ static void manual_whitelist_populate(void)
    err_code = pm_peer_id_list(peer_ids, &peer_id_count, PM_PEER_ID_INVALID, PM_PEER_ID_LIST_SKIP_NO_ID_ADDR);
    if(NRF_SUCCESS != err_code)
    {
-      DEBUG_ERROR("Failed pm_peer_id_list(), error: %d", err_code);
+      DEBUG_ERROR("Failed pm_peer_id_list(), error: %u", err_code);
    }
 
    m_whitelist_size = 0;
@@ -1000,7 +1474,7 @@ static void manual_whitelist_populate(void)
 
       if(NRF_SUCCESS != err_code)
       {
-         DEBUG_ERROR("Failed pm_peer_data_bonding_load(), error: %d", err_code);
+         DEBUG_ERROR("Failed pm_peer_data_bonding_load(), error: %u", err_code);
       }
 
       if(m_whitelist_size < MAX_BONDED_DEVICES)
@@ -1011,7 +1485,7 @@ static void manual_whitelist_populate(void)
       }
    }
 
-   DEBUG_INFO("Manual whitelist populated with %d devices.", m_whitelist_size);
+   DEBUG_INFO("Manual whitelist populated with %u devices.", m_whitelist_size);
 }
 
 static bool is_device_in_whitelist(const ble_gap_addr_t *addr)
@@ -1032,36 +1506,40 @@ static bool is_device_in_whitelist(const ble_gap_addr_t *addr)
 
 static void delete_all_peers_except(const pm_peer_id_t protected_peer_id)
 {
-   uint32_t peer_count = PM_PEER_ID_N_AVAILABLE_IDS;
-   pm_peer_id_t peer_ids[PM_PEER_ID_N_AVAILABLE_IDS];
-   bool is_valid_id = false;
-   ret_code_t err_code = 0;
-
    if(PM_PEER_ID_INVALID == protected_peer_id)
    {
       DEBUG_ERROR("Attempt to delete invalid peer ID!");
-   }
-   else
-   {
-      is_valid_id = true;
-      DEBUG_INFO("Deleting all peers except ID %u", protected_peer_id);
-
-      err_code = pm_peer_id_list(peer_ids, &peer_count, PM_PEER_ID_INVALID, PM_PEER_ID_LIST_SKIP_NO_ID_ADDR);
+      return;
    }
 
-   if((NRF_SUCCESS == err_code) && (is_valid_id))
+   uint32_t peer_count = PM_PEER_ID_N_AVAILABLE_IDS;
+   pm_peer_id_t peer_ids[PM_PEER_ID_N_AVAILABLE_IDS] = {0};
+   ret_code_t err_code = NRF_SUCCESS;
+   bool peer_list_valid = false;
+
+   DEBUG_INFO("Deleting all peers except ID %u", protected_peer_id);
+
+   err_code = pm_peer_id_list(peer_ids, &peer_count, PM_PEER_ID_INVALID, PM_PEER_ID_LIST_SKIP_NO_ID_ADDR);
+   if(NRF_SUCCESS != err_code)
    {
       DEBUG_ERROR("Unable to retrieve peer list: %u", err_code);
    }
-   else if(is_valid_id)
+   else
    {
-      for(uint32_t i = 0; i < peer_count; i++)
-      {
-         if(protected_peer_id != peer_ids[i])
+      peer_list_valid = true;
+   }
+
+   if(peer_list_valid)
+   {
+      for(uint32_t idx = 0u; idx < peer_count; idx++)
+         if(protected_peer_id != peer_ids[idx])
          {
-            pm_peer_delete(peer_ids[i]);
+            err_code = pm_peer_delete(peer_ids[idx]);
+            if(NRF_SUCCESS != err_code)
+            {
+               DEBUG_WARNING("Failed to delete peer ID %u. Error: %u", peer_ids[idx], err_code);
+            }
          }
-      }
    }
 }
 
@@ -1087,12 +1565,12 @@ static void pm_evt_handler(pm_evt_t const *p_evt)
          err_code = pm_conn_sec_status_get(p_evt->conn_handle, &conn_sec_status);
          if(NRF_SUCCESS != err_code)
          {
-            DEBUG_ERROR("Failed pm_conn_sec_status_get(), err_code %d", err_code);
+            DEBUG_ERROR("Failed pm_conn_sec_status_get(), err_code %u", err_code);
             break;
          }
 
-         DEBUG_INFO("Link security status:\n connected: %d\n encrypted: %d\n "
-                    "mitm_protected: %d\n bonded: %d\n lesc: %d",
+         DEBUG_INFO("Link security status:\n connected: %u\n encrypted: %u\n "
+                    "mitm_protected: %u\n bonded: %u\n lesc: %u",
                     conn_sec_status.connected,
                     conn_sec_status.encrypted,
                     conn_sec_status.mitm_protected,
@@ -1105,7 +1583,7 @@ static void pm_evt_handler(pm_evt_t const *p_evt)
             err_code = pm_peer_delete(m_peer_id);
             if(err_code != NRF_SUCCESS)
             {
-               DEBUG_WARNING("Failed to delete peer. Error: 0x%02X", err_code);
+               DEBUG_WARNING("Failed to delete peer. Error: %u", err_code);
             }
             ble_disconnect(p_evt->conn_handle, BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
          }
@@ -1137,7 +1615,7 @@ static void pm_evt_handler(pm_evt_t const *p_evt)
             not support it. How to handle this error is highly application dependent.
           */
 
-         DEBUG_WARNING("Connection security failed for conn_handle: %d", p_evt->conn_handle);
+         DEBUG_WARNING("Connection security failed for conn_handle: %u", p_evt->conn_handle);
       }
       break;
 
@@ -1153,12 +1631,14 @@ static void pm_evt_handler(pm_evt_t const *p_evt)
       case PM_EVT_PEERS_DELETE_SUCCEEDED:
       {
          DEBUG_INFO("PM_EVT_PEERS_DELETE_SUCCEEDED");
+         manual_whitelist_refresh();
+         m_is_whitelist_enabled = true;
       }
       break;
 
       case PM_EVT_PEER_DATA_UPDATE_FAILED:
       {
-         DEBUG_ERROR("Peer data update failed. Peer ID: %d, Error: 0x%02X",
+         DEBUG_ERROR("Peer data update failed. Peer ID: %u, Error: %u",
                      p_evt->peer_id,
                      p_evt->params.peer_data_update_failed.error);
          if(NRF_ERROR_STORAGE_FULL == p_evt->params.peer_data_update_failed.error)
@@ -1167,7 +1647,7 @@ static void pm_evt_handler(pm_evt_t const *p_evt)
             err_code = pm_peer_delete(p_evt->peer_id);
             if(err_code != NRF_SUCCESS)
             {
-               DEBUG_ERROR("Failed to delete peer. Error: 0x%02X", err_code);
+               DEBUG_ERROR("Failed to delete peer. Error: %u", err_code);
             }
          }
       }
@@ -1176,17 +1656,17 @@ static void pm_evt_handler(pm_evt_t const *p_evt)
       case PM_EVT_PEER_DELETE_FAILED:
       {
          DEBUG_WARNING(
-            "Peer deletion failed. Peer ID: %d, Error: 0x%02X", p_evt->peer_id, p_evt->params.peer_delete_failed.error);
+            "Peer deletion failed. Peer ID: %u, Error: %u", p_evt->peer_id, p_evt->params.peer_delete_failed.error);
 
          static uint8_t retry_count = 0;
          if(retry_count < FAILURE_MAX_RETRY_COUNT)
          {
             retry_count++;
-            DEBUG_WARNING("Retrying peer delete. Attempt: %d", retry_count);
+            DEBUG_WARNING("Retrying peer delete. Attempt: %u", retry_count);
             err_code = pm_peer_delete(p_evt->peer_id);
             if(err_code != NRF_SUCCESS)
             {
-               DEBUG_WARNING("Retry failed. Error: 0x%02X", err_code);
+               DEBUG_WARNING("Retry failed. Error: %u", err_code);
             }
          }
          else
@@ -1207,7 +1687,7 @@ static void pm_evt_handler(pm_evt_t const *p_evt)
 
       case PM_EVT_ERROR_UNEXPECTED:
       {
-         DEBUG_ERROR("Unexpected error in Peer Manager. Error: 0x%02X", p_evt->params.error_unexpected.error);
+         DEBUG_ERROR("Unexpected error in Peer Manager. Error: %u", p_evt->params.error_unexpected.error);
          APP_ERROR_CHECK(p_evt->params.error_unexpected.error);
       }
       break;
@@ -1220,8 +1700,7 @@ static void pm_evt_handler(pm_evt_t const *p_evt)
 
             // Update whitelist. The whitelist shall only contain the newest bonded
             // device credentials.
-            manual_whitelist_clear();
-            manual_whitelist_populate();
+            manual_whitelist_refresh();
 
             // Re-enable whitelist after successfully bonding to new device.
             m_is_whitelist_enabled = true;
@@ -1229,7 +1708,7 @@ static void pm_evt_handler(pm_evt_t const *p_evt)
          break;
       case PM_EVT_CONN_CONFIG_REQ:
       {
-         DEBUG_INFO("PM_EVT_CONN_SEC_CONFIG_REQ received. Conn handle: %d", p_evt->conn_handle);
+         DEBUG_INFO("PM_EVT_CONN_SEC_CONFIG_REQ received. Conn handle: %u", p_evt->conn_handle);
 
          pm_conn_sec_config_t conn_sec_config = {.allow_repairing = false}; // Default: disallow repairing
 
@@ -1263,6 +1742,8 @@ static void pm_evt_handler(pm_evt_t const *p_evt)
       break;
       case PM_EVT_PEER_DELETE_SUCCEEDED:
          DEBUG_INFO("PM_EVT_PEER_DELETE_SUCCEEDED");
+         manual_whitelist_refresh();
+         m_is_whitelist_enabled = true;
          break;
       case PM_EVT_LOCAL_DB_CACHE_APPLY_FAILED:
          DEBUG_ERROR("PM_EVT_LOCAL_DB_CACHE_APPLY_FAILED");
@@ -1281,7 +1762,7 @@ static void pm_evt_handler(pm_evt_t const *p_evt)
       case PM_EVT_FLASH_GARBAGE_COLLECTED:
       // Fallthrough
       default:
-         DEBUG_INFO("Unhandled Peer Manager event: %d", p_evt->evt_id);
+         DEBUG_INFO("Unhandled Peer Manager event: %u", p_evt->evt_id);
          break;
    }
 }
@@ -1296,29 +1777,150 @@ static void retry_timer_handler_gap_evt_phy_update(void *p_context) // NOSONAR: 
    }
 
    ble_gap_phys_t const phys = {
-      .rx_phys = BLE_GAP_PHY_AUTO,
-      .tx_phys = BLE_GAP_PHY_AUTO,
+      .rx_phys = PREFERRED_BLE_PHY,
+      .tx_phys = PREFERRED_BLE_PHY,
    };
 
-   static uint8_t retry_count = 0; // Retry counter
+   static uint8_t retry_count = 0u; // Retry counter
 
    ret_code_t err_code = sd_ble_gap_phy_update(m_conn_handle, &phys);
 
    if(NRF_SUCCESS == err_code)
    {
+      retry_count = 0u;
       DEBUG_INFO("PHY update retry succeeded.");
    }
    else if((NRF_ERROR_BUSY == err_code) && (retry_count < FAILURE_MAX_RETRY_COUNT))
    {
       retry_count++;
-      DEBUG_WARNING("Retrying PHY update (attempt %d).", retry_count);
-      app_timer_start(m_gap_evt_phy_update_retry_timer,
-                      APP_TIMER_TICKS(FAILURE_RETRY_DELAY_MS),
-                      NULL); // Re-pass conn_handle for next retry
+      DEBUG_WARNING("Retrying PHY update (attempt %u).", retry_count);
+      ret_code_t timer_err
+         = app_timer_start(m_gap_evt_phy_update_retry_timer, APP_TIMER_TICKS(FAILURE_RETRY_DELAY_MS), NULL);
+      if(timer_err != NRF_SUCCESS)
+      {
+         DEBUG_WARNING("Failed to start PHY retry timer. Error: %u", timer_err);
+      }
    }
    else
    {
-      DEBUG_ERROR("Failed to process PHY update after retries. Error: 0x%02X", err_code);
+      retry_count = 0u;
+      DEBUG_ERROR("Failed to process PHY update after retries. Error: %u", err_code);
+   }
+}
+
+static void retry_timer_handler_gap_evt_data_length_update(void *p_context) // NOSONAR: p_context required by SDK
+{
+   UNUSED_PARAMETER(p_context);
+
+   bool should_request_update = true;
+
+   if((BLE_CONN_HANDLE_INVALID == m_conn_handle) || (m_conn_handle != m_data_length_update_retry_conn_handle))
+   {
+      m_data_length_update_retry_count = 0;
+      m_data_length_update_retry_conn_handle = BLE_CONN_HANDLE_INVALID;
+      DEBUG_WARNING("Invalid connection handle for data length retry. Aborting retry.");
+      should_request_update = false;
+   }
+
+   if(should_request_update)
+   {
+      request_data_length_update(m_data_length_update_retry_conn_handle);
+   }
+}
+
+static void request_data_length_update(uint16_t conn_handle)
+{
+   if(conn_handle == BLE_CONN_HANDLE_INVALID)
+   {
+      m_data_length_update_retry_count = 0;
+      m_data_length_update_retry_conn_handle = BLE_CONN_HANDLE_INVALID;
+      return;
+   }
+
+   ret_code_t err_code = sd_ble_gap_data_length_update(conn_handle, NULL, NULL);
+   if(err_code == NRF_SUCCESS)
+   {
+      m_data_length_update_retry_count = 0;
+      m_data_length_update_retry_conn_handle = BLE_CONN_HANDLE_INVALID;
+      DEBUG_INFO("Data length update requested.");
+   }
+   else if(err_code == NRF_ERROR_BUSY)
+   {
+      m_data_length_update_retry_count = 0;
+      m_data_length_update_retry_conn_handle = BLE_CONN_HANDLE_INVALID;
+      DEBUG_INFO("Data length update request deferred. Error: %u", err_code);
+   }
+   else if(err_code == NRF_ERROR_INVALID_STATE)
+   {
+      if(m_data_length_update_retry_conn_handle != conn_handle)
+      {
+         m_data_length_update_retry_conn_handle = conn_handle;
+         m_data_length_update_retry_count = 0;
+      }
+
+      if(m_data_length_update_retry_count < FAILURE_MAX_RETRY_COUNT)
+      {
+         m_data_length_update_retry_count++;
+         DEBUG_INFO("Data length update deferred due to invalid state. Retrying (attempt %u).",
+                    m_data_length_update_retry_count);
+         ret_code_t timer_err
+            = app_timer_start(m_gap_evt_data_length_update_retry_timer, APP_TIMER_TICKS(FAILURE_RETRY_DELAY_MS), NULL);
+         if(timer_err != NRF_SUCCESS)
+         {
+            m_data_length_update_retry_count = 0;
+            m_data_length_update_retry_conn_handle = BLE_CONN_HANDLE_INVALID;
+            DEBUG_WARNING("Failed to start data length retry timer. Error: %u", timer_err);
+         }
+      }
+      else
+      {
+         m_data_length_update_retry_count = 0;
+         m_data_length_update_retry_conn_handle = BLE_CONN_HANDLE_INVALID;
+         DEBUG_WARNING("Data length update failed after retries. Error: %u", err_code);
+      }
+   }
+   else
+   {
+      m_data_length_update_retry_count = 0;
+      m_data_length_update_retry_conn_handle = BLE_CONN_HANDLE_INVALID;
+      DEBUG_WARNING("Failed to request data length update. Error: %u", err_code);
+   }
+}
+
+static void request_preferred_phy_update(uint16_t conn_handle)
+{
+   if(conn_handle == BLE_CONN_HANDLE_INVALID)
+   {
+      return;
+   }
+
+   ble_gap_phys_t const phys = {
+      .rx_phys = PREFERRED_BLE_PHY,
+      .tx_phys = PREFERRED_BLE_PHY,
+   };
+
+   ret_code_t err_code = sd_ble_gap_phy_update(conn_handle, &phys);
+   if(err_code == NRF_SUCCESS)
+   {
+      DEBUG_INFO("Preferred PHY update requested.");
+   }
+   else if(err_code == NRF_ERROR_BUSY)
+   {
+      m_conn_handle = conn_handle;
+      ret_code_t timer_err
+         = app_timer_start(m_gap_evt_phy_update_retry_timer, APP_TIMER_TICKS(FAILURE_RETRY_DELAY_MS), NULL);
+      if(timer_err != NRF_SUCCESS)
+      {
+         DEBUG_WARNING("Failed to start PHY retry timer. Error: %u", timer_err);
+      }
+   }
+   else if((err_code == NRF_ERROR_INVALID_STATE) || (err_code == NRF_ERROR_NOT_SUPPORTED))
+   {
+      DEBUG_INFO("Preferred PHY update not applied. Error: %u", err_code);
+   }
+   else
+   {
+      DEBUG_WARNING("Failed to request preferred PHY update. Error: %u", err_code);
    }
 }
 
@@ -1335,6 +1937,14 @@ static result_t ble_timers_init(void)
    {
       err_code = app_timer_create(
          &m_gap_evt_phy_update_retry_timer, APP_TIMER_MODE_SINGLE_SHOT, retry_timer_handler_gap_evt_phy_update);
+      UPDATE_IF_NRF_ERR(err_code, result, BLE_CONTROL_ERROR_NRF_ERROR);
+   }
+
+   if(IS_OK(result))
+   {
+      err_code = app_timer_create(&m_gap_evt_data_length_update_retry_timer,
+                                  APP_TIMER_MODE_SINGLE_SHOT,
+                                  retry_timer_handler_gap_evt_data_length_update);
       UPDATE_IF_NRF_ERR(err_code, result, BLE_CONTROL_ERROR_NRF_ERROR);
    }
 
@@ -1419,7 +2029,7 @@ static result_t gatt_init(void)
       err_code = nrf_ble_gatt_init(&m_gatt, gatt_evt_handler);
       if(NRF_SUCCESS != err_code)
       {
-         DEBUG_WARNING("Failed to initialize GATT. Retrying (attempt %d).", retry_count);
+         DEBUG_WARNING("Failed to initialize GATT. Retrying (attempt %u).", retry_count);
          retry_count++;
          nrf_delay_ms(FAILURE_RETRY_DELAY_MS);
       }
@@ -1474,6 +2084,9 @@ static void on_cs_evt(ble_cs_t *p_cs_service, ble_cs_evt_t *p_evt)
       case BLE_CS_EVT_NOTIFICATION_ENABLED:
       {
          DEBUG_INFO("SC: notifications enabled");
+#if(BLE_TX_THROUGHPUT_TEST_ENABLE == 1u)
+         ble_tx_throughput_test_on_notification_state_changed(true);
+#endif
       }
       break;
 
@@ -1481,6 +2094,9 @@ static void on_cs_evt(ble_cs_t *p_cs_service, ble_cs_evt_t *p_evt)
 
       {
          DEBUG_INFO("SC: notifications disabled");
+#if(BLE_TX_THROUGHPUT_TEST_ENABLE == 1u)
+         ble_tx_throughput_test_on_notification_state_changed(false);
+#endif
       }
       break;
 
@@ -1533,7 +2149,7 @@ static result_t services_init(void)
       err_code = ble_cs_init(&m_cs, &cs_init);
       if(NRF_SUCCESS != err_code)
       {
-         DEBUG_WARNING("BLE: Failed to initialize Custom Service (CS): %d", err_code);
+         DEBUG_WARNING("BLE: Failed to initialize Custom Service (CS): %u", err_code);
       }
       UPDATE_IF_NRF_ERR(err_code, result, BLE_CONTROL_ERROR_NRF_ERROR);
    }
@@ -1546,7 +2162,21 @@ static void on_conn_params_evt(ble_conn_params_evt_t *p_evt)
    RETURN_VOID_IF_NULL(p_evt);
    if(BLE_CONN_PARAMS_EVT_FAILED == p_evt->evt_type)
    {
-      ble_disconnect(p_evt->conn_handle, BLE_HCI_CONN_INTERVAL_UNACCEPTABLE);
+      DEBUG_WARNING("Connection parameter update rejected by peer (conn_handle=%u). "
+                    "Keeping link active with current parameters.",
+                    p_evt->conn_handle);
+
+      /**
+       * Intentional robustness behavior:
+       * - Do NOT disconnect when interval negotiation fails.
+       * - Continue communication using the peer-accepted parameters.
+       *
+       * Security note:
+       * - Connection parameter selection (interval/latency/timeout) is a performance
+       *   and power concern, not an authentication or encryption control.
+       * - Security requirements (bonding, MITM, encryption, whitelist/peer checks)
+       *   are enforced elsewhere and remain unchanged.
+       */
    }
 }
 
@@ -1554,7 +2184,7 @@ static void conn_params_error_handler(uint32_t nrf_error)
 {
    if(NRF_SUCCESS != nrf_error)
    {
-      DEBUG_ERROR("BLE_CONTROL_ERROR_ON_CONN_ERR_HANDLER. nrf_error %d", nrf_error);
+      DEBUG_ERROR("BLE_CONTROL_ERROR_ON_CONN_ERR_HANDLER. nrf_error %u", nrf_error);
    }
    APP_ERROR_HANDLER(nrf_error);
 }
@@ -1572,6 +2202,8 @@ static result_t conn_params_init(void)
    cp_init.next_conn_params_update_delay = NEXT_CONN_PARAMS_UPDATE_DELAY;
    cp_init.max_conn_params_update_count = MAX_CONN_PARAMS_UPDATE_COUNT;
    cp_init.start_on_notify_cccd_handle = BLE_GATT_HANDLE_INVALID;
+   // Robustness policy: keep a secure connection alive even if preferred QoS parameters are not accepted.
+   // Security is still enforced by GAP/PM security procedures and callbacks.
    cp_init.disconnect_on_fail = false;
    cp_init.evt_handler = on_conn_params_evt;
    cp_init.error_handler = conn_params_error_handler;
@@ -1589,30 +2221,35 @@ static void on_adv_evt(ble_adv_evt_t ble_adv_evt)
       case BLE_ADV_EVT_FAST:
       {
          DEBUG_INFO("Fast advertising.");
+         m_is_advertising = true;
       }
       break;
 
       case BLE_ADV_EVT_SLOW:
       {
          DEBUG_INFO("Slow advertising.");
+         m_is_advertising = true;
       }
       break;
 
       case BLE_ADV_EVT_FAST_WHITELIST:
       {
          DEBUG_INFO("Fast advertising with whitelist.");
+         m_is_advertising = true;
       }
       break;
 
       case BLE_ADV_EVT_SLOW_WHITELIST:
       {
          DEBUG_INFO("Slow advertising with whitelist.");
+         m_is_advertising = true;
       }
       break;
 
       case BLE_ADV_EVT_IDLE:
       {
          DEBUG_INFO("BLE_ADV_EVT_IDLE");
+         m_is_advertising = false;
       }
       break;
 
@@ -1644,7 +2281,7 @@ static void on_adv_evt(ble_adv_evt_t ble_adv_evt)
                   err_code = ble_advertising_peer_addr_reply(&m_advertising, p_peer_addr);
                   if(err_code != NRF_SUCCESS)
                   {
-                     DEBUG_ERROR("Failed to reply with peer address. Error: 0x%02X", err_code);
+                     DEBUG_ERROR("Failed to reply with peer address. Error: %u", err_code);
                   }
                }
                else
@@ -1654,7 +2291,7 @@ static void on_adv_evt(ble_adv_evt_t ble_adv_evt)
             }
             else
             {
-               DEBUG_WARNING("Failed to load bonding data for peer ID %d. Error: 0x%02X", m_peer_id, err_code);
+               DEBUG_WARNING("Failed to load bonding data for peer ID %u. Error: %u", m_peer_id, err_code);
             }
          }
          else
@@ -1702,7 +2339,7 @@ static void disconnect_retry_handler(void *p_context) // NOSONAR: p_context requ
          DEBUG_WARNING("Disconnect failed: Invalid connection handle.");
          break;
       case NRF_ERROR_INVALID_STATE:
-         DEBUG_WARNING("Disconnect failed: Invalid state. Retry attempt %d.", m_disconnect_retry_count + 1);
+         DEBUG_WARNING("Disconnect failed: Invalid state. Retry attempt %u.", m_disconnect_retry_count + 1);
 
          if(++m_disconnect_retry_count <= FAILURE_MAX_RETRY_COUNT)
          {
@@ -1711,7 +2348,7 @@ static void disconnect_retry_handler(void *p_context) // NOSONAR: p_context requ
                = app_timer_start(m_disconnect_retry_timer, APP_TIMER_TICKS(FAILURE_RETRY_DELAY_MS), NULL);
             if(timer_err != NRF_SUCCESS)
             {
-               DEBUG_WARNING("Failed to restart disconnect retry timer. Error: 0x%02X", timer_err);
+               DEBUG_WARNING("Failed to restart disconnect retry timer. Error: %u", timer_err);
             }
          }
          else
@@ -1722,7 +2359,7 @@ static void disconnect_retry_handler(void *p_context) // NOSONAR: p_context requ
          break;
 
       default:
-         DEBUG_WARNING("Unexpected error code: 0x%02X.", err_code);
+         DEBUG_WARNING("Unexpected error code: %u.", err_code);
          break;
    }
 }
@@ -1753,11 +2390,11 @@ static void ble_disconnect(uint16_t conn_handle, uint8_t hci_status_code)
             err_code = app_timer_start(m_disconnect_retry_timer, APP_TIMER_TICKS(FAILURE_RETRY_DELAY_MS), NULL);
             if(err_code != NRF_SUCCESS)
             {
-               DEBUG_WARNING("Failed to start disconnect retry timer. Error: 0x%02X", err_code);
+               DEBUG_WARNING("Failed to start disconnect retry timer. Error: %u", err_code);
             }
             break;
          default:
-            DEBUG_ERROR("BLE disconnect failed with error: 0x%02X.", err_code);
+            DEBUG_ERROR("BLE disconnect failed with error: %u.", err_code);
             break;
       }
    }
@@ -1808,8 +2445,19 @@ static void ble_evt_handler(ble_evt_t const *p_ble_evt, void *p_context)
             m_event_handlers.on_ble_connection_status_update(DEVICE_BLE_EVT_DISCONNECTED);
          }
          m_ble_status.is_connected = false;
+         m_is_advertising = false;
          // Reset connection handle
          m_conn_handle = BLE_CONN_HANDLE_INVALID;
+         m_data_length_update_retry_count = 0;
+         m_data_length_update_retry_conn_handle = BLE_CONN_HANDLE_INVALID;
+         ret_code_t timer_err = app_timer_stop(m_gap_evt_data_length_update_retry_timer);
+         if((timer_err != NRF_SUCCESS) && (timer_err != NRF_ERROR_INVALID_STATE))
+         {
+            DEBUG_WARNING("Failed to stop data length retry timer. Error: %u", timer_err);
+         }
+#if(BLE_TX_THROUGHPUT_TEST_ENABLE == 1u)
+         ble_tx_throughput_test_on_disconnect();
+#endif
       }
       break;
 
@@ -1819,17 +2467,14 @@ static void ble_evt_handler(ble_evt_t const *p_ble_evt, void *p_context)
          bool is_connection_allowed = true;
          bool is_connected_successful = false;
 
-         if(!m_is_pairing_allowed)
-         {
-            DEBUG_WARNING("Pairing not allowed. Disconnecting device.");
-            ble_disconnect(p_ble_evt->evt.gap_evt.conn_handle, BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
-            is_connection_allowed = false;
-         }
-         else
-         {
-            DEBUG_INFO("Device connected:");
-            print_ble_gap_addr(&p_ble_evt->evt.gap_evt.params.connected.peer_addr);
-         }
+         // Assign immediately so early MTU/GATT events for this connection can be matched.
+         // If the peer is rejected by policy checks below, disconnection is requested and this handle is cleared on
+         // BLE_GAP_EVT_DISCONNECTED.
+         m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
+         m_is_advertising = false;
+
+         DEBUG_INFO("Device connected:");
+         print_ble_gap_addr(&p_ble_evt->evt.gap_evt.params.connected.peer_addr);
 
          // Check whitelist
          if(is_connection_allowed && m_is_whitelist_enabled
@@ -1838,6 +2483,31 @@ static void ble_evt_handler(ble_evt_t const *p_ble_evt, void *p_context)
             DEBUG_WARNING("Device not in whitelist. Disconnecting.");
             ble_disconnect(p_ble_evt->evt.gap_evt.conn_handle, BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
             is_connection_allowed = false;
+         }
+
+         // During lockout, block only new (non-bonded) pairing attempts.
+         if(is_connection_allowed && !m_is_pairing_allowed
+            && !is_device_in_whitelist(&p_ble_evt->evt.gap_evt.params.connected.peer_addr))
+         {
+            DEBUG_WARNING("Pairing lockout active. Rejecting non-bonded peer.");
+            ble_disconnect(p_ble_evt->evt.gap_evt.conn_handle, BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
+            is_connection_allowed = false;
+         }
+
+         // Pairing mode should proactively start bonding as soon as a peer connects.
+         if(is_connection_allowed && !m_is_whitelist_enabled)
+         {
+            err_code = pm_conn_secure(p_ble_evt->evt.gap_evt.conn_handle, false);
+            if((NRF_SUCCESS != err_code) && (NRF_ERROR_BUSY != err_code) && (NRF_ERROR_INVALID_STATE != err_code))
+            {
+               DEBUG_WARNING("Failed to start pairing security on connect. Error: %u", err_code);
+               ble_disconnect(p_ble_evt->evt.gap_evt.conn_handle, BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
+               is_connection_allowed = false;
+            }
+            else
+            {
+               DEBUG_INFO("Pairing mode: security procedure started.");
+            }
          }
 
          if(is_connection_allowed)
@@ -1849,13 +2519,13 @@ static void ble_evt_handler(ble_evt_t const *p_ble_evt, void *p_context)
 
             if(err_code != NRF_SUCCESS)
             {
-               DEBUG_WARNING("Failed to assign QWR conn handle (initial attempt). Error: 0x%02X", err_code);
+               DEBUG_WARNING("Failed to assign QWR conn handle (initial attempt). Error: %u", err_code);
 
                // Start the retry timer
                err_code = app_timer_start(m_connect_qwr_retry_timer, APP_TIMER_TICKS(FAILURE_RETRY_DELAY_MS), NULL);
                if(err_code != NRF_SUCCESS)
                {
-                  DEBUG_WARNING("Failed to start QWR retry timer. Error: 0x%02X", err_code);
+                  DEBUG_WARNING("Failed to start QWR retry timer. Error: %u", err_code);
                }
             }
             else
@@ -1900,65 +2570,60 @@ static void ble_evt_handler(ble_evt_t const *p_ble_evt, void *p_context)
             }
             m_ble_status.is_connected = true;
             m_conn_handle = m_retry_conn_handle;
+            request_data_length_update(m_conn_handle);
+            request_preferred_phy_update(m_conn_handle);
          }
+      }
+      break;
+
+      case BLE_GAP_EVT_DATA_LENGTH_UPDATE_REQUEST:
+      {
+         ret_code_t err_code = sd_ble_gap_data_length_update(p_ble_evt->evt.gap_evt.conn_handle, NULL, NULL);
+         if(err_code != NRF_SUCCESS)
+         {
+            DEBUG_WARNING("Failed to handle data length update request. Error: %u", err_code);
+         }
+      }
+      break;
+
+      case BLE_GAP_EVT_DATA_LENGTH_UPDATE:
+      {
+         ble_gap_data_length_params_t const *effective
+            = &p_ble_evt->evt.gap_evt.params.data_length_update.effective_params;
+         DEBUG_INFO("Data length updated. tx_octets=%u rx_octets=%u tx_time_us=%u rx_time_us=%u",
+                    effective->max_tx_octets,
+                    effective->max_rx_octets,
+                    effective->max_tx_time_us,
+                    effective->max_rx_time_us);
       }
       break;
 
       case BLE_GAP_EVT_PHY_UPDATE_REQUEST:
       {
          DEBUG_INFO("PHY update request received.");
-
-         ble_gap_phys_t const phys = {
-            .rx_phys = BLE_GAP_PHY_AUTO,
-            .tx_phys = BLE_GAP_PHY_AUTO,
-         };
-
-         uint8_t retry_count = 0;
-         ret_code_t err_code;
-
-         do
-         {
-            err_code = sd_ble_gap_phy_update(p_ble_evt->evt.gap_evt.conn_handle, &phys);
-
-            if(NRF_SUCCESS == err_code)
-            {
-               DEBUG_INFO("PHY update initiated successfully.");
-               break;
-            }
-            else if(NRF_ERROR_BUSY == err_code)
-            {
-               DEBUG_WARNING("PHY update failed (NRF_ERROR_BUSY). Retrying...");
-               retry_count++;
-
-               // Start a timer to retry the PHY update after a delay.
-               m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
-               app_timer_start(m_gap_evt_phy_update_retry_timer, APP_TIMER_TICKS(FAILURE_RETRY_DELAY_MS), NULL);
-            }
-            else
-            {
-               DEBUG_WARNING("PHY update failed with error: 0x%02X", err_code);
-               break; // Stop retrying on non-transient errors
-            }
-         } while(retry_count < FAILURE_MAX_RETRY_COUNT);
-
-         if(err_code != NRF_SUCCESS)
-         {
-            DEBUG_ERROR("Failed to process PHY update after %d retries. Error: 0x%02X", retry_count, err_code);
-         }
+         request_preferred_phy_update(p_ble_evt->evt.gap_evt.conn_handle);
       }
       break;
 
       case BLE_GATTC_EVT_TIMEOUT:
       {
-         DEBUG_WARNING("GATT Client Timeout on conn_handle: %d.", p_ble_evt->evt.gattc_evt.conn_handle);
+         DEBUG_WARNING("GATT Client Timeout on conn_handle: %u.", p_ble_evt->evt.gattc_evt.conn_handle);
          ble_disconnect(p_ble_evt->evt.gattc_evt.conn_handle, BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
       }
       break;
 
       case BLE_GATTS_EVT_TIMEOUT:
       {
-         DEBUG_INFO("GATT Server Timeout on conn_handle: %d.", p_ble_evt->evt.gatts_evt.conn_handle);
+         DEBUG_INFO("GATT Server Timeout on conn_handle: %u.", p_ble_evt->evt.gatts_evt.conn_handle);
          ble_disconnect(p_ble_evt->evt.gatts_evt.conn_handle, BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
+      }
+      break;
+
+      case BLE_GATTS_EVT_HVN_TX_COMPLETE:
+      {
+#if(BLE_TX_THROUGHPUT_TEST_ENABLE == 1u)
+         ble_tx_throughput_test_on_hvn_tx_complete(p_ble_evt->evt.gatts_evt.params.hvn_tx_complete.count);
+#endif
       }
       break;
 
@@ -1975,7 +2640,7 @@ static void ble_evt_handler(ble_evt_t const *p_ble_evt, void *p_context)
 
             if(err_code != NRF_SUCCESS)
             {
-               DEBUG_WARNING("Failed to send pairing rejection. Error: 0x%02X", err_code);
+               DEBUG_WARNING("Failed to send pairing rejection. Error: %u", err_code);
             }
             break;
          }
@@ -1986,14 +2651,14 @@ static void ble_evt_handler(ble_evt_t const *p_ble_evt, void *p_context)
          if(IS_ERR(result))
          {
             DEBUG_ERROR(
-               "Failed to get BLE security parameters. unit %d, error %d", GET_ERR_UNIT(result), GET_ERR_CODE(result));
+               "Failed to get BLE security parameters. unit %u, error %u", GET_ERR_UNIT(result), GET_ERR_CODE(result));
          }
 
          ret_code_t err_code = sd_ble_gap_sec_params_reply(
             p_ble_evt->evt.gap_evt.conn_handle, BLE_GAP_SEC_STATUS_SUCCESS, &sec_params, NULL);
          if(err_code != NRF_SUCCESS)
          {
-            DEBUG_WARNING("Failed to reply to security parameters request. Error: 0x%02X", err_code);
+            DEBUG_WARNING("Failed to reply to security parameters request. Error: %u", err_code);
          }
          else
          {
@@ -2013,7 +2678,7 @@ static void ble_evt_handler(ble_evt_t const *p_ble_evt, void *p_context)
                = sd_ble_gap_auth_key_reply(p_ble_evt->evt.gap_evt.conn_handle, BLE_GAP_AUTH_KEY_TYPE_NONE, NULL);
             if(err_code != NRF_SUCCESS)
             {
-               DEBUG_WARNING("Failed to reject pairing request. Error: 0x%02X", err_code);
+               DEBUG_WARNING("Failed to reject pairing request. Error: %u", err_code);
             }
             break;
          }
@@ -2025,7 +2690,7 @@ static void ble_evt_handler(ble_evt_t const *p_ble_evt, void *p_context)
                p_ble_evt->evt.gap_evt.conn_handle, BLE_GAP_AUTH_KEY_TYPE_PASSKEY, m_bt_passkey);
             if(err_code != NRF_SUCCESS)
             {
-               DEBUG_WARNING("Failed to send passkey. Error: 0x%02X", err_code);
+               DEBUG_WARNING("Failed to send passkey. Error: %u", err_code);
 
                if(NRF_ERROR_BUSY == err_code)
                {
@@ -2048,8 +2713,8 @@ static void ble_evt_handler(ble_evt_t const *p_ble_evt, void *p_context)
 
       case BLE_GAP_EVT_AUTH_STATUS:
       {
-         DEBUG_INFO("BLE_GAP_EVT_AUTH_STATUS: status=0x%02X bond=0x%02X lv4: %d "
-                    "kdist_own:0x%02X kdist_peer:0x%02X",
+         DEBUG_INFO("BLE_GAP_EVT_AUTH_STATUS: status=%u bond=%u lv4: %u "
+                    "kdist_own:%u kdist_peer:%u",
                     p_ble_evt->evt.gap_evt.params.auth_status.auth_status,
                     p_ble_evt->evt.gap_evt.params.auth_status.bonded,
                     p_ble_evt->evt.gap_evt.params.auth_status.sm1_levels.lv4,
@@ -2069,6 +2734,14 @@ static void ble_evt_handler(ble_evt_t const *p_ble_evt, void *p_context)
          else
          {
             pairing_failed_handler();
+
+            if(!m_is_whitelist_enabled)
+            {
+               DEBUG_WARNING("Pairing failed in pairing mode. Restoring previous whitelist policy.");
+               m_is_whitelist_enabled = true;
+               manual_whitelist_refresh();
+               ble_disconnect(p_ble_evt->evt.gap_evt.conn_handle, BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
+            }
          }
       }
       break;
@@ -2083,7 +2756,7 @@ static result_t ble_stack_init(void)
 {
    ret_code_t err_code;
    result_t result = RESULT_OK;
-   uint32_t ram_start = 0;
+   uint32_t ram_start = 0u;
 
    err_code = nrf_sdh_enable_request();
    UPDATE_IF_NRF_ERR(err_code, result, BLE_CONTROL_ERROR_NRF_ERROR);
@@ -2145,7 +2818,7 @@ static result_t advertising_init(void)
    ble_advertising_init_t init;
    result_t result = RESULT_OK;
 
-   memset(&init, 0, sizeof(init));
+   memset(&init, 0u, sizeof(init));
 
    init.advdata.name_type = BLE_ADVDATA_FULL_NAME;
    init.advdata.include_appearance = false;
@@ -2156,7 +2829,7 @@ static result_t advertising_init(void)
    // Treat an all-zero first entry as “no advertised services” while keeping the placeholder array for future use.
    if((0u == m_adv_uuids[0].uuid) && (0u == m_adv_uuids[0].type))
    {
-      init.advdata.uuids_complete.uuid_cnt = 0;
+      init.advdata.uuids_complete.uuid_cnt = 0u;
       init.advdata.uuids_complete.p_uuids = NULL;
    }
    init.config.ble_adv_on_disconnect_disabled = false; // Automatically restart advertising on disconnect.
@@ -2187,7 +2860,7 @@ static result_t internal_advertising_start(bool allow_new_bond)
 {
    ret_code_t err_code;
 
-   uint8_t retry_count = 0;
+   uint8_t retry_count = 0u;
    result_t result = RESULT_OK;
 
    if(allow_new_bond)
@@ -2196,25 +2869,38 @@ static result_t internal_advertising_start(bool allow_new_bond)
 
       if(!m_is_advertising)
       {
-         do
+         if(BLE_CONN_HANDLE_INVALID == m_conn_handle)
          {
-            err_code = ble_advertising_start(&m_advertising, BLE_ADV_MODE_FAST);
+            do
+            {
+               err_code = ble_advertising_start(&m_advertising, BLE_ADV_MODE_FAST);
+               if(NRF_ERROR_INVALID_STATE == err_code)
+               {
+                  // Already advertising (or advertising start is already in progress).
+                  // Treat as success to keep start requests idempotent.
+                  DEBUG_INFO("General advertising already active.");
+                  err_code = NRF_SUCCESS;
+               }
+               else if(NRF_SUCCESS != err_code)
+               {
+                  DEBUG_WARNING("BLE_ADVERTISING_START failed: %u. Retrying...", err_code);
+                  retry_count++;
+                  nrf_delay_ms(FAILURE_RETRY_DELAY_MS);
+               }
+            } while((NRF_SUCCESS != err_code) && (retry_count <= FAILURE_MAX_RETRY_COUNT));
             if(NRF_SUCCESS != err_code)
             {
-               DEBUG_WARNING("BLE_ADVERTISING_START failed: 0x%02X. Retrying...", err_code);
-               retry_count++;
-               nrf_delay_ms(FAILURE_RETRY_DELAY_MS);
+               DEBUG_ERROR("BLE_ADVERTISING_START failed: %u", err_code);
             }
-         } while((NRF_SUCCESS != err_code) && (retry_count <= FAILURE_MAX_RETRY_COUNT));
-         if(NRF_SUCCESS != err_code)
-         {
-            DEBUG_ERROR("BLE_ADVERTISING_START failed: 0x%02X", err_code);
-         }
-         APP_ERROR_CHECK(err_code); // Reset device if advertising fails.
+            APP_ERROR_CHECK(err_code); // Reset device if advertising fails.
 
-         DEBUG_INFO("Starting general advertising.");
-         m_is_advertising = true;
-         m_is_pairing_allowed = true;
+            DEBUG_INFO("Starting general advertising.");
+            m_is_advertising = true;
+         }
+         else
+         {
+            DEBUG_INFO("Deferring general advertising start until disconnect.");
+         }
       }
    }
    else
@@ -2224,29 +2910,44 @@ static result_t internal_advertising_start(bool allow_new_bond)
       bool is_bonded = false;
       result = ble_control_get_bonded_status(&is_bonded);
 
-      DEBUG_INFO("Is bonded = %d", is_bonded);
+      DEBUG_INFO("Is bonded = %u", is_bonded);
 
       if((IS_OK(result)) && is_bonded && (!m_is_advertising))
       {
-         do
+         if(BLE_CONN_HANDLE_INVALID == m_conn_handle)
          {
-            err_code = ble_advertising_start(&m_advertising, BLE_ADV_MODE_FAST);
+            manual_whitelist_refresh();
+
+            do
+            {
+               err_code = ble_advertising_start(&m_advertising, BLE_ADV_MODE_FAST);
+               if(NRF_ERROR_INVALID_STATE == err_code)
+               {
+                  // Already advertising (or advertising start is already in progress).
+                  // Treat as success to keep start requests idempotent.
+                  DEBUG_INFO("Whitelist advertising already active.");
+                  err_code = NRF_SUCCESS;
+               }
+               else if(NRF_SUCCESS != err_code)
+               {
+                  DEBUG_WARNING("BLE_ADVERTISING_START failed: %u. Retrying...", err_code);
+                  retry_count++;
+                  nrf_delay_ms(FAILURE_RETRY_DELAY_MS);
+               }
+            } while((NRF_SUCCESS != err_code) && (retry_count <= FAILURE_MAX_RETRY_COUNT));
             if(NRF_SUCCESS != err_code)
             {
-               DEBUG_WARNING("BLE_ADVERTISING_START failed: 0x%02X. Retrying...", err_code);
-               retry_count++;
-               nrf_delay_ms(FAILURE_RETRY_DELAY_MS);
+               DEBUG_ERROR("BLE_ADVERTISING_START failed: %u", err_code);
             }
-         } while((NRF_SUCCESS != err_code) && (retry_count <= FAILURE_MAX_RETRY_COUNT));
-         if(NRF_SUCCESS != err_code)
-         {
-            DEBUG_ERROR("BLE_ADVERTISING_START failed: 0x%02X", err_code);
-         }
-         APP_ERROR_CHECK(err_code); // Reset device if advertising fails.
+            APP_ERROR_CHECK(err_code); // Reset device if advertising fails.
 
-         DEBUG_INFO("Starting whitelist advertising.");
-         m_is_advertising = true;
-         m_is_pairing_allowed = true;
+            DEBUG_INFO("Starting whitelist advertising.");
+            m_is_advertising = true;
+         }
+         else
+         {
+            DEBUG_INFO("Deferring whitelist advertising start until disconnect.");
+         }
       }
    }
    return result;
@@ -2313,8 +3014,7 @@ result_t ble_control_init(ble_control_t *const self,
 
    if(IS_OK(result))
    {
-      manual_whitelist_clear();
-      manual_whitelist_populate();
+      manual_whitelist_refresh();
 
       // Get the device MAC address and print it
       ble_gap_addr_t addr;

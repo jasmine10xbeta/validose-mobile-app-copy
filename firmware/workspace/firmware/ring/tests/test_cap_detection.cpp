@@ -27,11 +27,11 @@ extern "C"
  **********************************************************************************************************************/
 #define THIS_UNIT_ID SW_UNIT_ID_CAP_DETECTION_MODULE // Define unit ID for tagging errors
 
-#define PROX_THRESHHOLD  (4000u) // Example threshold value for cap ON state
+#define PROX_THRESHOLD   (4000u) // Example threshold value for cap ON state
 #define HYSTERESIS_VALUE (250u)  // Example hysteresis value
 
-#define CAP_ON_PROX_TEST_VALUE  (PROX_THRESHHOLD + HYSTERESIS_VALUE / 2 + 1)
-#define CAP_OFF_PROX_TEST_VALUE (PROX_THRESHHOLD - HYSTERESIS_VALUE / 2 - 1)
+#define CAP_ON_PROX_TEST_VALUE  (PROX_THRESHOLD + HYSTERESIS_VALUE / 2 + 1)
+#define CAP_OFF_PROX_TEST_VALUE (PROX_THRESHOLD - HYSTERESIS_VALUE / 2 - 1)
 
 #define NON_ZERO_PROX_TEST_VALUE (0x1234) // Arbitrary non-zero proximity value for testing
 
@@ -77,7 +77,7 @@ protected:
       ASSERT_EQ(result, RESULT_OK);
       ASSERT_EQ(test_prox_drv._is_initialized, true);
 
-      result = cap_detection_init(&test_cap_det, &test_prox_drv.interface, PROX_THRESHHOLD, HYSTERESIS_VALUE);
+      result = cap_detection_init(&test_cap_det, &test_prox_drv.interface, PROX_THRESHOLD, HYSTERESIS_VALUE);
       ASSERT_EQ(result, RESULT_OK);
       ASSERT_EQ(test_cap_det._is_initialized, true);
    }
@@ -102,19 +102,19 @@ TEST_F(CapDetectionTestSuit, cap_detection_init_test_invalid_parameters)
    result_t result = RESULT_OK;
 
    // Null self pointer
-   result = cap_detection_init(NULL, &test_prox_drv.interface, PROX_THRESHHOLD, HYSTERESIS_VALUE);
+   result = cap_detection_init(NULL, &test_prox_drv.interface, PROX_THRESHOLD, HYSTERESIS_VALUE);
    ASSERT_EQ(GET_ERR_UNIT(result), SW_UNIT_ID_CAP_DETECTION_MODULE);
    ASSERT_EQ(GET_ERR_CODE(result), CAP_MODULE_ERROR_PTR_NULL);
 
    // Null proximity interface pointer
-   result = cap_detection_init(&test_cap_det, NULL, PROX_THRESHHOLD, HYSTERESIS_VALUE);
+   result = cap_detection_init(&test_cap_det, NULL, PROX_THRESHOLD, HYSTERESIS_VALUE);
    ASSERT_EQ(GET_ERR_UNIT(result), SW_UNIT_ID_CAP_DETECTION_MODULE);
    ASSERT_EQ(GET_ERR_CODE(result), CAP_MODULE_ERROR_PTR_NULL);
 
    // Uninitialized proximity interface
    tmd2635_driver_t uninit_prox_drv = {0};
 
-   result = cap_detection_init(&test_cap_det, &uninit_prox_drv.interface, PROX_THRESHHOLD, HYSTERESIS_VALUE);
+   result = cap_detection_init(&test_cap_det, &uninit_prox_drv.interface, PROX_THRESHOLD, HYSTERESIS_VALUE);
    ASSERT_EQ(GET_ERR_UNIT(result), SW_UNIT_ID_CAP_DETECTION_MODULE);
    ASSERT_EQ(GET_ERR_CODE(result), CAP_MODULE_ERROR_PTR_NULL);
 }
@@ -129,7 +129,7 @@ TEST_F(CapDetectionTestSuit, cap_detection_init_test_prox_driver_failures)
    // Simulate I2C write failure during initialization
    mock_tmd2635_set_behavior_option(&test_prox_drv, MOCK_TMD2635_BEHAVIOR_OPTION_FAIL_I2C_WRITE, true);
 
-   result = cap_detection_init(&test_cap_det, &test_prox_drv.interface, PROX_THRESHHOLD, HYSTERESIS_VALUE);
+   result = cap_detection_init(&test_cap_det, &test_prox_drv.interface, PROX_THRESHOLD, HYSTERESIS_VALUE);
    ASSERT_EQ(GET_ERR_UNIT(result), SW_UNIT_ID_CAP_DETECTION_MODULE);
    ASSERT_EQ(GET_ERR_CODE(result), CAP_MODULE_ERROR_INIT_FAILURE);
    ASSERT_EQ(test_cap_det._is_initialized, false);
@@ -293,7 +293,7 @@ TEST_F(CapDetectionTestSuit, get_cap_status_test_cap_on_on_threshold)
    uint16_t prox = 0u;
 
    // Cap ON at threshold
-   mock_tmd2635_set_proximity_data(&test_prox_drv, PROX_THRESHHOLD + HYSTERESIS_VALUE);
+   mock_tmd2635_set_proximity_data(&test_prox_drv, PROX_THRESHOLD + HYSTERESIS_VALUE);
    mock_tmd2635_set_status_value(&test_prox_drv, TMD2635_STATUS_RESET);
 
    result = test_cap_det.interface.get_cap_status(&test_cap_det.interface, &cap_state, &prox);
@@ -468,7 +468,7 @@ TEST_F(CapDetectionTestSuit, get_cap_status_test_random_status_value)
  * This test verifies that the cap state only changes when the proximity data crosses the respective hysteresis
  * thresholds:
  * - If cap_state is CAP_STATE_CLOSED, it only changes to CAP_STATE_OPEN when prox < CAP_OFF_PROX_THRESHOLD.
- * - If cap_state is CAP_STATE_OPEN, it only changes to CAP_STATE_CLOSED when prox >= PROX_THRESHHOLD +
+ * - If cap_state is CAP_STATE_OPEN, it only changes to CAP_STATE_CLOSED when prox >= PROX_THRESHOLD +
  * HYSTERESIS_VALUE.
  */
 TEST_F(CapDetectionTestSuit, get_cap_status_test_hysteresis)
@@ -477,7 +477,7 @@ TEST_F(CapDetectionTestSuit, get_cap_status_test_hysteresis)
    CAP_STATE cap_state = CAP_STATE_UNKNOWN; // Start with cap_state = CAP_STATE_OPEN since prox = 0
    uint16_t prox = 0u;
 
-   // Sweep up: cap should only close when crossing PROX_THRESHHOLD + HYSTERESIS_VALUE
+   // Sweep up: cap should only close when crossing PROX_THRESHOLD + HYSTERESIS_VALUE
    for(uint16_t pdata = 0u; pdata <= PDATA_MAX_VALUE; pdata++)
    {
       mock_tmd2635_set_proximity_data(&test_prox_drv, pdata);
@@ -489,7 +489,7 @@ TEST_F(CapDetectionTestSuit, get_cap_status_test_hysteresis)
 
       if(cap_state == CAP_STATE_OPEN)
       {
-         if(pdata >= PROX_THRESHHOLD + HYSTERESIS_VALUE)
+         if(pdata >= PROX_THRESHOLD + HYSTERESIS_VALUE)
          {
             ASSERT_EQ(cap_state, CAP_STATE_CLOSED); // Should transition to CLOSED
          }
@@ -501,7 +501,7 @@ TEST_F(CapDetectionTestSuit, get_cap_status_test_hysteresis)
       else if(cap_state == CAP_STATE_CLOSED)
       {
          // Should only open if crossing below CAP_OFF_PROX_THRESHOLD
-         if(pdata < PROX_THRESHHOLD - HYSTERESIS_VALUE)
+         if(pdata < PROX_THRESHOLD - HYSTERESIS_VALUE)
          {
             ASSERT_EQ(cap_state, CAP_STATE_OPEN);
          }
@@ -525,7 +525,7 @@ TEST_F(CapDetectionTestSuit, get_cap_status_test_hysteresis)
 
       if(cap_state == CAP_STATE_CLOSED)
       {
-         if(pdata < PROX_THRESHHOLD - HYSTERESIS_VALUE)
+         if(pdata < PROX_THRESHOLD - HYSTERESIS_VALUE)
          {
             ASSERT_EQ(cap_state, CAP_STATE_OPEN); // Should transition to OPEN
          }
@@ -536,8 +536,8 @@ TEST_F(CapDetectionTestSuit, get_cap_status_test_hysteresis)
       }
       else if(cap_state == CAP_STATE_OPEN)
       {
-         // Should only close if crossing above PROX_THRESHHOLD + HYSTERESIS_VALUE
-         if(pdata >= PROX_THRESHHOLD + HYSTERESIS_VALUE)
+         // Should only close if crossing above PROX_THRESHOLD + HYSTERESIS_VALUE
+         if(pdata >= PROX_THRESHOLD + HYSTERESIS_VALUE)
          {
             ASSERT_EQ(cap_state, CAP_STATE_CLOSED);
          }
@@ -575,7 +575,7 @@ TEST_F(CapDetectionTestSuit, cap_detection_multiple_instance_isolation)
    ASSERT_EQ(prox_drv_2._is_initialized, true);
 
    // Initialize second cap detection module
-   result = cap_detection_init(&cap_det_2, &prox_drv_2.interface, PROX_THRESHHOLD, HYSTERESIS_VALUE);
+   result = cap_detection_init(&cap_det_2, &prox_drv_2.interface, PROX_THRESHOLD, HYSTERESIS_VALUE);
    ASSERT_EQ(result, RESULT_OK);
    EXPECT_EQ(cap_det_2._is_initialized, true);
 

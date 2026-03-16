@@ -164,4 +164,8 @@ clean:
 	rm -rf $(TEST_OUTPUT_DIR)
 	find ../ -name "*.gcda" -delete
 	find ../ -name "*.gcno" -delete
+	find ../../common -name "*.gcda" -delete
+	find ../../common -name "*.gcno" -delete
+	find ../../dock -name "*.gcda" -delete
+	find ../../dock -name "*.gcno" -delete
 	find ../ -name "*.o" -delete

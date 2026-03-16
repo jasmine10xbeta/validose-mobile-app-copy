@@ -108,12 +108,12 @@ void ring_replaced_result(void *const outputs)
  * @return true if the transition condition is met, false otherwise.
  *
  * This function checks if the ring is present, was previously present, and the maximum time (for the system to settle
- * after ring replacement) has elapsed.
+ * after ring replacement) has elapsed, or if best-sample sigma is below the early-settle threshold.
  */
 bool ring_settled_test(const void *const inputs)
 {
    const dsd_fsm_inputs_t *input = (const dsd_fsm_inputs_t *)inputs;
-   return ((input->is_ring_present) && (input->is_max_time_elapsed));
+   return ((input->is_ring_present) && (input->is_max_time_elapsed || input->is_sigma_below_best_threshold));
 }
 
 /**

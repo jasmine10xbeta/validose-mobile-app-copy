@@ -494,6 +494,24 @@ def _extract_ring_docked_status_from_push(packet: mp_structs.MpPacketPayload) ->
         }
     return None
 
+# Dock charger status extraction
+def _extract_dock_charge_status_from_push(packet: mp_structs.MpPacketPayload) -> Optional[dict]:
+    if (
+        int(packet.type) == int(mp_enums.PPI_TYPE.PPI_TYPE_PUSH)
+        and int(packet.ppi) == int(mp_enums.PPI_AD.PPI_AD_DOCK_CHARGE_STATUS)
+        and int(packet.pkt_payload_len) == int(mp_structs.DOCK_CHARGE_STATUS_T_SIZE_BYTES)
+    ):
+        payload = bytes(packet.payload[: packet.pkt_payload_len])
+        parsed = mp_structs.DockChargeStatus.from_buffer_copy(payload)
+        timestamp_unix_s = int(parsed.timestamp_unix_s)
+        charge_status = int(parsed.charge_status)
+        return {
+            "timestamp_unix_s": timestamp_unix_s,
+            "timestamp_utc": _format_timestamp_utc(timestamp_unix_s),
+            "charge_status": charge_status,
+            "charge_status_name": _battery_charge_status_name(charge_status),
+        }
+    return None
 
 def _extract_ring_status_from_push(packet: mp_structs.MpPacketPayload) -> Optional[dict]:
     if (
@@ -554,10 +572,13 @@ class PacketEvent:
     dock_battery_level_log: Optional[dict] = None
     ring_battery_level_log: Optional[dict] = None
     ring_docked_status: Optional[dict] = None
+    dock_charge_status: Optional[dict] = None
     unix_time: Optional[dict] = None
 
 
 class SimpleRuntimeMonitor:
+    # Add dock charger status points storage
+       
     def __init__(self, max_messages: int = _MAX_INCOMING_MESSAGES) -> None:
         self._host = os.getenv("MP_HIL_HOST", "localhost")
         self._port = int(os.getenv("MP_HIL_PORT", "5000"))
@@ -591,6 +612,9 @@ class SimpleRuntimeMonitor:
         )
         self._ring_docked_status_points: Deque[dict] = deque(
             maxlen=int(os.getenv("MP_MONITOR_MAX_RING_DOCKED_STATUS_POINTS", "2000"))
+        )
+        self._dock_charge_status_points: Deque[dict] = deque(
+            maxlen=int(os.getenv("MP_MONITOR_MAX_DOCK_CHARGER_STATUS_POINTS", "2000"))
         )
 
         self._logger = logging.getLogger("mp_monitor.runtime")
@@ -669,6 +693,9 @@ class SimpleRuntimeMonitor:
             ring_docked_status = _extract_ring_docked_status_from_push(packet)
             if ring_docked_status is not None:
                 self._ring_docked_status_points.append(dict(ring_docked_status))
+            dock_charge_status = _extract_dock_charge_status_from_push(packet)
+            if dock_charge_status is not None:
+                self._dock_charge_status_points.append(dict(dock_charge_status))      
             unix_time = _extract_time_from_response(packet)
             if unix_time is not None:
                 self._unix_time = _copy_time_dict(unix_time)
@@ -685,6 +712,7 @@ class SimpleRuntimeMonitor:
                 dock_battery_level_log,
                 ring_battery_level_log,
                 ring_docked_status,
+                dock_charge_status,
                 unix_time,
             )
             self._messages.append(event)
@@ -703,6 +731,7 @@ class SimpleRuntimeMonitor:
         dock_battery_level_log: Optional[dict],
         ring_battery_level_log: Optional[dict],
         ring_docked_status: Optional[dict],
+        dock_charge_status: Optional[dict],
         unix_time: Optional[dict],
     ) -> PacketEvent:
         payload = bytes(packet.payload[: packet.pkt_payload_len])
@@ -730,6 +759,7 @@ class SimpleRuntimeMonitor:
             dock_battery_level_log=dict(dock_battery_level_log) if dock_battery_level_log is not None else None,
             ring_battery_level_log=dict(ring_battery_level_log) if ring_battery_level_log is not None else None,
             ring_docked_status=dict(ring_docked_status) if ring_docked_status is not None else None,
+            dock_charge_status=dict(dock_charge_status) if dock_charge_status is not None else None,
             unix_time=_copy_time_dict(unix_time) if unix_time is not None else None,
         )
 
@@ -755,6 +785,7 @@ class SimpleRuntimeMonitor:
                 "dock_battery_level_points": [dict(point) for point in self._dock_battery_level_points],
                 "ring_battery_level_points": [dict(point) for point in self._ring_battery_level_points],
                 "ring_docked_status_points": [dict(point) for point in self._ring_docked_status_points],
+                "dock_charge_status_points": [dict(point) for point in self._dock_charge_status_points],
                 "dose_events": [_copy_dose_event_dict(event) for event in self._dose_events],
                 "weight_measurements": [_copy_weight_measurement_dict(event) for event in self._weight_measurements],
             }
@@ -824,6 +855,10 @@ class SimpleRuntimeMonitor:
     def get_ring_docked_status_points(self) -> list[dict]:
         with self._lock:
             return [dict(point) for point in self._ring_docked_status_points]
+
+    def get_dock_charge_status_points(self) -> list[dict]:
+        with self._lock:
+            return [dict(point) for point in self._dock_charge_status_points]
 
     def enqueue_dose_schedule_push(self, schedule: dict) -> bool:
         with self._lock:
@@ -975,6 +1010,12 @@ def api_get_weight_measurements():
 def api_get_ring_docked_status_points():
     monitor.ensure_started()
     return jsonify({"ring_docked_status_points": monitor.get_ring_docked_status_points()})
+
+
+@app.get("/api/dock_charge_status_points")
+def api_get_dock_charge_status_points():
+    monitor.ensure_started()
+    return jsonify({"dock_charge_status_points": monitor.get_dock_charge_status_points()})
 
 
 @app.post("/api/dose_schedule/update")

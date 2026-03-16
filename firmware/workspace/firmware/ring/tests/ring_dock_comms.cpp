@@ -425,8 +425,11 @@ TEST_F(RingDockComms, dock_ring_comms_test_update_time_on_drift_250ms_loop)
    result = run_process_loop_for_time(5000, 250u, true, false);
    ASSERT_EQ(RESULT_OK, result);
 
-   // Check that the RTC time is within 2 seconds of the ring time
-   ASSERT_NEAR(rtc_mock_ifc->parent->_epoch, mock_ring_data_manager._current_time_ms, 2000u);
+   // Check that the RTC unix time (seconds) is within 2 seconds of the ring time.
+   // The ring mock stores time in milliseconds, so convert to seconds before comparison.
+   ASSERT_NEAR((double)rtc_mock_ifc->parent->_epoch,
+               (double)(mock_ring_data_manager._current_time_ms / COMMON_1K_CST),
+               2.0);
 }
 
 /**
@@ -451,8 +454,11 @@ TEST_F(RingDockComms, dock_ring_comms_test_update_time_on_drift_1ms_loop)
    result = run_process_loop_for_time(5000u, 1u, true, false);
    ASSERT_EQ(RESULT_OK, result);
 
-   // Check that the RTC time is within 2 seconds of the ring time
-   ASSERT_NEAR(rtc_mock_ifc->parent->_epoch, mock_ring_data_manager._current_time_ms, 2000u);
+   // Check that the RTC unix time (seconds) is within 2 seconds of the ring time.
+   // The ring mock stores time in milliseconds, so convert to seconds before comparison.
+   ASSERT_NEAR((double)rtc_mock_ifc->parent->_epoch,
+               (double)(mock_ring_data_manager._current_time_ms / COMMON_1K_CST),
+               2.0);
 }
 
 /**

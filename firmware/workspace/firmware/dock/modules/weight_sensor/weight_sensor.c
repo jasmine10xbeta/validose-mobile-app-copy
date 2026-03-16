@@ -79,6 +79,7 @@ static result_t
    weight_sm_tick(weight_sensor_t *const self, uint64_t current_time_ms, int16_t temp_deciC, bool is_ring_present);
 static uint32_t int_sqrt(uint64_t value);
 static result_t calculate_sample_stddev_u16(int64_t sum, uint64_t sum2, uint32_t count, uint16_t *stddev_out);
+static result_t is_moving_average_stable(const weight_sensor_t *const p_self, bool *is_stable_out);
 static result_t reset_ma(weight_sensor_t *const p_self);
 static result_t ingest_adc_sample(weight_sensor_t *const p_self, int32_t adc_value);
 static result_t convert_adc_to_weight(weight_sensor_t *const p_self,
@@ -386,6 +387,37 @@ static result_t calculate_sample_stddev_u16(int64_t sum, uint64_t sum2, uint32_t
    return result;
 }
 
+/**
+ * @brief Determine whether the current ADC moving average is stable.
+ *
+ * @param[in] p_self Pointer to the weight sensor instance
+ * @param[out] is_stable_out Whether the moving average is stable and the moving average buffer is full.
+ *
+ * @return result_t RESULT_OK on success, or an error code
+ */
+static result_t is_moving_average_stable(const weight_sensor_t *const p_self, bool *is_stable_out)
+{
+   RETURN_ERR_IF_NULL(p_self, WEIGHT_SENSOR_ERROR_NULL_POINTER);
+   RETURN_ERR_IF_NULL(is_stable_out, WEIGHT_SENSOR_ERROR_NULL_POINTER);
+
+   *is_stable_out = false;
+
+   if(p_self->_adc_ma_count < WS_MOVING_AVERAGE_SAMPLES)
+   {
+      return RESULT_OK;
+   }
+
+   uint16_t stddev = 0u;
+   result_t result
+      = calculate_sample_stddev_u16(p_self->_adc_ma_sum, p_self->_adc_ma_sum2, p_self->_adc_ma_count, &stddev);
+   if(IS_OK(result))
+   {
+      *is_stable_out = (stddev <= WS_STABLE_STDDEV_THRESHOLD_RAW);
+   }
+
+   return result;
+}
+
 static result_t reset_ma(weight_sensor_t *const p_self)
 {
    RETURN_ERR_IF_NULL(p_self, WEIGHT_SENSOR_ERROR_NULL_POINTER);
@@ -506,6 +538,12 @@ static result_t
    int32_t adc_value = 0;
    uint16_t adc_stddev = 0u;
    bool adc_data_is_stale = false;
+
+   int32_t adc_value_out = 0;
+   uint16_t adc_stddev_out = 0u;
+   bool output_data_is_stale = false;
+   bool publish_output_data = true;
+
    int32_t weight_mg = 0;
    uint16_t stddev_mg = 0;
 
@@ -516,27 +554,67 @@ static result_t
       SET_ERR(result, WEIGHT_SENSOR_ERROR_ADC_DATA_STALE);
    }
 
+   if(IS_OK(result))
+   {
+      adc_value_out = adc_value;
+      adc_stddev_out = adc_stddev;
+
+      // If fast sampling, average over a window to reduce noise.
+      if(SAMPLING_FREQUENCY_FAST_RING_OFF_HZ == p_self->_current_sampling_frequency)
+      {
+         result = ingest_adc_sample(p_self, adc_value);
+         if(IS_OK(result))
+         {
+            adc_value_out = (int32_t)(p_self->_adc_ma_sum / (int64_t)p_self->_adc_ma_count);
+
+            if(p_self->_adc_ma_count >= 2u)
+            {
+               result = calculate_sample_stddev_u16(
+                  p_self->_adc_ma_sum, p_self->_adc_ma_sum2, p_self->_adc_ma_count, &adc_stddev_out);
+            }
+            else
+            {
+               adc_stddev_out = 0u;
+            }
+         }
+
+         if(IS_OK(result))
+         {
+            output_data_is_stale = (p_self->_adc_ma_count < WS_MOVING_AVERAGE_SAMPLES);
+         }
+      }
+   }
+
    // Convert ADC data to weight (if calibrated)
    if(IS_OK(result))
    {
-      result = convert_adc_to_weight(p_self, adc_value, adc_stddev, &weight_mg, &stddev_mg);
+      result = convert_adc_to_weight(p_self, adc_value_out, adc_stddev_out, &weight_mg, &stddev_mg);
    }
 
-   // Update output data
+   // Keep sampled raw ADC values and cadence bookkeeping current, regardless of output staleness.
    if(IS_OK(result))
    {
       p_self->_latest_adc_value = adc_value;
       p_self->_latest_adc_stddev = adc_stddev;
-
-      p_self->_latest_weight_data.weight_mg = weight_mg;
-      p_self->_latest_weight_data.stddev_mg = stddev_mg;
-      p_self->_latest_weight_data.time_ms = current_time_ms;
-      p_self->_latest_weight_data.is_ring_present = is_ring_present;
-      p_self->_latest_weight_data.temp_deciC = temp_deciC;
-
       p_self->_last_sample_time_ms = current_time_ms;
+   }
 
-      p_self->_is_weight_data_stale = false;
+   // Update reported weight data only when valid for publication.
+   if(IS_OK(result))
+   {
+      publish_output_data
+         = !((SAMPLING_FREQUENCY_FAST_RING_OFF_HZ == p_self->_current_sampling_frequency) && output_data_is_stale);
+
+      if(publish_output_data)
+      {
+         p_self->_latest_weight_data.weight_mg = weight_mg;
+         p_self->_latest_weight_data.stddev_mg = stddev_mg;
+         p_self->_latest_weight_data.time_ms = current_time_ms;
+         p_self->_latest_weight_data.is_ring_present = is_ring_present;
+         p_self->_latest_weight_data.temp_deciC = temp_deciC;
+      }
+
+      p_self->_is_weight_data_stale = output_data_is_stale;
 
       // Testing only: Todo: remove before production release - Start
       static uint64_t last_debug_time_ms = 0;
@@ -575,6 +653,7 @@ static result_t process(const weight_sensor_interface_t *interface, bool is_ring
    uint64_t current_time_ms = 0u;
    int16_t temp_deciC = 0;
    bool is_temp_stale = false; // unused
+   SAMPLING_FREQUENCY previous_sampling_frequency = p_self->_current_sampling_frequency;
 
    result_t result = p_systick_ifc->get_time_ms(p_systick_ifc, &current_time_ms);
 
@@ -599,6 +678,14 @@ static result_t process(const weight_sensor_interface_t *interface, bool is_ring
          // should not happen, but default to safe state
          p_self->_current_sampling_frequency = SAMPLING_FREQUENCY_SLOW_RING_ON_HZ;
          break;
+   }
+
+   // Reset the moving average and mark data as stale if we just switched to fast sampling
+   if((SAMPLING_FREQUENCY_FAST_RING_OFF_HZ == p_self->_current_sampling_frequency)
+      && (SAMPLING_FREQUENCY_FAST_RING_OFF_HZ != previous_sampling_frequency))
+   {
+      IF_OK_RUN_AND_UPDATE(result, reset_ma(p_self));
+      p_self->_is_weight_data_stale = true;
    }
 
    IF_OK_RUN_AND_UPDATE(result, weight_sm_tick(p_self, current_time_ms, temp_deciC, is_ring_present));
@@ -717,35 +804,24 @@ static result_t
       IF_OK_RUN_AND_UPDATE(result, reset_ma(p_self));
       if(IS_OK(result))
       {
+         p_self->_is_weight_data_stale = true;
          p_self->_last_calibration_sample_time_ms = 0u;
          p_self->_calibration_state = WEIGHT_SENSOR_CALIBRATION_STATE_ZEROING;
       }
    }
 
-   // Collect new samples
-   if(IS_OK(result) && (false == is_ring_present) && (p_self->_latest_weight_data.time_ms != 0)
+   // Consume only fresh non-stale samples from the shared sampling pipeline.
+   if(IS_OK(result) && (false == is_ring_present) && (false == p_self->_is_weight_data_stale)
+      && (p_self->_latest_weight_data.time_ms != 0u)
       && (p_self->_latest_weight_data.time_ms != p_self->_last_calibration_sample_time_ms))
    {
       p_self->_last_calibration_sample_time_ms = p_self->_latest_weight_data.time_ms;
 
-      // Collect stable samples for taring
-      if(p_self->_latest_adc_stddev <= WS_STABLE_STDDEV_THRESHOLD_RAW)
+      if(IS_OK(result))
       {
-         result = ingest_adc_sample(p_self, p_self->_latest_adc_value);
-      }
-      else
-      {
-         result = reset_ma(p_self);
-      }
-
-      // If moving average buffer is full
-      if(IS_OK(result) && p_self->_adc_ma_count >= WS_MOVING_AVERAGE_SAMPLES)
-      {
-         uint16_t stddev = 0u;
-         result
-            = calculate_sample_stddev_u16(p_self->_adc_ma_sum, p_self->_adc_ma_sum2, p_self->_adc_ma_count, &stddev);
-
-         if(IS_OK(result) && stddev <= WS_STABLE_STDDEV_THRESHOLD_RAW)
+         bool is_stable = false;
+         result = is_moving_average_stable(p_self, &is_stable);
+         if(IS_OK(result) && is_stable)
          {
             // Perform tare
             int32_t adc_ma = (int32_t)(p_self->_adc_ma_sum / (int64_t)p_self->_adc_ma_count);
@@ -819,13 +895,15 @@ static result_t try_calibrate_if_stable(const weight_sensor_interface_t *interfa
       IF_OK_RUN_AND_UPDATE(result, reset_ma(p_self));
       if(IS_OK(result))
       {
+         p_self->_is_weight_data_stale = true;
          p_self->_last_calibration_sample_time_ms = 0u;
          p_self->_calibration_state = WEIGHT_SENSOR_CALIBRATION_STATE_CALIBRATING;
       }
    }
 
-   // Collect new samples
-   if(IS_OK(result) && (false == is_ring_present) && (p_self->_latest_weight_data.time_ms != 0)
+   // Consume only fresh non-stale samples from the shared sampling pipeline.
+   if(IS_OK(result) && (false == is_ring_present) && (false == p_self->_is_weight_data_stale)
+      && (p_self->_latest_weight_data.time_ms != 0u)
       && (p_self->_latest_weight_data.time_ms != p_self->_last_calibration_sample_time_ms))
    {
       p_self->_last_calibration_sample_time_ms = p_self->_latest_weight_data.time_ms;
@@ -833,15 +911,15 @@ static result_t try_calibrate_if_stable(const weight_sensor_interface_t *interfa
       int64_t adc_delta = (int64_t)p_self->_latest_adc_value - (int64_t)p_self->_zero_offset;
       uint64_t adc_delta_abs = (adc_delta >= 0) ? (uint64_t)adc_delta : (uint64_t)(-adc_delta);
 
-      // Collect stable samples above the weight detection threshold
-      if((adc_delta_abs >= WS_WEIGHT_PRESENT_DETECTION_THRESHOLD_RAW)
-         && (p_self->_latest_adc_stddev <= WS_STABLE_STDDEV_THRESHOLD_RAW))
-      {
-         result = ingest_adc_sample(p_self, p_self->_latest_adc_value);
-      }
-      else
+      // Keep resetting MA until the signal crosses the weight-detection threshold.
+      // (MA ingestion is already handled by the normal sampling path.)
+      if(adc_delta_abs < WS_WEIGHT_PRESENT_DETECTION_THRESHOLD_RAW)
       {
          result = reset_ma(p_self);
+         if(IS_OK(result))
+         {
+            p_self->_is_weight_data_stale = true;
+         }
       }
 
       // If moving average buffer is full, weight detected
@@ -849,12 +927,11 @@ static result_t try_calibrate_if_stable(const weight_sensor_interface_t *interfa
       {
          *is_weight_detected = true;
 
-         uint16_t stddev = 0u;
-         result
-            = calculate_sample_stddev_u16(p_self->_adc_ma_sum, p_self->_adc_ma_sum2, p_self->_adc_ma_count, &stddev);
+         bool is_stable = false;
+         result = is_moving_average_stable(p_self, &is_stable);
 
          // If moving average is stable, calculate calibration factor
-         if(IS_OK(result) && stddev <= WS_STABLE_STDDEV_THRESHOLD_RAW)
+         if(IS_OK(result) && is_stable)
          {
             int32_t adc_ma = (int32_t)(p_self->_adc_ma_sum / (int64_t)p_self->_adc_ma_count);
             int64_t adc_ma_delta = (int64_t)adc_ma - (int64_t)p_self->_zero_offset;
@@ -926,9 +1003,7 @@ static result_t get_is_stable(const weight_sensor_interface_t *interface, bool *
    weight_sensor_t *const p_self = interface->parent;
    RETURN_ERR_IF_TRUE(false == p_self->_initialized, WEIGHT_SENSOR_ERROR_NOT_INITIALIZED);
 
-   *is_stable = (p_self->_latest_adc_stddev <= WS_STABLE_STDDEV_THRESHOLD_RAW);
-
-   return RESULT_OK;
+   return is_moving_average_stable(p_self, is_stable);
 }
 
 static result_t get_state(const weight_sensor_interface_t *interface,

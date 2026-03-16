@@ -26,10 +26,12 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_RING_MANAGER;
 /***********************************************************************************************************************
  * Definitions
  **********************************************************************************************************************/
-#define STATUS_POLL_INTERVAL_MS            (1000u)
-#define STATUS_STORAGE_RATE_LIMIT_S        (10u)
-#define PERMISSIBLE_RING_DRIFT_S           (2u)
-#define MINIMUM_PERMISSIBLE_SAMPLE_TIME_MS (500u)
+#define STATUS_POLL_INTERVAL_MS     (1000u)
+#define STATUS_STORAGE_RATE_LIMIT_S (10u)
+#define PERMISSIBLE_RING_DRIFT_S    (2u)
+
+#define CAP_DET_CONFIG_POLLING_TIME_MS     (120000u) // Poll the cap detection config for two minutes
+#define CAP_DET_CONFIG_POLLING_INTERVAL_MS (1000u)   // During the polling time, poll every 5 seconds
 
 /***********************************************************************************************************************
  * Types
@@ -44,7 +46,7 @@ static result_t get_ring_status(const ring_manager_interface_t *const ifc, statu
 static result_t process(const ring_manager_interface_t *const ifc, bool is_docked);
 static result_t get_cap_detection_status(const ring_manager_interface_t *const ifc, cap_detection_status_t *status);
 static result_t send_cap_detection_config_update(const ring_manager_interface_t *const ifc, cap_detection_cfg_t config);
-static result_t set_cap_detection_poll_period_ms(const ring_manager_interface_t *const ifc, uint16_t poll_period_ms);
+static result_t start_cap_detection_monitoring_interval(const ring_manager_interface_t *const ifc);
 
 // Non-interface functions
 /**
@@ -126,7 +128,7 @@ static result_t store_status_on_delta_and_timeout(const ring_manager_interface_t
 /***********************************************************************************************************************
  * Variables
  **********************************************************************************************************************/
-
+static uint32_t counter = 0;
 /***********************************************************************************************************************
  * Static non-interface function definitions
  **********************************************************************************************************************/
@@ -303,10 +305,6 @@ static result_t dispatch_by_ppi(const ring_manager_interface_t *ifc, mp_packet_p
    DATA_ID data_id = 0u;
    ring_status_t status = {0};
 
-   // Get the current unix time
-   uint32_t unix_time = 0u;
-   IF_OK_RUN_AND_UPDATE(result, self->_rtc_ifc->get_time_unix(self->_rtc_ifc, &unix_time));
-
    // Get the current systick time in ms
    uint64_t systick_ms = 0u;
    IF_OK_RUN_AND_UPDATE(result, self->_systick_ifc->get_time_ms(self->_systick_ifc, &systick_ms));
@@ -369,6 +367,10 @@ static result_t dispatch_by_ppi(const ring_manager_interface_t *ifc, mp_packet_p
             UPDATE_ERR_IF_TRUE(
                result, (sizeof(ring_status_t) != payload_len), RING_MANAGER_ERROR_INVALID_PAYLOAD_LENGTH);
 
+            // Get the current unix time
+            uint32_t unix_time = 0u;
+            IF_OK_RUN_AND_UPDATE(result, self->_rtc_ifc->get_time_unix(self->_rtc_ifc, &unix_time));
+
             if(IS_OK(result))
             {
                // Copy the status data from the payload
@@ -377,6 +379,10 @@ static result_t dispatch_by_ppi(const ring_manager_interface_t *ifc, mp_packet_p
                // Update the last status update with the new status and the current time
                self->_last_status_update.ring_status = status;
                self->_last_status_update.update_time_unix_s = unix_time;
+
+               SEGGER_RTT_SetTerminal(9);
+               SEGGER_RTT_printf(0, "[Ring Manager] Cap detection status; %d\n", status.cap_detection_status);
+               SEGGER_RTT_SetTerminal(0);
             }
 
             // Determine which pending commands should be set as pending based on the status of the ring.
@@ -388,15 +394,21 @@ static result_t dispatch_by_ppi(const ring_manager_interface_t *ifc, mp_packet_p
 
          case PPI_RD_CAP_DETECTION_CONFIG:
 
-            // Check that the payload length is valid - It should be equal to the size of cap_detection_status_t
-            UPDATE_ERR_IF_TRUE(
-               result, (sizeof(cap_detection_status_t) != payload_len), RING_MANAGER_ERROR_INVALID_PAYLOAD_LENGTH);
+            element_size = data_store[RING_MANAGER_DATA_ID_RING_CAP_DETECTION_STATUS].element_size;
+            element_count = payload_len / data_store[RING_MANAGER_DATA_ID_RING_CAP_DETECTION_STATUS].element_size;
+            data_id = data_store[RING_MANAGER_DATA_ID_RING_CAP_DETECTION_STATUS].id;
 
-            if(IS_OK(result))
-            {
-               // Copy the cap detection status data from the payload
-               memcpy(&self->_last_cap_detection_status, rx_packet->payload, sizeof(cap_detection_status_t));
-            }
+            // Check that the payload length is valid - There should be no remainder bytes when dividing by element size
+            UPDATE_ERR_IF_TRUE(result, (0 != (payload_len % element_size)), RING_MANAGER_ERROR_INVALID_PAYLOAD_LENGTH);
+
+            // Enqueue the received cap detection status data
+            IF_OK_RUN_AND_UPDATE(
+               result,
+               data_manager_ifc->enqueue(data_manager_ifc, data_id, rx_packet->payload, element_size, element_count));
+
+            size_t elements = 0u;
+            data_manager_ifc->get_element_count(data_manager_ifc, data_id, &elements);
+
             break;
 
          default:
@@ -426,37 +438,48 @@ static result_t handle_tx(const ring_manager_interface_t *ifc)
    RETURN_ERR_IF_INTERFACE_NULL(ifc, RING_MANAGER_ERROR_NULL_INTERFACE_PTR);
 
    result_t result = RESULT_OK;
+   ring_manager_t *self = ifc->parent;
 
    // Check if the status poll time has expired - If so, set the status update command as pending to trigger a new
    // status update from the ring
    uint64_t systick_ms = 0u;
-   IF_OK_RUN_AND_UPDATE(result, ifc->parent->_systick_ifc->get_time_ms(ifc->parent->_systick_ifc, &systick_ms));
+   IF_OK_RUN_AND_UPDATE(result, self->_systick_ifc->get_time_ms(self->_systick_ifc, &systick_ms));
 
-   if(ifc->parent->_last_status_request_systick_ms + (STATUS_POLL_INTERVAL_MS) < systick_ms && IS_OK(result))
+   if(self->_last_status_request_systick_ms + (STATUS_POLL_INTERVAL_MS) < systick_ms && IS_OK(result))
    {
-      ifc->parent->_last_status_request_systick_ms = systick_ms;
-      ifc->parent->_pending_commands[CMD_ID_REQ_STATUS_UPDATE].pending = true;
+      self->_last_status_request_systick_ms = systick_ms;
+      self->_pending_commands[CMD_ID_REQ_STATUS_UPDATE].pending = true;
    }
 
-   // Check if the cap detection status poll time has expired - If so, set the cap detection status request command as
-   // pending to trigger a new cap detection status update from the ring
-   // Note. The statement checks that the poll period is greater than 0 to allow for disabling of automatic polling
-   if(((ifc->parent->_last_cap_detection_status_systick_ms + ifc->parent->_cap_detection_poll_period_ms) < systick_ms)
-      && (ifc->parent->_cap_detection_poll_period_ms > 0u) && (IS_OK(result)))
+   // Check if the cap detection polling time has expired. If not then check if the poll interval has expired
+   if(self->_cap_det_status_polling_timeout > systick_ms)
    {
-      ifc->parent->_last_cap_detection_status_systick_ms = systick_ms;
-      ifc->parent->_pending_commands[CMD_ID_REQ_CAP_DETECTION_STATUS_DATA].pending = true;
+      // We are in the polling time so check if the polling interval has expired
+      if(self->_last_cap_det_status_rq_systick_ms + CAP_DET_CONFIG_POLLING_INTERVAL_MS < systick_ms && IS_OK(result))
+      {
+         counter++;
+
+         uint64_t delta = systick_ms - self->_last_cap_det_status_rq_systick_ms;
+
+         SEGGER_RTT_SetTerminal(9);
+         SEGGER_RTT_printf(
+            0, "[Ring Manager] Polling cap detection config. %u of 120. Delta %ums\n", counter, (uint32_t)delta);
+         SEGGER_RTT_SetTerminal(0);
+
+         self->_last_cap_det_status_rq_systick_ms = systick_ms;
+         self->_pending_commands[CMD_ID_REQ_CAP_DETECTION_STATUS_DATA].pending = true;
+      }
    }
 
    // Ensure that there is space to receive data for any pending data request commands
    IF_OK_RUN_AND_UPDATE(result, check_capacity_and_update_data_request_commands(ifc));
 
    // Update the timestamp for the set time command to ensure that the most recent time is sent in the command data
-   if(ifc->parent->_pending_commands[CMD_ID_UPDATE_TIME].pending && IS_OK(result))
+   if(self->_pending_commands[CMD_ID_UPDATE_TIME].pending && IS_OK(result))
    {
       uint32_t unix_time = 0u;
-      result = ifc->parent->_rtc_ifc->get_time_unix(ifc->parent->_rtc_ifc, &unix_time);
-      memcpy(ifc->parent->_pending_commands[CMD_ID_UPDATE_TIME].data, &unix_time, sizeof(unix_time));
+      result = self->_rtc_ifc->get_time_unix(self->_rtc_ifc, &unix_time);
+      memcpy(self->_pending_commands[CMD_ID_UPDATE_TIME].data, &unix_time, sizeof(unix_time));
    }
 
    if(IS_OK(result))
@@ -464,19 +487,19 @@ static result_t handle_tx(const ring_manager_interface_t *ifc)
       // Now the command queue is updated we can cycle through the commands and process the highest priority one.
       for(uint8_t idx = 0u; idx < CMD_ID_MAX && IS_OK(result); idx++)
       {
-         if(ifc->parent->_pending_commands[idx].pending)
+         if(self->_pending_commands[idx].pending)
          {
             mp_packet_payload_t packet = {0};
-            packet.type = ifc->parent->_pending_commands[idx].type;
-            packet.ppi = ifc->parent->_pending_commands[idx].ppi;
-            packet.pkt_payload_len = ifc->parent->_pending_commands[idx].data_length;
-            memcpy(packet.payload, ifc->parent->_pending_commands[idx].data, packet.pkt_payload_len);
+            packet.type = self->_pending_commands[idx].type;
+            packet.ppi = self->_pending_commands[idx].ppi;
+            packet.pkt_payload_len = self->_pending_commands[idx].data_length;
+            memcpy(packet.payload, self->_pending_commands[idx].data, packet.pkt_payload_len);
 
-            result = ifc->parent->_msg_prot_ifc->send(ifc->parent->_msg_prot_ifc, &packet);
+            result = self->_msg_prot_ifc->send(self->_msg_prot_ifc, &packet);
 
             if(IS_OK(result))
             {
-               ifc->parent->_pending_commands[idx].pending = false;
+               self->_pending_commands[idx].pending = false;
             }
             break; // Only process, or attempt to process one TX per call
          }
@@ -552,6 +575,11 @@ static result_t send_cap_detection_config_update(const ring_manager_interface_t 
 {
    RETURN_ERR_IF_INTERFACE_NULL(ifc, RING_MANAGER_ERROR_NULL_INTERFACE_PTR);
 
+   SEGGER_RTT_SetTerminal(9);
+   SEGGER_RTT_printf(0, "[Ring Manager] Sending updated cap detection config\n");
+   SEGGER_RTT_printf(0, "[Ring Manager] Threshhold: %d, Hysteresis: %d\n", config.threshold, config.hysteresis);
+   SEGGER_RTT_SetTerminal(0);
+
    ifc->parent->_pending_commands[CMD_ID_UPDATE_CAP_DETECTION_CONFIG].pending = true;
    memcpy(ifc->parent->_pending_commands[CMD_ID_UPDATE_CAP_DETECTION_CONFIG].data, &config, sizeof(config));
 
@@ -568,25 +596,21 @@ static result_t get_cap_detection_status(const ring_manager_interface_t *const i
    return RESULT_OK;
 }
 
-static result_t set_cap_detection_poll_period_ms(const ring_manager_interface_t *const ifc, uint16_t poll_period_ms)
+static result_t start_cap_detection_monitoring_interval(const ring_manager_interface_t *const ifc)
 {
    RETURN_ERR_IF_INTERFACE_NULL(ifc, RING_MANAGER_ERROR_NULL_INTERFACE_PTR);
 
-   // Clamp the poll period to a minimum of 500ms to prevent congestion on the nfc link
-   if(poll_period_ms == 0u)
-   {
-      ifc->parent->_cap_detection_poll_period_ms = 0u;
-   }
-   else if(poll_period_ms < MINIMUM_PERMISSIBLE_SAMPLE_TIME_MS)
-   {
-      DEBUG_WARNING("[RING_MANAGER] Cap detection poll period too low - Clamping to 500ms");
-      ifc->parent->_cap_detection_poll_period_ms = MINIMUM_PERMISSIBLE_SAMPLE_TIME_MS;
-   }
-   else
-   {
-      ifc->parent->_cap_detection_poll_period_ms = poll_period_ms;
-   }
-   return RESULT_OK;
+   counter = 0;
+
+   result_t result = RESULT_OK;
+
+   // Get the current systick time in ms
+   uint64_t systick_ms = 0u;
+   IF_OK_RUN_AND_UPDATE(result, ifc->parent->_systick_ifc->get_time_ms(ifc->parent->_systick_ifc, &systick_ms));
+
+   ifc->parent->_cap_det_status_polling_timeout = systick_ms + CAP_DET_CONFIG_POLLING_TIME_MS;
+
+   return result;
 }
 
 /***********************************************************************************************************************
@@ -615,7 +639,7 @@ result_t ring_manager_init(ring_manager_t *const self,
    self->interface.get_cap_detection_status = get_cap_detection_status;
    self->interface.send_cap_detection_config_update = send_cap_detection_config_update;
    self->interface.update_battery_sample_freq = update_battery_sample_freq;
-   self->interface.set_cap_detection_poll_period_ms = set_cap_detection_poll_period_ms;
+   self->interface.start_cap_detection_monitoring_interval = start_cap_detection_monitoring_interval;
    self->interface.get_ring_status = get_ring_status;
    self->interface.process = process;
 
@@ -693,13 +717,23 @@ result_t ring_manager_init(ring_manager_t *const self,
    };
    memcpy(&_data_stores[RING_MANAGER_DATA_ID_RING_BATTERY_LEVEL], &battery_store, sizeof(data_store_t));
 
+   IF_OK_RUN_AND_UPDATE(
+      result, dock_data_manager_ifc->get_element_size(dock_data_manager_ifc, DATA_ID_CAP_DETECTION_STATUS, &size));
+   data_store_t cap_detection_status_store = {
+      .id = DATA_ID_CAP_DETECTION_STATUS,
+      .element_size = (uint16_t)size,
+      .associated_command_id = CMD_ID_REQ_CAP_DETECTION_STATUS_DATA,
+   };
+   memcpy(
+      &_data_stores[RING_MANAGER_DATA_ID_RING_CAP_DETECTION_STATUS], &cap_detection_status_store, sizeof(data_store_t));
+
    // Initialize last status update
    self->_last_status_update.update_time_unix_s = 0u;
    self->_last_status_update.ring_status = (ring_status_t){0};
 
    // Initialize last cap detection status update
-   self->_cap_detection_poll_period_ms = 0u; // Default to no automatic polling
-   self->_last_cap_detection_status_systick_ms = 0u;
+   self->_cap_det_status_polling_timeout = 0u; // Default to no automatic polling
+   self->_last_cap_det_status_rq_systick_ms = 0u;
    self->_last_cap_detection_status = (cap_detection_status_t){0};
 
    // Initialize last stored status

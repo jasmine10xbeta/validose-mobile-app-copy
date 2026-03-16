@@ -68,8 +68,8 @@ typedef struct weight_sensor
    uint64_t _ring_replaced_time_ms; /**< Timestamp when ring was replaced, used for debounce logic (ms) */
 
    // Latest sample
-   int32_t _latest_adc_value;         /**< ADC value used to compute the latest weight data */
-   uint16_t _latest_adc_stddev;       /**< ADC standard deviation value used to compute the latest weight data */
+   int32_t _latest_adc_value;         /**< Latest raw ADC value reported by the ADS1235 driver */
+   uint16_t _latest_adc_stddev;       /**< Latest raw ADC standard deviation reported by the ADS1235 driver */
    weight_data_t _latest_weight_data; /**< Latest weight data sample */
    bool _is_weight_data_stale;    /** Whether the latest weight data is stale and needs to be updated by process() */
    uint64_t _last_sample_time_ms; /**< Timestamp of last sample, used to determine when to take the next sample (ms) */

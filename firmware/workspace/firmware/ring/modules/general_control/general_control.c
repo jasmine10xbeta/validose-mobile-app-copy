@@ -88,6 +88,7 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_GENERAL_CONTROL_RING;
 #define SYSTICK_BLE_PAIRING_TIMEOUT_MS (1000u * 60 * 2)
 #define BLE_PAIR_PRIMING_TIMEOUT_MS    (3000u)
 #define INIT_SYSTICK_PERIOD_MS         (20u) // Initial systick period during initialization.
+#define MAX_CAP_OFF_PERIOD_MS          (1000u * 60 * 10u)
 
 /**
  * Systick period and sleep periods: To conserve power, the device will generally use a lower systick tick rate and
@@ -122,6 +123,9 @@ static const uint8_t THIS_UNIT_ID = (uint8_t)SW_UNIT_ID_GENERAL_CONTROL_RING;
 #define BATTERY_QUEUE_DEPTH (200u)
 #define ERROR_QUEUE_DEPTH   (250u)
 #define DOSE_QUEUE_SLOTS    (4u) // Number of wear levelling slots for the dose queue metadata
+
+#define DEFAULT_CAP_DETECTION_HYSTERESIS (150u)  // Default hysteresis value for cap detection
+#define DEFAULT_CAP_DETECTION_THRESHOLD  (5000u) // Default threshold for cap detection
 
 /**********************************************************************************************************************
  * Types
@@ -849,6 +853,28 @@ static void implement_control_loop(void)
       m_flag.is_cap_removed = (cap_state == CAP_STATE_OPEN);
       ON_ERR_DEBUG_ERROR(result, "Failed to get cap status!");
 
+      // Raise an error once if the cap is off for too long
+      result = m_systick.interface.get_time_ms(&m_systick.interface, &current_systick_ms);
+      ON_ERR_DEBUG_ERROR(result, "Failed to get systick time!");
+
+      static bool has_raised_cap_error = false;
+      static uint64_t cap_removed_start_time_ms = 0u;
+      if(m_flag.is_cap_removed && !has_raised_cap_error)
+      {
+         if(current_systick_ms - cap_removed_start_time_ms > MAX_CAP_OFF_PERIOD_MS)
+         {
+            DEBUG_ERROR("Cap has been removed for more than %d seconds. Raising cap error.",
+                        MAX_CAP_OFF_PERIOD_MS / COMMON_1K_CST);
+
+            has_raised_cap_error = true;
+         }
+      }
+      else if(!m_flag.is_cap_removed)
+      {
+         has_raised_cap_error = false;
+         cap_removed_start_time_ms = current_systick_ms;
+      }
+
       // Update the battery status
       result = m_battery.interface.get_battery_status(&m_battery.interface, &battery);
       ON_ERR_DEBUG_ERROR(result, "Failed to get battery status!");
@@ -1061,9 +1087,9 @@ result_t general_control_init(void)
    uint16_t stored_threshold = 0u;
    uint16_t stored_hysteresis = 0u;
 
-#define TEST_HARDCODE_CAP_DETECTION_CONFIG
+// #define TEST_HARDCODE_CAP_DETECTION_CONFIG
 #ifdef TEST_HARDCODE_CAP_DETECTION_CONFIG
-   stored_threshold = 11000u;
+   stored_threshold = 7000u;
    stored_hysteresis = 1000u;
 #else
 
@@ -1074,6 +1100,23 @@ result_t general_control_init(void)
                         m_fds_manager.interface.retrieve_uint16_t(
                            &m_fds_manager.interface, RECORD_ID_CAP_DETECTION_HYSTERESIS, &stored_hysteresis));
 #endif
+
+   // @todo add input validation for retrieved values and use defaults if invalid
+   if(stored_threshold == 0u)
+   {
+      stored_threshold = DEFAULT_CAP_DETECTION_THRESHOLD;
+      IF_OK_RUN_AND_UPDATE(result,
+                           m_fds_manager.interface.store_uint16_t(
+                              &m_fds_manager.interface, RECORD_ID_CAP_DETECTION_THRESHOLD, stored_threshold));
+   }
+
+   if((stored_hysteresis > stored_threshold) || (stored_hysteresis == 0u))
+   {
+      stored_hysteresis = DEFAULT_CAP_DETECTION_HYSTERESIS;
+      IF_OK_RUN_AND_UPDATE(result,
+                           m_fds_manager.interface.store_uint16_t(
+                              &m_fds_manager.interface, RECORD_ID_CAP_DETECTION_HYSTERESIS, stored_hysteresis));
+   }
 
    IF_OK_RUN_AND_UPDATE(result,
                         cap_detection_init(&m_cap_detect, &(m_prox.interface), stored_threshold, stored_hysteresis));

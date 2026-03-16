@@ -24,9 +24,8 @@ MEDICATION_NFC_ID_SIZE_BYTES = 10
 RING_NFC_ID_SIZE_BYTES = 10
 VALIDATE_MED_RESPONSE_T_SIZE_BYTES = 1
 DOCK_CHARGE_STATUS_T_SIZE_BYTES = 5
-CAP_DETECTION_SAMPLE_RATE_SIZE_BYTES = 2
 CAP_DETECTION_CONFIG_SIZE_BYTES = 4
-CAP_DETECTION_STATUS_T_SIZE_BYTES = 15
+CAP_DETECTION_STATUS_T_SIZE_BYTES = 7
 
 MAX_SUPPORTED_VARARGS = 6
 RAW_DEBUG_LOG_T_SIZE_BYTES = 8 + (MAX_SUPPORTED_VARARGS * 4)
@@ -195,27 +194,19 @@ class DockWeightMeasurement(ctypes.Structure):
         ("timestamp_unix_s", ctypes.c_uint32),
     ]
 
-class CapDetectionSampleRate(ctypes.Structure):
-    _pack_ = 1
-    _fields_ = [
-        ("polling_period_ms", ctypes.c_uint16),
-    ]
-
 class CapDetectionStatus(ctypes.Structure):
     _pack_ = 1
     _fields_ = [
-        ("config_threshhold", ctypes.c_uint16),
+        ("config_threshold", ctypes.c_uint16),
         ("config_hysteresis", ctypes.c_uint16),
         ("prox_value", ctypes.c_uint16),
         ("is_cap_closed", ctypes.c_uint8),
-        ("timestamp_unix_s", ctypes.c_uint32),
-        ("poll_period_ms", ctypes.c_uint32),
     ]
 
 class CapDetectionConfig(ctypes.Structure):
     _pack_ = 1
     _fields_ = [
-        ("threshhold", ctypes.c_uint16),
+        ("threshold", ctypes.c_uint16),
         ("hysteresis", ctypes.c_uint16),
     ]
 class DockChargeStatus(ctypes.Structure):

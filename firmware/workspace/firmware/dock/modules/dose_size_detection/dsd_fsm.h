@@ -93,6 +93,7 @@ typedef struct
    bool is_ring_present;         /**< Whether the ring is currently present on the dock */
    bool got_valid_weight_sample; /**< Whether a valid sample was obtained the previous cycle */
    bool is_max_time_elapsed;     /**< Whether the maximum wait time for a stable measurement has elapsed */
+   bool is_sigma_below_best_threshold; /**< Whether best sample sigma is below early-settle threshold */
    bool is_dose_size_computed;   /**< Whether the dose size has been computed after ring replacement */
 } dsd_fsm_inputs_t;
 

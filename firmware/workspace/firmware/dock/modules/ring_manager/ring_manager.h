@@ -66,7 +66,7 @@ typedef enum
    RING_MANAGER_DATA_ID_DOSE_EVENT = 0,
    RING_MANAGER_DATA_ID_RING_DEBUG_LOG_DATA,
    RING_MANAGER_DATA_ID_RING_BATTERY_LEVEL,
-   RING_MANAGER_DATA_ID_RING_DOCKED_STATUS,
+   RING_MANAGER_DATA_ID_RING_CAP_DETECTION_STATUS,
    RING_MANAGER_DATA_ID_MAX,
 } RING_MANAGER_DATA_ID;
 
@@ -122,8 +122,9 @@ typedef struct ring_manager
    uint64_t _last_status_request_systick_ms;                    /**< Timestamp of the last status request */
    uint64_t _last_status_store_systick_ms;                      /**< Timestamp of the last status store */
    cap_detection_status_t _last_cap_detection_status;           /**< Current cap detection status */
-   uint64_t _last_cap_detection_status_systick_ms; /**< Timestamp of the last cap detection status update */
-   uint64_t _cap_detection_poll_period_ms;         /**< Polling period to request cap detection status in ms */
+   uint64_t _last_cap_det_status_rq_systick_ms; /**< Timestamp of the last cap detection status update */
+   uint64_t _cap_det_status_polling_timeout;    /**< Timestamp of the last cap detection status polling start */
+
 } ring_manager_t;
 
 /***********************************************************************************************************************

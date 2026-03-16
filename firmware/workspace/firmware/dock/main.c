@@ -47,7 +47,7 @@ void gpio_init(void)
 {
    // ADC Power
    nrf_gpio_cfg_output(ADS1235_5V_EN_PIN);
-   nrf_gpio_pin_set(ADS1235_5V_EN_PIN); // Turn off by default
+   nrf_gpio_pin_clear(ADS1235_5V_EN_PIN); // Turn off by default
 
    // LED Drive pin
    nrf_gpio_cfg_output(LEDDRV_SD1);

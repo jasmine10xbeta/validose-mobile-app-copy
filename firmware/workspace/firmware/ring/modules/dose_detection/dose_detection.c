@@ -200,7 +200,8 @@ static result_t process(dose_detection_interface_t *interface)
 
       if(fsm_outputs.state_changed && (DOSE_DETECTION_STATE_MAX > p_fsm->current_state) && (0 <= p_fsm->current_state))
       {
-         DEBUG_DEBUG("Dose detection FSM state changed to %s", dose_detection_fsm_state_names[p_fsm->current_state]);
+         // Avoid passing pointer args to DEBUG_DEBUG() varargs packing on host tests (32-bit arg encoding).
+         DEBUG_DEBUG("Dose detection FSM state changed to %d", (uint32_t)p_fsm->current_state);
       }
 
       // Handle state changes and outputs
