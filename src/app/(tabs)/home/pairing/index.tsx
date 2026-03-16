@@ -2,6 +2,8 @@ import { useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
+  Animated,
+  Easing,
   FlatList,
   StyleSheet,
   View,
@@ -9,7 +11,6 @@ import {
   Dimensions,
   Text,
   Modal,
-  ScrollView,
   TouchableOpacity,
   Pressable,
 } from "react-native";
@@ -17,6 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { VButton } from "@/components/common/VButton";
 import { VDeviceItem } from "@/components/common/VDeviceItem";
+import { VManualLinkingSheet } from "@/components/common/VManualLinkingSheet";
 import { QRCodeScanner } from "@/components/common/VQRCodeScanner";
 import { VText } from "@/components/common/VText";
 import { showToast } from "@/components/common/VToast";
@@ -27,13 +29,12 @@ import useDevStore from "@/store/dev";
 import useDeviceStore from "@/store/device";
 import { connectAndSetupDevice } from "@/utils/ble";
 
-const SCREEN_WIDTH = Dimensions.get("window").width;
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 
 const SCAN_SLIDES = [
   {
     key: "locate",
-    title: "How to Connect Your Validose Device",
+    title: "Connect Your \nValidose Device",
     description: (
       <>
         <Text style={{ fontWeight: "600", color: "#505A66" }}>
@@ -47,19 +48,32 @@ const SCAN_SLIDES = [
   },
   {
     key: "prepare",
-    title: "How to Connect Your Validose Device",
+    title: "Put the Validose device in \npairing mode",
     description: (
       <>
         <Text style={{ fontWeight: "600", color: "#505A66" }}>
-          Stay close to the device (within ~10m) and ensure Bluetooth is
-          on.{" "}
+          Press and hold the Validose device button{" "}
         </Text>
-        If it connects, you’ll see Connected in the app and a solid blue light
-        on the device - you’re all set!
+        {"until\nthe blue light on the Dock starts blinking\n(pairing mode)."}
       </>
     ),
     showAction: true,
     image: require("../../../../assets/images/png/pair-device.png"),
+  },
+  {
+    key: "connect",
+    title: "Connect your \nValidose device",
+    description:
+      (
+      <>
+        <Text style={{ fontWeight: "600", color: "#505A66" }}>
+          Stay close to the device (within ~10m) and ensure Bluetooth is on.{" "}
+        </Text>
+        {"If it connects, you’ll see \"Connected\" in the app and a solid blue light on the device - you’re all set!"}
+      </>
+    ),
+    showAction: true,
+    image: require("../../../../assets/images/png/pair-phone.png"),
   },
 ];
 
@@ -89,13 +103,134 @@ export default function PairingScreen() {
     disableMockBleMode,
   } = useDevStore();
   const [showScanIntro, setShowScanIntro] = useState(false);
+  const [isScanIntroMounted, setIsScanIntroMounted] = useState(false);
+  const [showManualEntry, setShowManualEntry] = useState(false);
+  const [manualEntrySource, setManualEntrySource] = useState<"camera" | "intro">(
+    "camera",
+  );
   const [introSlideIndex, setIntroSlideIndex] = useState(0);
+  const introBackdropOpacity = useRef(new Animated.Value(0)).current;
+  const introCardOpacity = useRef(new Animated.Value(0)).current;
+  const introCardTranslateY = useRef(new Animated.Value(24)).current;
+  const introAfterCloseActionRef = useRef<(() => void) | null>(null);
+  const currentScanSlide = SCAN_SLIDES[introSlideIndex];
+  const isLastScanSlide = introSlideIndex === SCAN_SLIDES.length - 1;
+
+  const closeScanIntro = (afterClose?: () => void) => {
+    introAfterCloseActionRef.current = afterClose ?? null;
+    setShowScanIntro(false);
+  };
+  const closeScanIntroImmediately = (afterClose?: () => void) => {
+    introAfterCloseActionRef.current = null;
+    setShowScanIntro(false);
+    setShowCamera(false);
+    setShowManualEntry(false);
+    setManualEntrySource("camera");
+    setIsScanIntroMounted(false);
+    introBackdropOpacity.setValue(0);
+    introCardOpacity.setValue(0);
+    introCardTranslateY.setValue(16);
+    afterClose?.();
+  };
+  const closeActiveScanFlow = (afterClose?: () => void) => {
+    if (showCamera || showManualEntry) {
+      closeScanIntroImmediately(afterClose);
+      return;
+    }
+    closeScanIntro(afterClose);
+  };
+  const openCameraFromScanIntro = () => {
+    setShowManualEntry(false);
+    setShowCamera(true);
+  };
+  const openManualEntryFromScanFlow = (source: "camera" | "intro") => {
+    setManualEntrySource(source);
+    setShowCamera(false);
+    setShowManualEntry(true);
+  };
+  const returnFromManualEntry = () => {
+    setShowManualEntry(false);
+    if (manualEntrySource === "camera") {
+      setShowCamera(true);
+    }
+  };
+
   const openScanIntro = () => {
     hasScannedRef.current = false;
     setIntroSlideIndex(0);
     setShowCamera(false);
+    setShowManualEntry(false);
+    setManualEntrySource("camera");
     setShowScanIntro(true);
   };
+
+  useEffect(() => {
+    if (showScanIntro) {
+      setIsScanIntroMounted(true);
+      introBackdropOpacity.setValue(0);
+      introCardOpacity.setValue(0);
+      introCardTranslateY.setValue(24);
+
+      requestAnimationFrame(() => {
+        Animated.parallel([
+          Animated.timing(introBackdropOpacity, {
+            toValue: 1,
+            duration: 180,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(introCardOpacity, {
+            toValue: 1,
+            duration: 180,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(introCardTranslateY, {
+            toValue: 0,
+            duration: 220,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+        ]).start();
+      });
+      return;
+    }
+
+    if (!isScanIntroMounted) return;
+
+    Animated.parallel([
+      Animated.timing(introBackdropOpacity, {
+        toValue: 0,
+        duration: 140,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.timing(introCardOpacity, {
+        toValue: 0,
+        duration: 120,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.timing(introCardTranslateY, {
+        toValue: 16,
+        duration: 140,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (!finished) return;
+      setIsScanIntroMounted(false);
+      const afterClose = introAfterCloseActionRef.current;
+      introAfterCloseActionRef.current = null;
+      afterClose?.();
+    });
+  }, [
+    introBackdropOpacity,
+    introCardOpacity,
+    introCardTranslateY,
+    isScanIntroMounted,
+    showScanIntro,
+  ]);
 
   useEffect(() => {
     async function fetchDevices() {
@@ -172,8 +307,7 @@ export default function PairingScreen() {
     const deviceAddress = scanningResult.data?.trim();
     if (!deviceAddress) {
       hasScannedRef.current = false;
-      setShowCamera(false);
-      setShowScanIntro(false);
+      closeActiveScanFlow();
       showToast("error", "Invalid QR Code");
       return;
     }
@@ -182,8 +316,7 @@ export default function PairingScreen() {
       if (isMockBleModeEnabled()) {
         disableMockBleMode();
         hasScannedRef.current = false;
-        setShowCamera(false);
-        setShowScanIntro(false);
+        closeActiveScanFlow();
         showToast("success", "Pairing mode reset");
         return;
       }
@@ -191,8 +324,7 @@ export default function PairingScreen() {
       enableMockBleMode();
       const connected = await connectAndSetupDevice("VAL-OP DEMO");
       hasScannedRef.current = false;
-      setShowCamera(false);
-      setShowScanIntro(false);
+      closeActiveScanFlow();
 
       if (connected?.error) {
         showToast("error", "Connection failed", String(connected.error));
@@ -206,15 +338,11 @@ export default function PairingScreen() {
     const isValid = await validateDeviceAddress(deviceAddress);
     if (isValid) {
       const connected = await connectAndSetupDevice(deviceAddress);
-      hasScannedRef.current = false;
-      setShowCamera(false);
-
       if (connected?.error) showToast("error", connected?.error.toString());
     }
 
     hasScannedRef.current = false;
-    setShowCamera(false);
-    setShowScanIntro(false);
+    closeActiveScanFlow();
   };
 
   if (!permission) return <View />;
@@ -340,108 +468,131 @@ export default function PairingScreen() {
           </Pressable>
         </View>
       </SafeAreaView>
-      {showScanIntro && !showCamera && (
+      {isScanIntroMounted && (
         <Modal
-          animationType="fade"
+          animationType="none"
           transparent
-          visible={showScanIntro && !showCamera}
-          onRequestClose={() => setShowScanIntro(false)}
-        >
-          <SafeAreaView style={styles.introOverlay}>
-            {/* <TouchableOpacity
-              style={StyleSheet.absoluteFill}
-              activeOpacity={1}
-              onPress={() => setShowScanIntro(false)}
-            /> */}
-            <View style={styles.introCard}>
-              <TouchableOpacity
-                onPress={() => setShowScanIntro(false)}
-                style={styles.introCancel}
-              >
-                <Text style={styles.introCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <ScrollView
-                horizontal
-                pagingEnabled
-                showsHorizontalScrollIndicator={false}
-                onMomentumScrollEnd={(event) => {
-                  const offsetX = event.nativeEvent.contentOffset.x;
-                  const width = event.nativeEvent.layoutMeasurement.width;
-                  setIntroSlideIndex(Math.round(offsetX / width));
-                }}
-              >
-                {SCAN_SLIDES.map((slide) => (
-                  <View
-                    key={slide.key}
-                    style={[styles.introSlide, { width: SCREEN_WIDTH }]}
-                  >
-                    <VText textVariant="Label" style={styles.introTitle}>
-                      {slide.title}
-                    </VText>
-                    <Image source={slide.image} style={styles.introImage} />
-                    <VText
-                      textVariant="LabelDose"
-                      style={styles.introDescription}
-                    >
-                      {slide.description}
-                    </VText>
-                  </View>
-                ))}
-              </ScrollView>
-              <View style={styles.introDots}>
-                {SCAN_SLIDES.map((slide, idx) => (
-                  <View
-                    key={slide.key}
-                    style={[
-                      styles.introDot,
-                      introSlideIndex === idx && styles.introDotActive,
-                    ]}
-                  />
-                ))}
-              </View>
-              <View
-                style={{
-                  justifyContent: "center",
-                  alignItems: "center",
-                  marginBottom: 24,
-                  marginTop: "28%",
-                  paddingHorizontal: 24,
-                }}
-              >
-                <VButton
-                  label="Scan device sticker"
-                  onPress={() => {
-                    setShowCamera(true);
-                  }}
-                />
-                <VButton
-                  onPress={() => {
-                    router.push("/home/pairing/manual-pairing");
-                  }}
-                  style={{
-                    borderWidth: 0,
-                    marginTop: 21,
-                  }}
-                  label="Enter device ID manually"
-                  labelStyle={styles.manualPairingLabel}
-                />
-              </View>
-            </View>
-          </SafeAreaView>
-        </Modal>
-      )}
-      {showCamera && (
-        <QRCodeScanner
-          variant="overlay"
-          headline="Scan device sticker"
-          helperText="Align the QR sticker underneath the device within the frame to connect."
-          cancelLabel="Cancel"
-          onBarcodeScanned={handleDeviceQrScan}
-          onClose={() => {
+          statusBarTranslucent
+          visible={isScanIntroMounted}
+          onRequestClose={() => {
             hasScannedRef.current = false;
-            setShowCamera(false);
+            closeActiveScanFlow();
           }}
-        />
+        >
+          {showManualEntry ? (
+            <Animated.View
+              style={[styles.introOverlay, { opacity: introBackdropOpacity }]}
+            >
+              <Animated.View
+                style={[
+                  styles.introSheetWrapper,
+                  {
+                    opacity: introCardOpacity,
+                    transform: [{ translateY: introCardTranslateY }],
+                  },
+                ]}
+              >
+                <VManualLinkingSheet
+                  onBack={returnFromManualEntry}
+                  onClose={() => {
+                    hasScannedRef.current = false;
+                    closeActiveScanFlow();
+                  }}
+                />
+              </Animated.View>
+            </Animated.View>
+          ) : showCamera ? (
+            <QRCodeScanner
+              variant="overlay"
+              inline
+              disableTransitions
+              topBarMode="back-title-cancel"
+              headline="Connect"
+              backLabel="Back"
+              onBack={() => setShowCamera(false)}
+              helperText={"Stay close to the device (within ~10m) and \nensure Bluetooth is on."}
+              cancelLabel="Cancel"
+              showManualEntryFooter
+              manualEntryLabel="Enter device ID manually"
+              onPressManualEntry={() => openManualEntryFromScanFlow("camera")}
+              onBarcodeScanned={handleDeviceQrScan}
+              onClose={() => {
+                hasScannedRef.current = false;
+                closeActiveScanFlow();
+              }}
+            />
+          ) : (
+            <Animated.View
+              style={[styles.introOverlay, { opacity: introBackdropOpacity }]}
+            >
+              <Animated.View
+                style={[
+                  styles.introCard,
+                  {
+                    opacity: introCardOpacity,
+                    transform: [{ translateY: introCardTranslateY }],
+                  },
+                ]}
+              >
+                <View style={styles.introHeaderRow}>
+                  {introSlideIndex > 0 ? (
+                    <TouchableOpacity
+                      onPress={() => setIntroSlideIndex((prev) => prev - 1)}
+                      style={styles.introTopAction}
+                    >
+                      <Text style={styles.introBackText}>Back</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={styles.introTopAction} />
+                  )}
+                  <Text style={styles.introHeaderTitle}>Connect</Text>
+                  <TouchableOpacity
+                    onPress={() => closeScanIntro()}
+                    style={styles.introTopAction}
+                  >
+                    <Text style={styles.introCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View key={currentScanSlide.key} style={styles.introSlide}>
+                  <VText textVariant="Label" style={styles.introTitle}>
+                    {currentScanSlide.title}
+                  </VText>
+                  <Image source={currentScanSlide.image} style={styles.introImage} />
+                  <VText textVariant="LabelDose" style={styles.introDescription}>
+                    {currentScanSlide.description}
+                  </VText>
+                </View>
+
+                <View style={styles.introFooter}>
+                  {isLastScanSlide ? (
+                    <>
+                      <VButton
+                        label="Scan device sticker"
+                        onPress={openCameraFromScanIntro}
+                      />
+                      <VButton
+                        onPress={() => openManualEntryFromScanFlow("intro")}
+                        style={styles.introManualButton}
+                        label="Enter device ID manually"
+                        labelStyle={styles.manualPairingLabel}
+                      />
+                    </>
+                  ) : (
+                    <VButton
+                      label="Next"
+                      onPress={() =>
+                        setIntroSlideIndex((prev) =>
+                          Math.min(prev + 1, SCAN_SLIDES.length - 1),
+                        )
+                      }
+                    />
+                  )}
+                </View>
+              </Animated.View>
+            </Animated.View>
+          )}
+        </Modal>
       )}
     </>
   );
@@ -524,58 +675,79 @@ const styles = StyleSheet.create({
   introOverlay: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(8, 15, 26, 0.45)",
+    backgroundColor: "rgba(8, 15, 26, 0.05)",
+  },
+  introSheetWrapper: {
+    width: "100%",
   },
   introCard: {
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingTop: 24,
+    paddingTop: 20,
     width: "100%",
-    height: SCREEN_HEIGHT * 0.9,
+    height: SCREEN_HEIGHT * 0.92,
   },
-  introCancel: {
+  introHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  introHeaderTitle: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 17,
+    fontWeight: "600",
+    color: "#252F3B",
+  },
+  introTopAction: {
+    minWidth: 84,
     paddingHorizontal: 24,
     paddingBottom: 12,
+    paddingTop: 4,
+  },
+  introBackText: {
+    fontSize: 16,
+    color: "#505A66",
+    fontWeight: "400",
   },
   introCancelText: {
     fontSize: 16,
     color: "#505A66",
-    fontWeight: "500",
+    fontWeight: "400",
+    textAlign: "right",
   },
   introSlide: {
+    flex: 1,
     alignItems: "center",
     paddingHorizontal: 18,
   },
   introImage: {
-    width: "65%",
-    // height: SCREEN_WIDTH * 0.6,
+    width: "55%",
+    maxHeight: SCREEN_HEIGHT * 0.28,
     resizeMode: "contain",
-    marginBottom: 24,
   },
   introTitle: {
     color: "#252F3B",
-    fontSize: 26,
+    fontSize: 27,
     fontWeight: "700",
-    marginBottom: 16,
-    marginTop: 60,
+    marginTop: 100,
   },
   introDescription: {
     color: "#505A66",
     textAlign: "center",
+    lineHeight: 23,
+    paddingHorizontal: 10,
   },
-  introDots: {
-    flexDirection: "row",
+  introFooter: {
     justifyContent: "center",
-    gap: 8,
+    alignItems: "center",
+    marginBottom: 44,
+    marginTop: 20,
+    paddingHorizontal: 24,
   },
-  introDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#E1E5EB",
-  },
-  introDotActive: {
-    backgroundColor: "#878F99",
+  introManualButton: {
+    borderWidth: 0,
+    marginTop: 21,
   },
 });

@@ -5,6 +5,14 @@ export default function HomeStack() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="auth/index" />
       <Stack.Screen name="pairing/index" />
+      <Stack.Screen
+        name="pairing/manual-pairing"
+        options={{
+          presentation: "transparentModal",
+          animation: "fade",
+          contentStyle: { backgroundColor: "transparent" },
+        }}
+      />
       <Stack.Screen name="ble-debug/console/index" />
       <Stack.Screen name="ble-debug/index" />
       <Stack.Screen name="ble-debug/logs/index" />

@@ -18,7 +18,7 @@ import { VButton } from "./VButton";
 import { VText } from "./VText";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
-const SHEET_HEIGHT = SCREEN_HEIGHT * 0.9;
+const SHEET_HEIGHT = SCREEN_HEIGHT * 0.90;
 
 interface VQRCodeScannerProps {
   facing?: CameraType;
@@ -28,6 +28,15 @@ interface VQRCodeScannerProps {
   headline?: string;
   helperText?: string;
   cancelLabel?: string;
+  disableTransitions?: boolean;
+  inline?: boolean;
+  topBarMode?: "cancel-only" | "back-title-cancel";
+  backLabel?: string;
+  onBack?: () => void;
+  showManualEntryFooter?: boolean;
+  manualEntryLabel?: string;
+  onPressManualEntry?: () => void;
+  manualEntryDisabled?: boolean;
 }
 
 export function QRCodeScanner({
@@ -35,11 +44,21 @@ export function QRCodeScanner({
   onBarcodeScanned,
   onClose,
   variant = "full-screen",
+  headline,
   helperText = "Open the three-dot menu in Participant Management and choose Onboarding to view the QR code.",
   cancelLabel = "Cancel",
+  disableTransitions = false,
+  inline = false,
+  topBarMode = "cancel-only",
+  backLabel = "Back",
+  onBack,
+  showManualEntryFooter = false,
+  manualEntryLabel = "Enter device ID manually",
+  onPressManualEntry,
+  manualEntryDisabled = false,
 }: VQRCodeScannerProps) {
   const [isProcessing, setIsProcessing] = useState(false);
-  const sheetTranslateY = useRef(new Animated.Value(1)).current;
+  const sheetTranslateY = useRef(new Animated.Value(disableTransitions ? 0 : 1)).current;
 
   const handleBarcodeScanned = useCallback(
     (result: { data: string }) => {
@@ -54,6 +73,10 @@ export function QRCodeScanner({
 
   useEffect(() => {
     if (variant !== "overlay") return;
+    if (disableTransitions) {
+      sheetTranslateY.setValue(0);
+      return;
+    }
 
     Animated.timing(sheetTranslateY, {
       toValue: 0,
@@ -61,10 +84,15 @@ export function QRCodeScanner({
       useNativeDriver: true,
       easing: Easing.out(Easing.ease),
     }).start();
-  }, [variant, sheetTranslateY]);
+  }, [disableTransitions, sheetTranslateY, variant]);
 
   if (variant === "overlay") {
     const dismiss = () => {
+      if (disableTransitions) {
+        onClose();
+        return;
+      }
+
       Animated.timing(sheetTranslateY, {
         toValue: 1,
         duration: 200,
@@ -80,38 +108,76 @@ export function QRCodeScanner({
       outputRange: [0, SHEET_HEIGHT + 100],
     });
 
-    return (
-      <Modal
-        animationType="fade"
-        transparent
-        visible
-        onRequestClose={dismiss}
-      >
-        <StatusBar barStyle="light-content" translucent backgroundColor="rgba(12, 17, 25, 0.95)" />
+    const overlayContent = (
+      <>
+        <StatusBar
+          barStyle="light-content"
+          translucent
+          backgroundColor="rgba(12, 17, 25, 0.95)"
+        />
         <SafeAreaView style={styles.overlayRoot}>
           <TouchableOpacity
             style={StyleSheet.absoluteFill}
             activeOpacity={1}
             onPress={dismiss}
           />
-          <Animated.View style={[styles.sheetContainer, { transform: [{ translateY }] }]}
-          >
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Cancel scanner"
-              onPress={dismiss}
-              style={styles.overlayCancelButton}
+          <Animated.View style={[styles.sheetContainer, { transform: [{ translateY }] }]}>
+            {topBarMode === "back-title-cancel" ? (
+              <View style={styles.overlayHeaderRow}>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Go back"
+                  onPress={onBack ?? dismiss}
+                  style={styles.overlayHeaderAction}
+                >
+                  <VText textVariant="Body" style={styles.overlayHeaderBackText}>
+                    {backLabel}
+                  </VText>
+                </TouchableOpacity>
+                <VText textVariant="Body" style={styles.overlayHeaderTitle}>
+                  {headline || "Connect"}
+                </VText>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel scanner"
+                  onPress={dismiss}
+                  style={styles.overlayHeaderAction}
+                >
+                  <VText textVariant="Body" style={styles.overlayHeaderCancelText}>
+                    {cancelLabel}
+                  </VText>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Cancel scanner"
+                onPress={dismiss}
+                style={styles.overlayCancelButton}
+              >
+                <VText textVariant="Body" style={styles.overlayCancelText}>
+                  {cancelLabel}
+                </VText>
+              </TouchableOpacity>
+            )}
+            <View
+              style={[
+                styles.overlayTextGroup,
+                topBarMode === "back-title-cancel"
+                  ? styles.overlayTextGroupWithHeader
+                  : null,
+              ]}
             >
-              <VText textVariant="Body" style={styles.overlayCancelText}>
-                {cancelLabel}
-              </VText>
-            </TouchableOpacity>
-            <View style={styles.overlayTextGroup}>
               <VText textVariant="LabelDose" style={styles.overlayHelperText}>
                 {helperText}
               </VText>
             </View>
-            <View style={styles.overlayCameraShell}>
+            <View
+              style={[
+                styles.overlayCameraShell,
+                showManualEntryFooter ? styles.overlayCameraShellWithFooter : null,
+              ]}
+            >
               <CameraView
                 style={styles.overlayCamera}
                 facing={facing}
@@ -122,13 +188,44 @@ export function QRCodeScanner({
                 <View style={styles.loaderOverlay}>
                   <ActivityIndicator size="large" color="#7ce3ff" />
                   <VText textVariant="Body" style={styles.loaderText}>
-                    {"Linking...\nKeep Validose open on both devices."}
+                    {"Linking...\nKeep Validose app open"}
                   </VText>
                 </View>
               )}
             </View>
+            {showManualEntryFooter && (
+              <View style={styles.overlayManualFooter}>
+                <TouchableOpacity
+                  style={styles.overlayManualFooterAction}
+                  accessibilityRole="button"
+                  accessibilityLabel={manualEntryLabel}
+                  activeOpacity={manualEntryDisabled ? 1 : 0.75}
+                  disabled={manualEntryDisabled || !onPressManualEntry}
+                  onPress={onPressManualEntry}
+                >
+                  <VText textVariant="Body" style={styles.overlayManualFooterText}>
+                    {manualEntryLabel}
+                  </VText>
+                </TouchableOpacity>
+              </View>
+            )}
           </Animated.View>
         </SafeAreaView>
+      </>
+    );
+
+    if (inline) {
+      return overlayContent;
+    }
+
+    return (
+      <Modal
+        animationType={disableTransitions ? "none" : "fade"}
+        transparent
+        visible
+        onRequestClose={dismiss}
+      >
+        {overlayContent}
       </Modal>
     );
   }
@@ -197,16 +294,49 @@ const styles = StyleSheet.create({
     width: "auto",
     fontWeight: "400",
   },
+  overlayHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  overlayHeaderAction: {
+    minWidth: 84,
+    paddingHorizontal: 24,
+    paddingVertical: 4,
+  },
+  overlayHeaderBackText: {
+    color: "#505A66",
+    fontSize: 16,
+    textAlign: "left",
+    fontWeight: "400",
+  },
+  overlayHeaderTitle: {
+    flex: 1,
+    color: "#252F3B",
+    textAlign: "center",
+    fontSize: 17,
+    fontWeight: "600",
+  },
+  overlayHeaderCancelText: {
+    color: "#505A66",
+    fontSize: 16,
+    textAlign: "right",
+    fontWeight: "400",
+  },
   overlayTextGroup: {
     marginTop: 40,
     marginBottom: 24,
     paddingHorizontal: 12,
   },
+  overlayTextGroupWithHeader: {
+    marginTop: 24,
+  },
   overlayHelperText: {
-    fontWeight: "600",
-    color: "#272F3A",
+    fontWeight: "500",
+    color: "#252F3B",
     textAlign: "center",
-    fontSize: 17
+    fontSize: 17,
+    marginTop: 18
   },
   overlayCameraShell: {
     flex: 1,
@@ -214,7 +344,37 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     position: "relative",
     backgroundColor: "#000000",
-    minHeight: SHEET_HEIGHT * 0.9,
+  },
+  overlayCameraShellWithFooter: {
+    flex: 0,
+    height: SHEET_HEIGHT * 0.63,
+    minHeight: 260,
+  },
+  overlayManualFooter: {
+    flex: 1,
+    width: "100%",
+    backgroundColor: "#FFFFFF",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#DFE5ED",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  overlayManualFooterAction: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  overlayManualFooterText: {
+    width: "auto",
+    alignSelf: "center",
+    color: "#255F6C",
+    fontSize: 16,
+    fontWeight: "500",
+    borderBottomWidth: 1,
+    borderBottomColor: "#255F6C",
+    paddingBottom: 2,
+    textAlign: "center",
   },
   overlayCamera: {
     width: "100%",
