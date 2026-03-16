@@ -1,94 +1,262 @@
 import { useRouter } from "expo-router";
-import { StyleSheet, View } from "react-native";
+import {
+  FlatList,
+  Image,
+  type ImageSourcePropType,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { VButton } from "@/components/common/VButton";
 import { VText } from "@/components/common/VText";
 
-const LED_INFO = [
+type LedInfoItem = {
+  title: string;
+  description: string;
+  pipeColor: string;
+  pipeBreaks: number;
+  imageSource: ImageSourcePropType;
+};
+
+const LED_INFO: LedInfoItem[] = [
   {
-    title: "Red blink, 3 beeps",
-    description: "Take missed dose",
+    title: "Charging",
+    description: "Green blink",
+    pipeColor: "#65BB8D",
+    pipeBreaks: 2,
+    imageSource: require("../../../assets/images/png/device-charging.png"),
   },
   {
-    title: "Turquoise long blink, 6 beeps",
-    description: "Take your dose",
+    title: "Fully charged",
+    description: "Solid green",
+    pipeColor: "#65BB8D",
+    pipeBreaks: 0,
+    imageSource: require("../../../assets/images/png/device-charged.png"),
   },
   {
-    title: "Slow blue blink",
-    description: "Device is in pairing mode",
+    title: "Low battery",
+    description: "Orange blink • 2 beeps",
+    pipeColor: "#F09525",
+    pipeBreaks: 1,
+    imageSource: require("../../../assets/images/png/device-low-battery.png"),
   },
   {
-    title: "Slow orange blinks, 3 beeps",
-    description: "Device is in pairing mode",
+    title: "Bluetooth pairing mode",
+    description: "Blue blink",
+    pipeColor: "#5D9BFF",
+    pipeBreaks: 0,
+    imageSource: require("../../../assets/images/png/device-pairing-mode.png"),
   },
   {
-    title: "Green slow blink",
-    description: "Device is charging",
-  },
-    {
-    title: "Solid green",
-    description: "Device is fully charged",
-  },
+    title: "Dose due",
+    description: "Turquoise blink • 6 beeps",
+    pipeColor: "#73D0D7",
+    pipeBreaks: 6,
+    imageSource: require("../../../assets/images/png/device-dose-due.png"),
+  }
 ];
 
 export default function LedInfoScreen() {
   const router = useRouter();
 
   return (
-    <SafeAreaView style={styles.alignContent}>
-      <View style={styles.container}>
-        <VText textVariant="Body">Device states tutorial</VText>
+    <View style={styles.modalRoot}>
+      <TouchableWithoutFeedback onPress={() => router.back()}>
+        <View style={styles.backdrop} />
+      </TouchableWithoutFeedback>
 
-        <View style={styles.ledList}>
-          {LED_INFO.map((item) => (
-            <View key={item.title} style={styles.ledRow}>
-              <VText textVariant="LabelMedicineBold" style={styles.ledTitle}>
-                {item.title}
-              </VText>
-              <VText textVariant="LabelMedicineBold" style={styles.ledTitle}>{item.description}</VText>
-            </View>
-          ))}
+      <SafeAreaView edges={["bottom"]} style={styles.sheetContainer}>
+        <View style={styles.headerRow}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Close tutorial"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={styles.closeButton}
+          >
+            <Text style={styles.closeLabel}>Close</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Device states tutorial</Text>
+          <View style={styles.headerSpacer} />
         </View>
 
-        <VButton onPress={() => router.back()} label="Close tutorial" />
-      </View>
-    </SafeAreaView>
+        <FlatList
+          data={LED_INFO}
+          keyExtractor={(item) => item.title}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          renderItem={({ item }) => (
+            <View style={styles.ledCard}>
+              <View style={styles.cardRow}>
+                <View style={styles.iconPane}>
+                  <Image
+                    source={item.imageSource}
+                    style={styles.iconImage}
+                    resizeMode="contain"
+                  />
+                </View>
+                <View style={styles.cardAccentTrack}>
+                  {Array.from({ length: Math.max(1, item.pipeBreaks + 1) }).map((_, index, all) => {
+                    const isFirstSegment = index === 0;
+                    const isLastSegment = index === all.length - 1;
+
+                    return (
+                      <View
+                        key={`${item.title}-pipe-${index}`}
+                        style={[
+                          styles.cardAccentSegment,
+                          { backgroundColor: item.pipeColor },
+                          isFirstSegment ? styles.cardAccentSegmentFirst : null,
+                          isLastSegment ? styles.cardAccentSegmentLast : null,
+                          index < item.pipeBreaks ? styles.cardAccentSegmentGap : null,
+                        ]}
+                      />
+                    );
+                  })}
+                </View>
+                <View style={styles.copyWrap}>
+                  <VText textVariant="LabelMedicineBold" style={styles.ledTitle}>
+                    {item.title}
+                  </VText>
+                  <VText textVariant="Body" style={styles.ledDescription}>
+                    {item.description}
+                  </VText>
+                </View>
+              </View>
+            </View>
+          )}
+        />
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  alignContent: {
+  modalRoot: {
     flex: 1,
+    justifyContent: "flex-end",
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(8, 15, 26, 0.05)",
+  },
+  sheetContainer: {
     backgroundColor: "#FFF",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 18,
+    height: "91%",
+    shadowColor: "#000000",
+    shadowOpacity: 0.18,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: 15 },
+    elevation: 24,
   },
-  container: {
-    flex: 1,
-    alignContent: "center",
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  closeButton: {
+    minWidth: 40,
+    height: 40,
+    alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 24,
-    paddingVertical: 32,
-    gap: 6,
   },
-  subtitle: {
-    textAlign: "left",
+  closeLabel: {
+    color: "#505A66",
+    fontSize: 16,
   },
-  ledList: {
+  headerTitle: {
     flex: 1,
-    gap: 6,
-    marginTop: 12,
+    textAlign: "center",
+    color: "#252F3B",
+    fontSize: 18,
+    fontWeight: "500",
   },
-  ledRow: {
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    borderRadius: 12,
-    padding: 16,
-    gap: 6,
+  headerSpacer: {
+    width: 40,
+    height: 40,
+  },
+  listContent: {
+    paddingTop: 6,
+    paddingBottom: 18,
+  },
+  ledCard: {
+    width: "100%",
+    marginTop: 8,
+  },
+  cardRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    borderColor: "#FAFBFC",
+    borderWidth: 2,
+    width: "100%",
+    minHeight: 84,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    elevation: 1,
+  },
+  iconPane: {
+    backgroundColor: "#F4F6F9",
+    width: 70,
+    minHeight: 70,
+    alignSelf: "stretch",
+    borderTopLeftRadius: 8,
+    borderBottomLeftRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 3,
+  },
+  iconImage: {
+    width: 70,
+    height: 70,
+  },
+  cardAccentTrack: {
+    width: 8,
+    alignSelf: "stretch",
+    justifyContent: "space-between",
+    paddingVertical: 2,
+    marginRight: 10,
+  },
+  cardAccentSegment: {
+    flex: 1,
+  },
+  cardAccentSegmentFirst: {
+    borderTopRightRadius: 21,
+  },
+  cardAccentSegmentLast: {
+    borderBottomRightRadius: 21,
+  },
+  cardAccentSegmentGap: {
+    marginBottom: 2,
+  },
+  copyWrap: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingLeft: 8,
   },
   ledTitle: {
-    textAlign: "left",
+    color: "#505A66",
+    fontSize: 17,
+    fontWeight: "500",
   },
-  backButton: {
-    marginTop: 16,
+  ledDescription: {
+    marginTop: 6,
+    color: "#505A66",
+    fontSize: 16,
+    fontWeight: "400",
+    textAlign: "left",
   },
 });

@@ -281,13 +281,13 @@ const styles = StyleSheet.create({
     width: 30,
   },
   batteryBanner: {
-    marginTop: 4,
     borderRadius: 8,
     backgroundColor: "#FAF2E8",
     paddingHorizontal: 12,
     paddingVertical: 7,
     alignItems: "center",
     justifyContent: "center",
+    marginHorizontal: 8,
   },
   batteryBannerText: {
     color: "#7A4A00",

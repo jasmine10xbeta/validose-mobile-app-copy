@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import {
   Image,
   StyleProp,
@@ -14,6 +14,7 @@ import {
 type VTopActionsProps = {
   onPressHelp: () => void;
   personDisabled?: boolean;
+  rightAccessory?: ReactNode;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -24,6 +25,7 @@ const PATIENT_ID_ICON = require("../../assets/images/png/patient-id.png");
 export function VTopActions({
   onPressHelp,
   personDisabled = false,
+  rightAccessory,
   style,
 }: VTopActionsProps) {
   const [showPatientInfo, setShowPatientInfo] = useState(false);
@@ -94,15 +96,18 @@ export function VTopActions({
         )}
       </View>
 
-      <TouchableOpacity
-        activeOpacity={0.8}
-        style={styles.circleButton}
-        accessibilityRole="button"
-        accessibilityLabel="View LED info"
-        onPress={onPressHelp}
-      >
-        <Feather name="help-circle" size={26} color="#252F3B" />
-      </TouchableOpacity>
+      <View style={styles.rightActions}>
+        {rightAccessory}
+        <TouchableOpacity
+          activeOpacity={0.8}
+          style={styles.circleButton}
+          accessibilityRole="button"
+          accessibilityLabel="View LED info"
+          onPress={onPressHelp}
+        >
+          <Feather name="help-circle" size={26} color="#252F3B" />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -119,6 +124,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+  },
+  rightActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   circleButton: {
     width: 48,

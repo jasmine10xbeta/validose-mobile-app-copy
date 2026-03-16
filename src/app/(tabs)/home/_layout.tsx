@@ -17,7 +17,14 @@ export default function HomeStack() {
       <Stack.Screen name="ble-debug/index" />
       <Stack.Screen name="ble-debug/logs/index" />
       <Stack.Screen name="dashboard/index" />
-      <Stack.Screen name="led-info" />
+      <Stack.Screen
+        name="led-info"
+        options={{
+          presentation: "transparentModal",
+          animation: "fade",
+          contentStyle: { backgroundColor: "transparent" },
+        }}
+      />
     </Stack>
   );
 }

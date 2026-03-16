@@ -55,12 +55,8 @@ const styles = StyleSheet.create({
   nextDoseInfo: {
     flexDirection: "column",
     alignItems: "center",
-    marginTop: 24,
     paddingTop: 35,
     paddingBottom: 15,
-    borderColor: "#E6E7E8",
-    borderRadius: 12,
-    borderWidth: 1,
     width: "100%",
   },
   nextDoseInfoSecond: {
@@ -71,11 +67,9 @@ const styles = StyleSheet.create({
   },
   label: {
     position: "absolute",
-    top: -10,
-    paddingHorizontal: 25,
-    color: "#565F6B",
+    color: "#505A66",
     fontSize: 16,
-    fontWeight: "500",
+    fontWeight: "400",
     // fontFamily: "Inter",
     backgroundColor: "#FFF",
   },

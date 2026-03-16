@@ -176,18 +176,18 @@ export default function DashboardScreen() {
         style={styles.topActions}
         onPressHelp={handleHelpPress}
         personDisabled={!hasAccessToken}
+        rightAccessory={
+          <TouchableOpacity
+            style={styles.topActionNotificationButton}
+            onPress={handleOpenInbox}
+            accessibilityRole="button"
+            accessibilityLabel="Open inbox notifications"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Feather name="bell" size={21} color="#2E7787" />
+          </TouchableOpacity>
+        }
       />
-      <View style={styles.headerRow}>
-        <TouchableOpacity
-          style={styles.notificationButton}
-          onPress={handleOpenInbox}
-          accessibilityRole="button"
-          accessibilityLabel="Open inbox notifications"
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Feather name="bell" size={21} color="#2E7787" />
-        </TouchableOpacity>
-      </View>
       <VNextDoseInfo todaySchedulesByDevice={todaySchedulesByDevice} />
       <View style={styles.scrollViewSection}>
         {isDevicesConnected ? (
@@ -318,14 +318,8 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 12,
   },
-  headerRow: {
-    alignSelf: "stretch",
-    alignItems: "flex-end",
-    paddingTop: 12,
-  },
-  notificationButton: {
+  topActionNotificationButton: {
     padding: 8,
-    paddingBottom: 0,
     borderRadius: 20,
   },
   scrollViewSection: {
@@ -440,16 +434,21 @@ const styles = StyleSheet.create({
   // Help Button Styles
   helpButton: {
     backgroundColor: "#FFF",
-    borderColor: "#C9E3E4",
-    borderWidth: 2,
-    width: "100%",
+    borderColor: "#E1E5EB",
+    borderWidth: 1,
+    width: "75%",
     padding: 5,
     borderRadius: 25,
     position: "absolute",
-    bottom: 40,
+    bottom: 50,
+    shadowColor: "#252F3B",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 1,
+    elevation: 1,
   },
   helpButtonText: {
-    color: "#2E7787",
+    color: "#255F6C",
     fontSize: 16,
     fontWeight: "600",
     // fontFamily: "Inter",
