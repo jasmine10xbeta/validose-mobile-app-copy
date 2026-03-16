@@ -2,6 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useState } from "react";
 import {
+  Image,
   StyleProp,
   StyleSheet,
   Text,
@@ -18,6 +19,7 @@ type VTopActionsProps = {
 
 const PATIENT_ID_STORAGE_KEY = "patientId";
 const PATIENT_PLACEHOLDER = "Patient ID unavailable";
+const PATIENT_ID_ICON = require("../../assets/images/png/patient-id.png");
 
 export function VTopActions({
   onPressHelp,
@@ -66,7 +68,7 @@ export function VTopActions({
   return (
     <View style={[styles.container, style]}>
       <View style={styles.personRow}>
-        {/* <TouchableOpacity
+        <TouchableOpacity
           activeOpacity={0.8}
           style={styles.circleButton}
           disabled={personDisabled}
@@ -76,12 +78,15 @@ export function VTopActions({
           }
           onPress={handlePersonToggle}
         >
-          <Feather
-            name={showPatientInfo ? "x" : "user"}
-            size={24}
-            color={personDisabled ? "#A3ADB8" : "#255F6C"}
+          <Image
+            source={PATIENT_ID_ICON}
+            style={[
+              styles.patientIdIcon,
+              personDisabled ? styles.patientIdIconDisabled : null,
+            ]}
+            resizeMode="contain"
           />
-        </TouchableOpacity> */}
+        </TouchableOpacity>
         {showPatientInfo && (
           <View style={styles.patientIdTag}>
             <Text style={styles.patientIdText}>{displayedPatientId}</Text>
@@ -89,7 +94,7 @@ export function VTopActions({
         )}
       </View>
 
-      {/* <TouchableOpacity
+      <TouchableOpacity
         activeOpacity={0.8}
         style={styles.circleButton}
         accessibilityRole="button"
@@ -97,7 +102,7 @@ export function VTopActions({
         onPress={onPressHelp}
       >
         <Feather name="help-circle" size={26} color="#252F3B" />
-      </TouchableOpacity> */}
+      </TouchableOpacity>
     </View>
   );
 }
@@ -120,6 +125,13 @@ const styles = StyleSheet.create({
     height: 48,
     alignItems: "center",
     justifyContent: "center",
+  },
+  patientIdIcon: {
+    width: 21,
+    height: 21,
+  },
+  patientIdIconDisabled: {
+    opacity: 0.45,
   },
   patientIdTag: {
     paddingHorizontal: 16,

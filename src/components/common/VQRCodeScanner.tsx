@@ -122,7 +122,7 @@ export function QRCodeScanner({
                 <View style={styles.loaderOverlay}>
                   <ActivityIndicator size="large" color="#7ce3ff" />
                   <VText textVariant="Body" style={styles.loaderText}>
-                    Validating QR Code…
+                    {"Linking...\nKeep Validose open on both devices."}
                   </VText>
                 </View>
               )}

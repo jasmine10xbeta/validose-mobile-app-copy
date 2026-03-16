@@ -51,9 +51,11 @@ const SCAN_SLIDES = [
     description: (
       <>
         <Text style={{ fontWeight: "600", color: "#505A66" }}>
-          Stay close to the device (within ~10m) and ensure Bluetooth is on.{" "}
+          Stay close to the device (within ~10m) and ensure Bluetooth is
+          on.{" "}
         </Text>
-        If it connects, you’ll see Connected in the app and a solid blue light on the device - you’re all set!
+        If it connects, you’ll see Connected in the app and a solid blue light
+        on the device - you’re all set!
       </>
     ),
     showAction: true,
@@ -80,7 +82,12 @@ export default function PairingScreen() {
   const screenHeight = Dimensions.get("window").height;
   const devices = useDeviceStore((s) => s.devices);
   const isDevicesConnected = devices.length > 0;
-  const { isMockBleModeEnabled, matchesBypassKey, enableMockBleMode, disableMockBleMode } = useDevStore();
+  const {
+    isMockBleModeEnabled,
+    matchesBypassKey,
+    enableMockBleMode,
+    disableMockBleMode,
+  } = useDevStore();
   const [showScanIntro, setShowScanIntro] = useState(false);
   const [introSlideIndex, setIntroSlideIndex] = useState(0);
   const openScanIntro = () => {
@@ -89,7 +96,7 @@ export default function PairingScreen() {
     setShowCamera(false);
     setShowScanIntro(true);
   };
-  
+
   useEffect(() => {
     async function fetchDevices() {
       if (!isLoading && user?.access_token && !isMockBleModeEnabled()) {
@@ -104,7 +111,12 @@ export default function PairingScreen() {
     }
 
     fetchDevices();
-  }, [isLoading, user?.access_token, setAuthorizedDevices, isMockBleModeEnabled]);
+  }, [
+    isLoading,
+    user?.access_token,
+    setAuthorizedDevices,
+    isMockBleModeEnabled,
+  ]);
 
   async function reconnectDevice(deviceName: string) {
     if (reconnectingDeviceId) {
@@ -116,7 +128,11 @@ export default function PairingScreen() {
       const connected = await connectAndSetupDevice(deviceName);
       if (connected.error) showToast("error", connected.error.toString());
     } catch (error) {
-      showToast("error", "Connection failed", error instanceof Error ? error.message : String(error));
+      showToast(
+        "error",
+        "Connection failed",
+        error instanceof Error ? error.message : String(error),
+      );
     } finally {
       setReconnectingDeviceId(null);
     }
@@ -129,7 +145,11 @@ export default function PairingScreen() {
 
       console.log("[APP] Scanned device name:", parsed);
 
-      if (typeof parsed === "string" && Array.isArray(authorizedDevices) && !authorizedDevices.some((device) => device.deviceId === parsed)) {
+      if (
+        typeof parsed === "string" &&
+        Array.isArray(authorizedDevices) &&
+        !authorizedDevices.some((device) => device.deviceId === parsed)
+      ) {
         console.log("[APP] Device not found in list");
         showToast("error", "Device not assigned to this patient");
         return false;
@@ -250,11 +270,9 @@ export default function PairingScreen() {
                 <Image
                   source={require("../../../../assets/images/png/device-qr.png")}
                   style={{
-                    width: "65%",
+                    width: "55%",
                     height: "45%",
                     resizeMode: "contain",
-                    marginTop: 24,
-                    marginBottom: 18,
                   }}
                 />
                 <VText textVariant="LabelDose">
@@ -287,17 +305,8 @@ export default function PairingScreen() {
                 />
               </View>
             ) : (
-              <View style={{ marginBottom: 0 }} />
+              <View style={{ marginBottom: 18, marginTop: 21 }} />
             )}
-          </View>
-
-          <View
-            style={{
-              flexDirection: "column",
-              width: "100%",
-              alignItems: "center",
-            }}
-          >
             {isDevicesConnected ? (
               <>
                 <VButton
@@ -317,18 +326,18 @@ export default function PairingScreen() {
               }}
               style={{
                 borderWidth: 0,
-                marginTop: 21,
+                marginTop: 18,
               }}
               label="Enter device ID manually"
               labelStyle={styles.manualPairingLabel}
             />
-            <Pressable
-              onPress={() => router.push("/home/ble-debug/console")}
-              style={styles.debugTextAction}
-            >
-              <Text style={styles.debugText}>BLE Debug Console</Text>
-            </Pressable>
           </View>
+          <Pressable
+            onPress={() => router.push("/home/ble-debug/console")}
+            style={styles.debugTextAction}
+          >
+            <Text style={styles.debugText}>BLE Debug Console</Text>
+          </Pressable>
         </View>
       </SafeAreaView>
       {showScanIntro && !showCamera && (
@@ -473,7 +482,6 @@ const styles = StyleSheet.create({
     color: "#252F3B",
     fontWeight: "600",
     marginTop: 8,
-    marginBottom: 14,
     paddingHorizontal: 10,
     // fontFamily: "Inter",
   },
@@ -550,7 +558,7 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: "700",
     marginBottom: 16,
-    marginTop: 60
+    marginTop: 60,
   },
   introDescription: {
     color: "#505A66",
