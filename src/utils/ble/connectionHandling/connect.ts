@@ -13,6 +13,7 @@ import {
   scanLeDevice,
 } from "../../../../modules/tenx-mdk-ble-rn-library/src/index";
 import { BleMessageProtocol, MsgProtError } from "../messageProtocol";
+import { decodePpiPayload, PpiId, PpiType } from "../messageProtocolPpi";
 import { USE_MESSAGE_PROTOCOL_PPI, MESSAGE_PROTOCOL_PROCESS_INTERVAL_MS } from "./constants";
 import { resolveMessageProtocolUuidsFromDiscovery } from "./discovery";
 import {
@@ -192,6 +193,23 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
         enableSyncControl: true,
         sendAckNak: true,
         autoConsumeRx: true,
+        onRxPacket: (packet) => {
+          const ppiName = PpiId[packet.ppi as PpiId] ?? `PPI_${packet.ppi}`;
+          const typeName = PpiType[packet.type as PpiType] ?? `TYPE_${packet.type}`;
+          const decoded = decodePpiPayload(packet.ppi, packet.type as PpiType, packet.payload);
+
+          console.log("[MP][RX]", {
+            deviceId,
+            deviceName: resolvedDeviceName,
+            ppi: packet.ppi,
+            ppiName,
+            type: packet.type,
+            typeName,
+            payloadLen: packet.pktPayloadLen,
+            payloadHex: Buffer.from(packet.payload).toString("hex"),
+            decoded: decoded.value,
+          });
+        },
         onRxDataAcked: (packet) => {
           const packetBytes = getMessageProtocolInstance()?.getLastRxPacketRaw() ?? new Uint8Array(0);
           if (!packetBytes.length) {
@@ -242,13 +260,16 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
             return;
           }
 
+          const ingestDeviceName = (resolvedDeviceName || "").trim() || deviceId;
+
           void ingestRawHardwareData({
             packetBytes,
             timestamp: new Date(),
-            deviceId,
+            deviceId: ingestDeviceName,
           }).catch((error) => {
             console.warn("[MP][INGEST] Failed to ingest ACKed packet.", {
               error: error instanceof Error ? error.message : String(error),
+              ingestDeviceName,
               pktCounter: packet.pktCounter,
               sessionId: packet.sessionId,
               ppi: packet.payload.ppi,
@@ -259,7 +280,7 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
           });
         },
         logger: {
-          debug: () => undefined,
+          debug: (...args: unknown[]) => relayMessageProtocolConsoleLog("DBG", args),
           info: (...args: unknown[]) => relayMessageProtocolConsoleLog("INFO", args),
           warn: (...args: unknown[]) => relayMessageProtocolConsoleLog("WARN", args),
           error: (...args: unknown[]) => relayMessageProtocolConsoleLog("ERR", args),

@@ -1,0 +1,463 @@
+import { Buffer } from "buffer";
+
+import { REPLACEMENT_FLOW_SIGNAL } from "@/constants/replacementFlow";
+import { writeCharacteristic } from "../../../../modules/tenx-mdk-ble-rn-library/src/index";
+import { MsgProtError, MpPacketPayload, subscribeToBleCharacteristic } from "../messageProtocol";
+import { buildPpiPayload, decodePpiPayload, encodeBool, PpiId, PpiType } from "../messageProtocolPpi";
+import { ensureProtocolReadyForDataSend, waitForTxSendable } from "./protocol";
+import { getMessageProtocolInstance } from "./state";
+
+type ReplacementFlowHexListener = (hex: string) => void;
+type ReplacementStageSignal =
+  | "step1"
+  | "checking1"
+  | "step2"
+  | "step3"
+  | "step4Checking"
+  | "success"
+  | "error";
+
+const replacementFlowListeners = new Set<ReplacementFlowHexListener>();
+let replacementFlowRegisteredProtocol: ReturnType<typeof getMessageProtocolInstance> | null = null;
+const REPLACEMENT_STAGE_SIGNAL_PREFIX = "stage:";
+let hasSentValidateMedForActiveFlow = false;
+
+function toReplacementStageSignal(stage: ReplacementStageSignal): string {
+  return `${REPLACEMENT_STAGE_SIGNAL_PREFIX}${stage}`;
+}
+
+function normalizeHex(rawHex: string): string | null {
+  const normalized = rawHex.replace(/[^0-9a-fA-F]/g, "").toLowerCase();
+  if (!normalized.length || normalized.length % 2 !== 0) {
+    return null;
+  }
+  return normalized;
+}
+
+function isCharacteristicNotFoundError(error: unknown): boolean {
+  const normalized = String(error ?? "").toLowerCase();
+  return (
+    normalized.includes("characteristic with the given uuid not found") ||
+    normalized.includes("characteristic with uuid not found") ||
+    normalized.includes("characteristic_not_found")
+  );
+}
+
+function getUuidShortForm(uuid: string): string | null {
+  const normalized = uuid.replace(/[^0-9a-fA-F]/g, "").toLowerCase();
+  if (normalized.length < 8) {
+    return null;
+  }
+  const short = normalized.slice(4, 8);
+  return short.length === 4 ? short : null;
+}
+
+async function writeReplacementLegacyCharacteristic(
+  characteristicUuid: string,
+  base64Value: string
+): Promise<boolean> {
+  const direct = await writeCharacteristic(characteristicUuid, base64Value);
+  if (direct === true) {
+    return true;
+  }
+
+  const shortUuid = getUuidShortForm(characteristicUuid);
+  if (!shortUuid) {
+    return false;
+  }
+
+  const shortForm = await writeCharacteristic(shortUuid, base64Value);
+  return shortForm === true;
+}
+
+async function sendPpiViaMessageProtocol(
+  ppi: PpiId,
+  type: PpiType,
+  payload: Uint8Array,
+  context: string,
+): Promise<boolean> {
+  const messageProtocol = getMessageProtocolInstance();
+  if (!messageProtocol) {
+    return false;
+  }
+
+  const txReady = await ensureProtocolReadyForDataSend(
+    messageProtocol,
+    context
+  );
+  if (!txReady) {
+    console.warn(`[Replacement] Message protocol TX not ready for ${context}.`);
+    return false;
+  }
+
+  const result = messageProtocol.send(
+    buildPpiPayload(ppi, type, payload)
+  );
+
+  const decoded = decodePpiPayload(ppi, type as PpiType, payload).value;
+  console.log("[MP][TX][Replacement]", {
+    context,
+    ppi,
+    ppiName: PpiId[ppi as PpiId] ?? `PPI_${ppi}`,
+    type,
+    typeName: PpiType[type as PpiType] ?? `TYPE_${type}`,
+    payloadHex: Buffer.from(payload).toString("hex"),
+    decoded,
+    sendResult: result,
+  });
+
+  if (result !== MsgProtError.NONE) {
+    console.warn(`[Replacement] Message protocol send failed for ${context}.`, {
+      ppi,
+      type,
+      result,
+    });
+    return false;
+  }
+
+  await messageProtocol.process();
+  const completed = await waitForTxSendable(messageProtocol);
+  if (!completed) {
+    console.warn(`[Replacement] Message protocol TX did not complete for ${context}.`, {
+      ppi,
+      type,
+    });
+  }
+
+  return completed;
+}
+
+async function writeReplacementViaMessageProtocol(commandByte: number, label: string): Promise<boolean> {
+  return sendPpiViaMessageProtocol(
+    PpiId.AD_DEVELOPMENT_CMD,
+    PpiType.RQ,
+    new Uint8Array([commandByte & 0xff]),
+    `replacement ${label} command`
+  );
+}
+
+async function writeBaseliningStartStopViaMessageProtocol(
+  start: boolean,
+  label: string
+): Promise<boolean> {
+  return sendPpiViaMessageProtocol(
+    PpiId.AD_START_BASELINING,
+    PpiType.RQ,
+    encodeBool(start),
+    `replacement ${label} baselining start=${start}`
+  );
+}
+
+async function writeValidateMedViaMessageProtocol(success: boolean): Promise<boolean> {
+  return sendPpiViaMessageProtocol(
+    PpiId.AD_VALIDATE_MED,
+    PpiType.RE,
+    encodeBool(success),
+    `replacement validate med success=${success}`
+  );
+}
+
+function dispatchReplacementFlowHex(rawHex: string): void {
+  const normalizedHex = rawHex.trim().toLowerCase();
+  if (!normalizedHex) {
+    return;
+  }
+
+  for (const listener of replacementFlowListeners) {
+    try {
+      listener(normalizedHex);
+    } catch (listenerError) {
+      console.warn("[Replacement] Replacement flow listener failed.", listenerError);
+    }
+  }
+}
+
+function decodeFeedbackRecord(packet: MpPacketPayload): Record<string, unknown> | null {
+  const decoded = decodePpiPayload(packet.ppi, packet.type as PpiType, packet.payload).value;
+  if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) {
+    return null;
+  }
+
+  return decoded as Record<string, unknown>;
+}
+
+function extractCurrentStateFromFeedbackRecord(decoded: Record<string, unknown>): number | null {
+  const maybeState = decoded.current_state;
+  if (typeof maybeState !== "number" || !Number.isFinite(maybeState)) {
+    return null;
+  }
+
+  return maybeState;
+}
+
+function mapBaseliningStateToSignal(currentState: number): string | null {
+  if (currentState <= 0) return toReplacementStageSignal("step1");
+  if (currentState === 1) return toReplacementStageSignal("checking1");
+  if (currentState === 2) return toReplacementStageSignal("step2");
+  if (currentState === 3) return toReplacementStageSignal("step3");
+  if (currentState === 4 || currentState === 5) return toReplacementStageSignal("step4Checking");
+  if (currentState === 6) return toReplacementStageSignal("success");
+  if (currentState >= 7) return toReplacementStageSignal("error");
+  return null;
+}
+
+function mapCalibrationStateToSignal(currentState: number): string | null {
+  if (currentState <= 0) return toReplacementStageSignal("step1");
+  if (currentState === 1) return toReplacementStageSignal("checking1");
+  if (currentState === 2) return toReplacementStageSignal("step2");
+  if (currentState === 3) return toReplacementStageSignal("step3");
+  if (currentState === 4) return toReplacementStageSignal("step4Checking");
+  if (currentState === 5) return toReplacementStageSignal("success");
+  if (currentState >= 6) return toReplacementStageSignal("error");
+  return null;
+}
+
+function decodeReplacementFlowFeedbackPacket(packet: MpPacketPayload): {
+  flow: "BASELINING" | "CALIBRATION";
+  currentState: number;
+  decoded: Record<string, unknown>;
+} | null {
+  const decoded = decodeFeedbackRecord(packet);
+  if (!decoded) {
+    return null;
+  }
+
+  const currentState = extractCurrentStateFromFeedbackRecord(decoded);
+  if (currentState === null) {
+    return null;
+  }
+
+  if (
+    packet.ppi === PpiId.AD_START_BASELINING ||
+    packet.ppi === PpiId.AD_BASELINING_FEEDBACK
+  ) {
+    return { flow: "BASELINING", currentState, decoded };
+  }
+
+  if (
+    packet.ppi === PpiId.AD_START_CALIBRATION ||
+    packet.ppi === PpiId.AD_CALIBRATION_FEEDBACK
+  ) {
+    return { flow: "CALIBRATION", currentState, decoded };
+  }
+
+  return null;
+}
+
+function maybeAutoValidateMedForBaseliningState(currentState: number): void {
+  if (currentState === 4 && !hasSentValidateMedForActiveFlow) {
+    hasSentValidateMedForActiveFlow = true;
+    void writeValidateMedViaMessageProtocol(true).then((sent) => {
+      if (sent) {
+        console.log("[Replacement] Auto-sent Validate Med OK for baselining state 4.");
+        return;
+      }
+
+      hasSentValidateMedForActiveFlow = false;
+      console.warn("[Replacement] Failed to auto-send Validate Med response for baselining state 4.");
+    });
+    return;
+  }
+
+  if (currentState <= 3 || currentState >= 6) {
+    hasSentValidateMedForActiveFlow = false;
+  }
+}
+
+function handleReplacementFlowPacket(packet: MpPacketPayload): void {
+  if (!packet?.payload) {
+    return;
+  }
+
+  const feedback = decodeReplacementFlowFeedbackPacket(packet);
+  if (feedback) {
+    console.log("[Replacement] Flow feedback received.", {
+      flow: feedback.flow,
+      ppi: packet.ppi,
+      type: packet.type,
+      currentState: feedback.currentState,
+      decoded: feedback.decoded,
+    });
+
+    if (feedback.flow === "BASELINING") {
+      maybeAutoValidateMedForBaseliningState(feedback.currentState);
+    }
+
+    const mappedSignal =
+      feedback.flow === "BASELINING"
+        ? mapBaseliningStateToSignal(feedback.currentState)
+        : mapCalibrationStateToSignal(feedback.currentState);
+
+    if (mappedSignal) {
+      dispatchReplacementFlowHex(mappedSignal);
+    }
+
+    return;
+  }
+
+  if (packet.ppi !== PpiId.AD_DEVELOPMENT_CMD || packet.payload.length === 0) {
+    return;
+  }
+
+  const payloadHex = Buffer.from(packet.payload).toString("hex").trim().toLowerCase();
+  if (!payloadHex) {
+    return;
+  }
+
+  dispatchReplacementFlowHex(payloadHex);
+}
+
+function registerMessageProtocolReplacementFlowHandler(): boolean {
+  const messageProtocol = getMessageProtocolInstance();
+  if (!messageProtocol) {
+    return false;
+  }
+
+  if (replacementFlowRegisteredProtocol === messageProtocol) {
+    return true;
+  }
+
+  messageProtocol.registerRxHandler(PpiId.AD_DEVELOPMENT_CMD, "*", handleReplacementFlowPacket);
+  messageProtocol.registerRxHandler(PpiId.AD_START_BASELINING, "*", handleReplacementFlowPacket);
+  messageProtocol.registerRxHandler(PpiId.AD_BASELINING_FEEDBACK, "*", handleReplacementFlowPacket);
+  messageProtocol.registerRxHandler(PpiId.AD_START_CALIBRATION, "*", handleReplacementFlowPacket);
+  messageProtocol.registerRxHandler(PpiId.AD_CALIBRATION_FEEDBACK, "*", handleReplacementFlowPacket);
+  replacementFlowRegisteredProtocol = messageProtocol;
+
+  return true;
+}
+
+async function waitForMessageProtocolReplacementHandler(timeoutMs = 2500): Promise<boolean> {
+  if (registerMessageProtocolReplacementFlowHandler()) {
+    return true;
+  }
+
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    if (registerMessageProtocolReplacementFlowHandler()) {
+      return true;
+    }
+  }
+
+  return registerMessageProtocolReplacementFlowHandler();
+}
+
+async function writeReplacementCommand(
+  commandHex: string,
+  label: string,
+  options?: { baseliningStart?: boolean }
+): Promise<boolean> {
+  const normalized = normalizeHex(commandHex);
+  if (!normalized) {
+    console.warn(`[Replacement] Invalid ${label} command hex.`, { commandHex });
+    return false;
+  }
+
+  const commandByte = Number.parseInt(normalized.slice(0, 2), 16);
+  const base64Value = Buffer.from(normalized, "hex").toString("base64");
+  const hasMessageProtocol = !!getMessageProtocolInstance();
+
+  if (hasMessageProtocol) {
+    if (typeof options?.baseliningStart === "boolean") {
+      if (options.baseliningStart) {
+        hasSentValidateMedForActiveFlow = false;
+      }
+
+      const sentBaseliningControl = await writeBaseliningStartStopViaMessageProtocol(
+        options.baseliningStart,
+        label
+      );
+      if (sentBaseliningControl) {
+        return true;
+      }
+      console.warn(
+        `[Replacement] Failed AD_START_BASELINING for ${label}. Falling back to development command path.`
+      );
+    }
+
+    const sentViaMessageProtocol = await writeReplacementViaMessageProtocol(commandByte, label);
+    if (sentViaMessageProtocol) {
+      if (options?.baseliningStart === false) {
+        hasSentValidateMedForActiveFlow = false;
+      }
+      return true;
+    }
+    console.warn(
+      `[Replacement] Message protocol command failed for ${label}. Falling back to legacy replacement characteristic.`
+    );
+  }
+
+  try {
+    const success = await writeReplacementLegacyCharacteristic(
+      REPLACEMENT_FLOW_SIGNAL.characteristicUuid,
+      base64Value
+    );
+    if (success) {
+      return true;
+    }
+
+    console.warn(
+      `[Replacement] Legacy characteristic write returned false for ${label}.`
+    );
+    return false;
+  } catch (error) {
+    if (isCharacteristicNotFoundError(error)) {
+      if (!hasMessageProtocol) {
+        console.warn(
+          `[Replacement] Legacy replacement characteristic missing for ${label}.`
+        );
+      }
+      return false;
+    }
+    console.warn(`[Replacement] Failed to send ${label} command.`, error);
+    return false;
+  }
+}
+
+export async function writeReplacementProcessStarted(): Promise<boolean> {
+  return writeReplacementCommand(
+    REPLACEMENT_FLOW_SIGNAL.processStartedWriteHex,
+    "process started",
+    { baseliningStart: true }
+  );
+}
+
+export async function writeReplacementProcessStopped(): Promise<boolean> {
+  return writeReplacementCommand(
+    REPLACEMENT_FLOW_SIGNAL.processStoppedWriteHex,
+    "process stopped",
+    { baseliningStart: false }
+  );
+}
+
+export async function writeReplacementProcessRestarted(): Promise<boolean> {
+  return writeReplacementCommand(
+    REPLACEMENT_FLOW_SIGNAL.processRestartedWriteHex,
+    "process restarted",
+    { baseliningStart: true }
+  );
+}
+
+export async function subscribeToReplacementFlowSignal(
+  listener: ReplacementFlowHexListener
+): Promise<() => void> {
+  if (await waitForMessageProtocolReplacementHandler()) {
+    replacementFlowListeners.add(listener);
+    return () => {
+      replacementFlowListeners.delete(listener);
+    };
+  }
+
+  return subscribeToBleCharacteristic(
+    REPLACEMENT_FLOW_SIGNAL.characteristicUuid,
+    (bytes) => {
+      const payloadHex = Buffer.from(bytes).toString("hex").trim().toLowerCase();
+      if (!payloadHex) {
+        return;
+      }
+      listener(payloadHex);
+    },
+    REPLACEMENT_FLOW_SIGNAL.serviceUuid
+  );
+}

@@ -1,3 +1,5 @@
+import { Buffer } from "buffer";
+
 import { sendDoseEvent } from "@/services/schedule";
 import useDeviceStore from "@/store/device";
 import useScheduleStore from "@/store/schedule";
@@ -19,12 +21,14 @@ import { TX_READY_POLL_MS, TX_READY_TIMEOUT_MS } from "./constants";
 import { getMessageProtocolInstance } from "./state";
 
 export function relayMessageProtocolConsoleLog(
-  level: "INFO" | "WARN" | "ERR",
+  level: "DBG" | "INFO" | "WARN" | "ERR",
   args: unknown[]
 ): void {
   const prefix = `[MP][PROTOCOL][${level}]`;
   if (!args.length) {
-    if (level === "INFO") {
+    if (level === "DBG") {
+      console.log(prefix);
+    } else if (level === "INFO") {
       console.info(prefix);
     } else if (level === "WARN") {
       console.warn(prefix);
@@ -37,7 +41,9 @@ export function relayMessageProtocolConsoleLog(
   const [first, ...rest] = args;
   if (typeof first === "string") {
     const message = `${prefix} ${first}`;
-    if (level === "INFO") {
+    if (level === "DBG") {
+      console.log(message, ...rest);
+    } else if (level === "INFO") {
       console.info(message, ...rest);
     } else if (level === "WARN") {
       console.warn(message, ...rest);
@@ -47,7 +53,9 @@ export function relayMessageProtocolConsoleLog(
     return;
   }
 
-  if (level === "INFO") {
+  if (level === "DBG") {
+    console.log(prefix, ...args);
+  } else if (level === "INFO") {
     console.info(prefix, ...args);
   } else if (level === "WARN") {
     console.warn(prefix, ...args);
@@ -137,7 +145,18 @@ async function sendPpiRequest(ppiId: PpiId): Promise<boolean> {
       return false;
     }
 
-    const result = messageProtocol.send(buildPpiPayload(ppiId, PpiType.RQ, new Uint8Array(0)));
+    const txPacket = buildPpiPayload(ppiId, PpiType.RQ, new Uint8Array(0));
+    const decoded = decodePpiPayload(txPacket.ppi, txPacket.type as PpiType, txPacket.payload);
+    console.log("[MP][TX]", {
+      ppi: txPacket.ppi,
+      ppiName: PpiId[txPacket.ppi as PpiId] ?? `PPI_${txPacket.ppi}`,
+      type: txPacket.type,
+      typeName: PpiType[txPacket.type as PpiType] ?? `TYPE_${txPacket.type}`,
+      payloadHex: Buffer.from(txPacket.payload).toString("hex"),
+      decoded: decoded.value,
+    });
+
+    const result = messageProtocol.send(txPacket);
     if (result === MsgProtError.NONE) {
       await messageProtocol.process();
       const completed = await waitForTxSendable(messageProtocol);
@@ -177,18 +196,45 @@ export async function requestRuntimePpiState(): Promise<void> {
   await sendPpiRequest(PpiId.AD_RING_STATUS);
 }
 
+function buildDeviceKeyCandidates(device: { deviceId: string; deviceName: string }, backendDeviceId?: string): string[] {
+  const unique = new Set<string>();
+  const candidates = [backendDeviceId, device.deviceId, device.deviceName];
+
+  for (const candidate of candidates) {
+    const normalized = typeof candidate === "string" ? candidate.trim() : "";
+    if (normalized) {
+      unique.add(normalized);
+    }
+  }
+
+  return Array.from(unique);
+}
+
 export function setupMessageProtocolHandlers(deviceIdentifier: string): void {
   const messageProtocol = getMessageProtocolInstance();
   if (!messageProtocol) {
     return;
   }
 
-  messageProtocol.registerRxHandler(PpiId.AD_DOSE_EVENT_REPORT, PpiType.PUSH, async (packet) => {
+  messageProtocol.registerRxHandler(PpiId.AD_DOSE_EVENT_REPORT, "*", async (packet) => {
+    if (packet.type !== PpiType.PUSH && packet.type !== PpiType.RE) {
+      return;
+    }
+
     const decoded = decodeDoseEventPpi(packet.payload);
     if (!decoded) {
       console.warn("[MP] Dose event payload size mismatch.");
       return;
     }
+
+    console.log("💊 [MP] Dose event received from device.", {
+      deviceIdentifier,
+      eventId: decoded.event_id,
+      startTimestampUnixS: decoded.start_timestamp_unix_s,
+      durationS: decoded.duration_s,
+      doseCompletedInTime: decoded.dose_completed_in_time,
+      tiltCount: decoded.tilt_count,
+    });
 
     const deviceStore = useDeviceStore.getState();
     const scheduleStore = useScheduleStore.getState();
@@ -209,6 +255,15 @@ export function setupMessageProtocolHandlers(deviceIdentifier: string): void {
       return;
     }
 
+    const backendDeviceId =
+      (typeof treatment.device_id === "string" && treatment.device_id.trim().length
+        ? treatment.device_id.trim()
+        : "") ||
+      (typeof device.deviceName === "string" && device.deviceName.trim().length
+        ? device.deviceName.trim()
+        : device.deviceId);
+    const scheduleDeviceKeys = buildDeviceKeyCandidates(device, backendDeviceId);
+
     const eventAtIso = new Date(decoded.start_timestamp_unix_s * 1000).toISOString();
     const doseEventPayload = {
       event_id: decoded.event_id,
@@ -220,40 +275,68 @@ export function setupMessageProtocolHandlers(deviceIdentifier: string): void {
     try {
       const backendResponse = await sendDoseEvent(
         doseEventPayload,
-        device.deviceId,
+        backendDeviceId,
         treatment.medication_code,
       );
 
       let acknowledgedSchedule = null;
+      let acknowledgedScheduleDeviceKey = "";
 
       if (typeof backendResponse?.event_id === "string" && backendResponse.event_id.length > 0) {
-        acknowledgedSchedule = scheduleStore.acknowledgeDoseEvent(
-          device.deviceId,
-          backendResponse.event_id,
-          decoded,
-        );
+        for (const key of scheduleDeviceKeys) {
+          acknowledgedSchedule = scheduleStore.acknowledgeDoseEvent(
+            key,
+            backendResponse.event_id,
+            decoded,
+          );
+          if (acknowledgedSchedule) {
+            acknowledgedScheduleDeviceKey = key;
+            break;
+          }
+        }
       }
 
       if (!acknowledgedSchedule) {
-        acknowledgedSchedule = scheduleStore.acknowledgeDoseEventByTimestamp(
-          device.deviceId,
-          eventAtIso,
-          decoded,
-        );
+        for (const key of scheduleDeviceKeys) {
+          acknowledgedSchedule = scheduleStore.acknowledgeDoseEventByTimestamp(
+            key,
+            eventAtIso,
+            decoded,
+          );
+          if (acknowledgedSchedule) {
+            acknowledgedScheduleDeviceKey = key;
+            break;
+          }
+        }
       }
 
-      if (acknowledgedSchedule?.id) {
-        scheduleStore.markBackendSynced(device.deviceId, acknowledgedSchedule.id);
+      if (acknowledgedSchedule?.id && acknowledgedScheduleDeviceKey) {
+        scheduleStore.markBackendSynced(acknowledgedScheduleDeviceKey, acknowledgedSchedule.id);
       }
 
       console.log("💊 [MP] Received and synced dose event.", {
+        rawDeviceIdentifier: deviceIdentifier,
         deviceId: device.deviceId,
+        deviceName: device.deviceName,
+        backendDeviceId,
+        scheduleDeviceKeys,
+        acknowledgedScheduleDeviceKey,
+        eventId: decoded.event_id,
         eventAtIso,
+        doseCompletedInTime: decoded.dose_completed_in_time,
+        durationS: decoded.duration_s,
+        tiltCount: decoded.tilt_count,
         backendEventId: backendResponse?.event_id,
       });
     } catch (doseEventError) {
       console.warn("[MP] Failed to sync dose event to backend.", {
+        rawDeviceIdentifier: deviceIdentifier,
         deviceId: device.deviceId,
+        deviceName: device.deviceName,
+        backendDeviceId,
+        scheduleDeviceKeys,
+        eventId: decoded.event_id,
+        eventAtIso,
         error: doseEventError instanceof Error ? doseEventError.message : String(doseEventError),
       });
     }
@@ -321,4 +404,24 @@ export function setupMessageProtocolHandlers(deviceIdentifier: string): void {
   messageProtocol.registerRxHandler(PpiId.AD_RING_BATT_LEVEL_LOG, PpiType.RE, updateRingBatteryFromPacket);
   messageProtocol.registerRxHandler(PpiId.AD_RING_STATUS, PpiType.PUSH, updateDeviceErrorFromRingStatus);
   messageProtocol.registerRxHandler(PpiId.AD_RING_STATUS, PpiType.RE, updateDeviceErrorFromRingStatus);
+
+  const logFeedbackPacket = (packet: { ppi: number; type: number; payload: Uint8Array }) => {
+    const decoded = decodePpiPayload(packet.ppi, packet.type as PpiType, packet.payload);
+    const ppiName = PpiId[packet.ppi as PpiId] ?? `PPI_${packet.ppi}`;
+    const typeName = PpiType[packet.type as PpiType] ?? `TYPE_${packet.type}`;
+    console.log("🧪 [MP] Baselining/Calibration feedback", {
+      deviceIdentifier,
+      ppi: packet.ppi,
+      ppiName,
+      type: packet.type,
+      typeName,
+      payloadHex: Buffer.from(packet.payload).toString("hex"),
+      decoded: decoded.value,
+    });
+  };
+
+  messageProtocol.registerRxHandler(PpiId.AD_START_BASELINING, PpiType.PUSH, logFeedbackPacket);
+  messageProtocol.registerRxHandler(PpiId.AD_BASELINING_FEEDBACK, PpiType.PUSH, logFeedbackPacket);
+  messageProtocol.registerRxHandler(PpiId.AD_START_CALIBRATION, PpiType.PUSH, logFeedbackPacket);
+  messageProtocol.registerRxHandler(PpiId.AD_CALIBRATION_FEEDBACK, PpiType.PUSH, logFeedbackPacket);
 }

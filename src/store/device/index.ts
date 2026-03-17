@@ -40,9 +40,6 @@ const useDeviceStore = create<DeviceStore>()(
         return true;
       },
       updateDevice: (deviceIdentifier, data) => {
-        console.log(`Attempting to update the device id ${deviceIdentifier} in the store..`);
-        console.log(data);
-
         set((state) => ({
           devices: state.devices.map((device) => {
             const matches =

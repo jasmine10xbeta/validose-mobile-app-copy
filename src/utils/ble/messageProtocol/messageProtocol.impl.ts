@@ -784,7 +784,33 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     }
 
     if (this.isMaster) {
-      this.logger.error("[MP] Session ID mismatch.", {
+      const txStatus = this.txPacket.header.status as MsgProtTxPacketStatus;
+      const awaitingAck = txStatus === MsgProtTxPacketStatus.WAITING_FOR_ACK;
+
+      // In master mode, device PUSH data may still arrive on a previous session briefly.
+      // Ignore stale DATA packets to avoid sync-churn loops.
+      if (context === "DATA") {
+        this.logger.debug("[MP] Ignoring stale DATA packet with mismatched session.", {
+          expectedSessionId: this.currentSessionId,
+          receivedSessionId: packet.header.sessionId,
+          isSyncing: this.isSyncing,
+        });
+        return;
+      }
+
+      // Likewise, stale ACK/NAK packets can arrive after TX already completed.
+      // Only treat them as actionable mismatches when we are actively awaiting ACK.
+      if ((context === "ACK" || context === "NAK") && !awaitingAck) {
+        this.logger.debug("[MP] Ignoring stale ACK/NAK packet with mismatched session.", {
+          context,
+          expectedSessionId: this.currentSessionId,
+          receivedSessionId: packet.header.sessionId,
+          txStatus,
+        });
+        return;
+      }
+
+      this.logger.warn("[MP] Session ID mismatch.", {
         context,
         expectedSessionId: this.currentSessionId,
         receivedSessionId: packet.header.sessionId,
@@ -934,7 +960,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     }
 
     if (this.isMaster) {
-      await this.mpSyncStart();
+      await this.mpSyncStart(true);
       return;
     }
 
@@ -953,11 +979,20 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     }
 
     if (packet.header.sessionId !== this.currentSessionId) {
-      this.logger.error("[MP] Session ID mismatch for SYNC_ACK.", {
+      if (!this.isSyncing) {
+        this.logger.debug("[MP] Ignoring stale SYNC_ACK while not syncing.", {
+          expectedSessionId: this.currentSessionId,
+          receivedSessionId: packet.header.sessionId,
+        });
+        return;
+      }
+
+      this.logger.warn("[MP] Stale or mismatched SYNC_ACK received; restarting sync.", {
         expectedSessionId: this.currentSessionId,
         receivedSessionId: packet.header.sessionId,
+        isSyncing: this.isSyncing,
       });
-      await this.mpSyncStart();
+      await this.mpSyncStart(true);
       return;
     }
 
@@ -969,8 +1004,9 @@ export class BleMessageProtocol implements MessageProtocolInterface {
       return;
     }
 
-    this.logger.error("[MP] Received unexpected SYNC_ACK while not syncing.");
-    await this.mpSyncStart();
+    this.logger.debug("[MP] Ignoring unexpected SYNC_ACK while not syncing.", {
+      sessionId: packet.header.sessionId >>> 0,
+    });
   }
 
   private deliverPayload(packet: MpPacket): MsgProtError {
@@ -1109,7 +1145,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     this.deadlineMs = now + this.ackTimeoutMs;
   }
 
-  private async mpSyncStart(): Promise<void> {
+  private async mpSyncStart(force = false): Promise<void> {
     if (!this.isMaster) {
       return;
     }
@@ -1122,7 +1158,7 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     const timeSinceLastSync = currentMs - this.lastResyncTimeMs;
     const isFirstSyncAttempt = !this.hasAttemptedSync;
 
-    if (!isFirstSyncAttempt && timeSinceLastSync <= MAX_TIME_BEFORE_SYNC_RETRY_MS) {
+    if (!force && !isFirstSyncAttempt && timeSinceLastSync <= MAX_TIME_BEFORE_SYNC_RETRY_MS) {
       return;
     }
 

@@ -1260,7 +1260,7 @@ export const styles = StyleSheet.create({
   flowModalBackdrop: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(15,23,42,0.4)",
+    backgroundColor: "rgba(15,23,42,0.5)",
   },
   flowModalDismissArea: {
     flex: 1,

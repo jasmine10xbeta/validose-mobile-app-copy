@@ -21,6 +21,9 @@ export const CHARACTERISTIC_UUIDS = {
   // Legacy alias kept for compatibility in older code paths.
   MESSAGE_PROTOCOL: "00001508-eb00-430a-a8ff-c7ad4211bf86",
   RESET: "00001506-eb00-430a-a8ff-c7ad4211bf86",
+  // Placeholder characteristic for replacement-flow step transitions.
+  // You can change this once firmware finalizes the contract.
+  REPLACEMENT_STEP: "00001507-eb00-430a-a8ff-c7ad4211bf86",
 };
 
 // Firmware Unit IDs

@@ -6,6 +6,7 @@ import { writeCharacteristic } from "../../../../modules/tenx-mdk-ble-rn-library
 import { MsgProtError } from "../messageProtocol";
 import {
   buildPpiPayload,
+  decodePpiPayload,
   encodeDoseSchedulePpi,
   encodeUint32LE,
   MAX_DOSES_PER_DAY,
@@ -75,7 +76,18 @@ export async function writeSystemTime(): Promise<boolean> {
         return false;
       }
 
-      const result = messageProtocol.send(buildPpiPayload(PpiId.AD_TIME, PpiType.PUSH, payload));
+      const txPacket = buildPpiPayload(PpiId.AD_TIME, PpiType.PUSH, payload);
+      const decoded = decodePpiPayload(txPacket.ppi, txPacket.type as PpiType, txPacket.payload);
+      console.log("[MP][TX]", {
+        ppi: txPacket.ppi,
+        ppiName: PpiId[txPacket.ppi as PpiId] ?? `PPI_${txPacket.ppi}`,
+        type: txPacket.type,
+        typeName: PpiType[txPacket.type as PpiType] ?? `TYPE_${txPacket.type}`,
+        payloadHex: Buffer.from(txPacket.payload).toString("hex"),
+        decoded: decoded.value,
+      });
+
+      const result = messageProtocol.send(txPacket);
       console.log(`Message protocol send result: ${result}`);
       if (result === MsgProtError.NONE) {
         await messageProtocol.process();
@@ -171,9 +183,18 @@ export async function writeDoseSchedule(doseSchedule: any): Promise<void> {
         return;
       }
 
-      const result = messageProtocol.send(
-        buildPpiPayload(PpiId.AD_DOSE_SCHEDULE, PpiType.PUSH, schedule)
-      );
+      const txPacket = buildPpiPayload(PpiId.AD_DOSE_SCHEDULE, PpiType.PUSH, schedule);
+      const decoded = decodePpiPayload(txPacket.ppi, txPacket.type as PpiType, txPacket.payload);
+      console.log("[MP][TX]", {
+        ppi: txPacket.ppi,
+        ppiName: PpiId[txPacket.ppi as PpiId] ?? `PPI_${txPacket.ppi}`,
+        type: txPacket.type,
+        typeName: PpiType[txPacket.type as PpiType] ?? `TYPE_${txPacket.type}`,
+        payloadHex: Buffer.from(txPacket.payload).toString("hex"),
+        decoded: decoded.value,
+      });
+
+      const result = messageProtocol.send(txPacket);
       if (result === MsgProtError.NONE) {
         await messageProtocol.process();
       }

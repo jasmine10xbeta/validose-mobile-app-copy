@@ -193,12 +193,13 @@ export default function DashboardScreen() {
         {isDevicesConnected ? (
           <FlatList
             initialNumToRender={4}
-            renderItem={({ item }) => {
+            renderItem={({ item, index }) => {
               const scheduleKey = item.deviceId || item.deviceName;
               return (
                 <VMedicationItem
                   item={item}
                   schedule={todaySchedulesByDevice[scheduleKey] || []}
+                  index={index}
                 />
               );
             }}

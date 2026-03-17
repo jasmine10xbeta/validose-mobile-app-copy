@@ -120,6 +120,9 @@ const BASELINING_STATE_WAIT_FOR_BACKEND_VALIDATION = 4;
 const BASELINING_STATE_COMPLETE = 6;
 const BASELINING_STATE_ERROR = 7;
 const BASELINING_INITIAL_INSTRUCTION = "Press Start Baselining to begin.";
+const CALIBRATION_STATE_COMPLETE = 5;
+const CALIBRATION_STATE_ERROR = 6;
+const CALIBRATION_INITIAL_INSTRUCTION = "Press Start Calibration to begin.";
 const MP_MIN_FRAME_LEN_BYTES = 14;
 const MP_PACKET_TYPE_DATA = 0;
 const CALIBRATION_WEIGHT_STORAGE_KEY = "ble_debug_calibration_weight_mg";
@@ -207,7 +210,7 @@ export default function BleDebugScreen() {
     useState(BASELINING_INITIAL_INSTRUCTION);
   const [calibrationGuideStage, setCalibrationGuideStage] = useState<CalibrationGuideStage>("IDLE");
   const [calibrationGuideInstruction, setCalibrationGuideInstruction] = useState(
-    ""
+    CALIBRATION_INITIAL_INSTRUCTION
   );
   const [calibrationCompletionMessage, setCalibrationCompletionMessage] = useState("");
   const [calibrationDataSnapshot, setCalibrationDataSnapshot] = useState<CalibrationDataSnapshot | null>(
@@ -271,6 +274,8 @@ export default function BleDebugScreen() {
         return "Weight Sent";
       case "COMPLETED":
         return "Completed";
+      case "ERROR":
+        return "Error";
       default:
         return "Ready";
     }
@@ -306,6 +311,8 @@ export default function BleDebugScreen() {
             action === "CALIBRATION_WEIGHT_PRESENT_PUSH_FALSE"
           );
         case "COMPLETED":
+          return action === "START_CALIBRATION_RQ" || action === "CALIBRATION_DATA_RQ";
+        case "ERROR":
           return action === "START_CALIBRATION_RQ" || action === "CALIBRATION_DATA_RQ";
         default:
           return false;
@@ -1082,8 +1089,11 @@ export default function BleDebugScreen() {
         };
 
         if (
-          packetType === PpiType.PUSH &&
-          (packet.ppi === PpiId.AD_CALIBRATION_FEEDBACK || packet.ppi === PpiId.AD_START_CALIBRATION)
+          (packetType === PpiType.PUSH || packetType === PpiType.RE) &&
+          (
+            packet.ppi === PpiId.AD_CALIBRATION_FEEDBACK ||
+            (packet.ppi === PpiId.AD_START_CALIBRATION && packetType === PpiType.PUSH)
+          )
         ) {
           setCalibrationFeedbackPreview({
             ...compactBase,
@@ -1098,44 +1108,19 @@ export default function BleDebugScreen() {
             setCalibrationFeedbackSnapshot(feedbackSnapshot);
             const stateCode = feedbackSnapshot.currentState;
             const stateInstruction = getCalibrationInstructionForState(stateCode);
-            const pendingMatcher = pendingResponseMatcherRef.current;
-            const isStopConfirmationFeedback =
-              stateCode === 6 &&
-              (calibrationStopRequestedRef.current || pendingMatcher?.actionName === "STOP_CALIBRATION_RQ");
 
             if (stateCode === 0 || stateCode === 1 || stateCode === 2) {
               setCalibrationGuideStage("AWAITING_WEIGHT");
             } else if (stateCode === 3 || stateCode === 4) {
               setCalibrationGuideStage("WEIGHT_PRESENT_SENT");
-            } else if (stateCode === 6) {
-              setCalibrationGuideStage("IDLE");
+            } else if (stateCode === CALIBRATION_STATE_COMPLETE) {
+              setCalibrationGuideStage("COMPLETED");
+            } else if (stateCode === CALIBRATION_STATE_ERROR) {
+              setCalibrationGuideStage("ERROR");
             }
 
             if (stateInstruction) {
               setCalibrationGuideInstruction(stateInstruction);
-            }
-
-            if (isStopConfirmationFeedback) {
-              calibrationStopRequestedRef.current = false;
-              calibrationCompletionAutoRequestRef.current = false;
-              setCalibrationGuideStage("IDLE");
-              setCalibrationGuideInstruction("Calibration stopped.");
-
-              if (pendingMatcher?.actionName === "STOP_CALIBRATION_RQ") {
-                setResolvedResponsePreview(rxPreview);
-                addLog("[PPI][STOP_CALIBRATION_RQ] RESPONSE_RESOLVED_BY_FEEDBACK", {
-                  sentAt: pendingMatcher.sentAt,
-                  receivedAt: rxPreview.receivedAt,
-                  ppi: rxPreview.ppi,
-                  ppiName: rxPreview.ppiName,
-                  type: rxPreview.type,
-                  typeName: rxPreview.typeName,
-                  payloadLen: rxPreview.pktPayloadLen,
-                  decoded: rxPreview.decoded,
-                });
-                pendingResponseMatcherRef.current = null;
-                setPendingResponseMatcher(null);
-              }
             }
 
             if (feedbackSnapshot.isComplete) {
@@ -1153,8 +1138,11 @@ export default function BleDebugScreen() {
         }
 
         if (
-          packetType === PpiType.PUSH &&
-          (packet.ppi === PpiId.AD_BASELINING_FEEDBACK || packet.ppi === PpiId.AD_START_BASELINING)
+          (packetType === PpiType.PUSH || packetType === PpiType.RE) &&
+          (
+            packet.ppi === PpiId.AD_BASELINING_FEEDBACK ||
+            (packet.ppi === PpiId.AD_START_BASELINING && packetType === PpiType.PUSH)
+          )
         ) {
           const baseliningSnapshot = extractBaseliningFeedbackSnapshot(
             normalizedDecodedValue,
@@ -2011,7 +1999,7 @@ export default function BleDebugScreen() {
         calibrationStopRequestedRef.current = false;
         baseliningValidationSentRef.current = false;
         setCalibrationGuideStage("IDLE");
-        setCalibrationGuideInstruction("");
+        setCalibrationGuideInstruction(CALIBRATION_INITIAL_INSTRUCTION);
         setCalibrationCompletionMessage("");
         setCalibrationFeedbackSnapshot(null);
         setBaseliningFeedbackSnapshot(null);
@@ -2087,7 +2075,7 @@ export default function BleDebugScreen() {
     calibrationStopRequestedRef.current = false;
     baseliningValidationSentRef.current = false;
     setCalibrationGuideStage("IDLE");
-    setCalibrationGuideInstruction("");
+    setCalibrationGuideInstruction(CALIBRATION_INITIAL_INSTRUCTION);
     setBaseliningFeedbackSnapshot(null);
     setBaseliningGuideStage("IDLE");
     setBaseliningGuideInstruction(BASELINING_INITIAL_INSTRUCTION);

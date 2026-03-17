@@ -135,7 +135,8 @@ export type CalibrationGuideStage =
   | "START_SENT"
   | "AWAITING_WEIGHT"
   | "WEIGHT_PRESENT_SENT"
-  | "COMPLETED";
+  | "COMPLETED"
+  | "ERROR";
 
 export type CalibrationDataSnapshot = {
   updatedAt: string;
