@@ -39,11 +39,20 @@ const useScheduleStore = create<ScheduleStore>()(
           return;
         }
 
-        const newSchedules = scheduleList.map((s) => ({
-          ...s,
-          firmware_acknowledged: false,
-          backend_synced: false,
-        }));
+        const existingSchedules = get().schedules[deviceId] || [];
+        const existingSchedulesById = new Map(
+          existingSchedules.map((schedule) => [schedule.id, schedule])
+        );
+
+        const newSchedules = scheduleList.map((schedule) => {
+          const existing = existingSchedulesById.get(schedule.id);
+          return {
+            ...schedule,
+            firmware_acknowledged: existing?.firmware_acknowledged ?? false,
+            backend_synced: existing?.backend_synced ?? false,
+            firmware_info: existing?.firmware_info,
+          };
+        });
 
         set((state) => ({
           schedules: {
@@ -55,16 +64,24 @@ const useScheduleStore = create<ScheduleStore>()(
 
       getTodaySchedules: () => {
         const now = new Date();
-        const utcMidnight = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
-        const utcTomorrow = new Date(utcMidnight);
-        utcTomorrow.setUTCDate(utcMidnight.getUTCDate() + 1);
+        const localMidnight = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          0,
+          0,
+          0,
+          0
+        );
+        const localTomorrow = new Date(localMidnight);
+        localTomorrow.setDate(localMidnight.getDate() + 1);
 
         const todaySchedules: Record<string, Schedule[]> = {};
 
         for (const [deviceId, list] of Object.entries(get().schedules)) {
           todaySchedules[deviceId] = list.filter((s) => {
             const eventTime = new Date(s.event_at_local);
-            return eventTime >= utcMidnight && eventTime < utcTomorrow;
+            return eventTime >= localMidnight && eventTime < localTomorrow;
           });
         }
 

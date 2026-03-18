@@ -14,6 +14,9 @@ interface LabelInfo {
   timeLabel: string;
   detailsLabel: string;
   state: number;
+  isInDosingWindow: boolean;
+  isMissed: boolean;
+  highlightedMedication?: string;
 }
 
 type UpcomingEntry = {
@@ -32,7 +35,15 @@ export function VNextDoseInfo({ todaySchedulesByDevice }: VNextDoseInfoProps) {
     return () => clearInterval(interval);
   }, []);
 
-  const { mainLabel, timeLabel, detailsLabel, state } = getDoseLabels(
+  const {
+    mainLabel,
+    timeLabel,
+    detailsLabel,
+    state,
+    isInDosingWindow,
+    isMissed,
+    highlightedMedication,
+  } = getDoseLabels(
     todaySchedulesByDevice,
     timestamp
   );
@@ -46,7 +57,15 @@ export function VNextDoseInfo({ todaySchedulesByDevice }: VNextDoseInfoProps) {
         <VText textVariant="Body">{mainLabel}</VText>
         <VText textVariant="LabelDose">{timeLabel}</VText>
       </View>
-      {detailsLabel && <VMedicationInfo detailsLabel={detailsLabel} state={state} />}
+      {detailsLabel && (
+        <VMedicationInfo
+          detailsLabel={detailsLabel}
+          state={state}
+          isInDosingWindow={isInDosingWindow}
+          isMissed={isMissed}
+          highlightedMedication={highlightedMedication}
+        />
+      )}
     </View>
   );
 }
@@ -55,7 +74,7 @@ const styles = StyleSheet.create({
   nextDoseInfo: {
     flexDirection: "column",
     alignItems: "center",
-    paddingTop: 35,
+    // paddingTop: 35,
     paddingBottom: 15,
     width: "100%",
   },
@@ -66,7 +85,6 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   label: {
-    position: "absolute",
     color: "#505A66",
     fontSize: 16,
     fontWeight: "400",
@@ -127,6 +145,17 @@ function formatDurationLabel(diffMs: number): string {
   return `In ${minutes} ${minutes === 1 ? "min" : "mins"}`;
 }
 
+function formatTimeLabel(date: Date): string {
+  const hours24 = date.getHours();
+  const minutes = date.getMinutes();
+  const meridiem = hours24 >= 12 ? "pm" : "am";
+  const hours12 = hours24 % 12 || 12;
+
+  return `${hours12.toString().padStart(2, "0")}:${minutes
+    .toString()
+    .padStart(2, "0")}${meridiem}`;
+}
+
 function formatMedicationList(codes: string[]): string {
   const sanitized = codes.filter((code) => code.length > 0);
   if (sanitized.length === 0) return "your medication";
@@ -177,12 +206,15 @@ function getDoseLabels(
       timeLabel: "You're all done for today.",
       detailsLabel: "",
       state: 0,
+      isInDosingWindow: false,
+      isMissed: false,
+      highlightedMedication: undefined,
     };
   }
 
-  const groups: Array<{
+  const groups: {
     items: typeof upcoming;
-  }> = [];
+  }[] = [];
 
   // Group doses that fall within DEFAULT_WINDOW_MS of each other
   upcoming.forEach((entry) => {
@@ -262,6 +294,9 @@ function getDoseLabels(
       timeLabel: "You're all done for today.",
       detailsLabel: "",
       state: 0,
+      isInDosingWindow: false,
+      isMissed: false,
+      highlightedMedication: undefined,
     };
   }
 
@@ -302,6 +337,8 @@ function getDoseLabels(
       ? activeGroup.pendingCodes
       : activeGroup.allCodes;
   const formattedCodes = formatMedicationList(codesForMessages);
+  const highlightedMedication =
+    codesForMessages.length > 0 ? formattedCodes : undefined;
 
   let mainLabel: string;
   let timeLabel: string;
@@ -312,20 +349,16 @@ function getDoseLabels(
         ? activeGroup.windowStartMs - nowMs
         : Math.max(activeGroup.earliestEvent.getTime() - nowMs, 0);
     mainLabel = formatDurationLabel(diffMs);
-    timeLabel = "from now";
+    timeLabel = formatTimeLabel(activeGroup.earliestEvent);
   } else {
     mainLabel = "Take dose now";
-    const remainingMs = Math.max(activeGroup.windowEndMs - nowMs, 0);
-    const remainingMinutes = Math.ceil(remainingMs / 60000);
-    if (remainingMinutes > 60) {
-      timeLabel = "within the hour";
-    } else {
-      timeLabel = `within ${Math.max(1, remainingMinutes)} mins`;
-    }
+    timeLabel = `until ${formatTimeLabel(new Date(activeGroup.windowEndMs))}`;
   }
 
   let detailsLabel: string;
   let state: number;
+  let isInDosingWindow = false;
+  let isMissed = false;
 
   if (allTaken) {
     detailsLabel = "Thank you for logging a successful dose";
@@ -333,6 +366,7 @@ function getDoseLabels(
   } else if (halfWindowReached) {
     detailsLabel = `You are about to miss a scheduled dose for ${formattedCodes}. Take the dose(s) now.`;
     state = 3;
+    isInDosingWindow = true;
   } else {
     const medicationPrompt =
       formattedCodes === "your medication"
@@ -340,6 +374,8 @@ function getDoseLabels(
         : `medication ${formattedCodes}`;
     detailsLabel = `Take ${medicationPrompt}.`;
     state = 6;
+    isInDosingWindow = inWindow;
+    isMissed = nowMs > activeGroup.windowEndMs;
   }
 
   return {
@@ -347,5 +383,8 @@ function getDoseLabels(
     timeLabel,
     detailsLabel,
     state,
+    isInDosingWindow,
+    isMissed,
+    highlightedMedication,
   };
 }

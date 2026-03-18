@@ -32,35 +32,64 @@ export const syncPendingEvents = async () => {
   clearOldSchedules();
 };
 
-const getOutdatedTreatments = async (): Promise<Treatment[]> => {
-  const latestTreatments = await getTreatments();
-  const { treatments, storeTreatments, storeTreatment } = useTreatmentStore.getState();
+type SyncTreatmentsAndSchedulesOptions = {
+  forceScheduleFetch?: boolean;
+  reason?: string;
+};
 
-  const isEmpty = treatments === null || Object.keys(treatments).length === 0;
-
-  if (isEmpty) {
-    console.log("\n[Scheduler] No stored treatments. Syncing..");
-
-    storeTreatments(latestTreatments.treatments);
-    return latestTreatments.treatments;
+function hasFutureOrActiveSchedules(
+  scheduleList: Schedule[] | undefined,
+  nowMs: number
+): boolean {
+  if (!Array.isArray(scheduleList) || scheduleList.length === 0) {
+    return false;
   }
 
-  const outdated: Treatment[] = [];
+  return scheduleList.some((schedule) => {
+    const windowEnd =
+      schedule.window_ends_at_local ||
+      schedule.window_ends_at ||
+      schedule.event_at_local ||
+      schedule.event_at;
+    const windowEndMs = new Date(windowEnd).getTime();
+    return Number.isFinite(windowEndMs) && windowEndMs >= nowMs;
+  });
+}
 
-  for (const latest of latestTreatments.treatments) {
-    const stored = treatments?.[latest.id];
+function getTreatmentsNeedingScheduleRefresh(
+  latestTreatments: Treatment[],
+  storedTreatments: Record<string, Treatment> | null,
+  schedulesByDevice: Record<string, Schedule[]>,
+  nowMs: number,
+  forceScheduleFetch: boolean
+): Treatment[] {
+  const treatmentsToRefresh: Treatment[] = [];
 
-    const isNew = !stored;
-    const isUpdated = stored?.schedule_updated_at !== latest.schedule_updated_at;
+  for (const treatment of latestTreatments) {
+    const storedTreatment = storedTreatments?.[treatment.id];
+    const localSchedules = schedulesByDevice[treatment.device_id];
 
-    if (isNew || isUpdated) {
-      outdated.push(latest);
-      storeTreatment(latest);
+    const isNewTreatment = !storedTreatment;
+    const isUpdatedTreatment =
+      !!storedTreatment &&
+      storedTreatment.schedule_updated_at !== treatment.schedule_updated_at;
+    const missingOrExpiredLocalSchedules = !hasFutureOrActiveSchedules(
+      localSchedules,
+      nowMs
+    );
+
+    if (
+      forceScheduleFetch ||
+      isNewTreatment ||
+      isUpdatedTreatment ||
+      missingOrExpiredLocalSchedules
+    ) {
+      treatmentsToRefresh.push(treatment);
     }
   }
 
-  return outdated;
-};
+  return treatmentsToRefresh;
+}
 
 export const updateSchedules = async (
   outdatedTreatments: Treatment[],
@@ -77,122 +106,153 @@ export const updateSchedules = async (
 
   for (const treatment of outdatedTreatments) {
     const { device_id, id: treatment_id } = treatment;
-    const schedules = await getSchedules(treatment_id, { device: device_id, event_at: { ">=": start_date, "<": end_date } }); // TODO
-    storeSchedules(device_id, schedules.data);
+    console.log(
+      "[Scheduler] Fetching schedules from backend..",
+      JSON.stringify({ treatmentId: treatment_id, deviceId: device_id })
+    );
+    const schedulesResponse = await getSchedules(treatment_id, {
+      device: device_id,
+      event_at: { ">=": start_date, "<": end_date },
+    });
+    const fetchedSchedules = Array.isArray(schedulesResponse?.data)
+      ? schedulesResponse.data
+      : [];
 
-    combinedSchedule.push(...schedules.data);
+    console.log(
+      "[Scheduler] Received schedules from backend.",
+      JSON.stringify({
+        treatmentId: treatment_id,
+        deviceId: device_id,
+        scheduleCount: fetchedSchedules.length,
+      })
+    );
+
+    storeSchedules(device_id, fetchedSchedules);
+    combinedSchedule.push(...fetchedSchedules);
   }
 
   return combinedSchedule;
 };
 
 
-export const syncTreatmentsAndSchedules = async () => {
-  console.log("[Scheduler] Syncing treatments and schedules..");
-  
-  const { clearOldSchedules, storeSchedules } = useScheduleStore.getState();
-  const now = new Date();
-  const end = new Date(Date.now() + 604800000);
+export const syncTreatmentsAndSchedules = async (
+  options: SyncTreatmentsAndSchedulesOptions = {}
+) => {
+  const { forceScheduleFetch = false, reason = "unspecified" } = options;
+  console.log(
+    `[Scheduler] Syncing treatments and schedules.. (force=${forceScheduleFetch}, reason=${reason})`
+  );
 
-  const outdatedTreatments = await getOutdatedTreatments();
-  if (outdatedTreatments.length !== 0) {
+  const nowMs = Date.now();
+  const nowDate = new Date(nowMs);
+  const endDate = new Date(nowMs + SCHEDULE_EXPIRY_DAYS_MS);
+  const scheduleStore = useScheduleStore.getState();
+  const treatmentStore = useTreatmentStore.getState();
 
-    console.log("\n[Scheduler] Found empty or outdated treatments");
-    console.log("[Scheduler] Attempting to refresh following treatments..", outdatedTreatments);
+  const latestTreatmentsResponse = await getTreatments();
+  const latestTreatments = Array.isArray(latestTreatmentsResponse?.treatments)
+    ? latestTreatmentsResponse.treatments
+    : [];
 
-    let updatedSchedules: Schedule[] = [];
-    try {
-      updatedSchedules = await updateSchedules(
-        outdatedTreatments,
-        toUtcISOString(now),
-        toUtcISOString(end),
-        storeSchedules
-      ); // TODO: Refactor start and end date logic here!!!!
+  treatmentStore.storeTreatments(latestTreatments);
 
-      console.log("\n[Scheduler] Updated schedules below..");
-      console.log(updatedSchedules);
-    } catch (err) {
-      console.error(err);
-    }
+  const treatmentsToRefresh = getTreatmentsNeedingScheduleRefresh(
+    latestTreatments,
+    treatmentStore.treatments,
+    scheduleStore.schedules,
+    nowMs,
+    forceScheduleFetch
+  );
 
-    clearOldSchedules();
+  if (treatmentsToRefresh.length === 0) {
+    console.log(
+      `[Scheduler] Schedule cache is fresh for all ${latestTreatments.length} treatments.`
+    );
+    scheduleStore.setLastUpdated(nowMs);
+    return;
+  }
+
+  console.log(
+    "[Scheduler] Refreshing schedules for treatments:",
+    treatmentsToRefresh.map((treatment) => ({
+      treatmentId: treatment.id,
+      deviceId: treatment.device_id,
+      scheduleUpdatedAt: treatment.schedule_updated_at,
+    }))
+  );
+
+  let updatedSchedules: Schedule[] = [];
+  try {
+    updatedSchedules = await updateSchedules(
+      treatmentsToRefresh,
+      toUtcISOString(nowDate),
+      toUtcISOString(endDate),
+      scheduleStore.storeSchedules
+    );
+
+    scheduleStore.clearOldSchedules();
+    scheduleStore.setLastUpdated(nowMs);
     updateNotificationsForSchedules(updatedSchedules);
+
+    console.log(
+      `[Scheduler] Schedule sync completed. Updated schedule count: ${updatedSchedules.length}`
+    );
+  } catch (err) {
+    console.error("[Scheduler] Failed to sync treatments and schedules:", err);
+    throw err;
   }
 };
 
 // Refresh locally stored schedules if they are older than SCHEDULE_EXPIRY_DAYS_MS
 export const refreshExpiringSchedules = async () => {
   console.log("[Scheduler] Refreshing expiring schedules..");
-  
-  const { schedules, lastUpdated, setLastUpdated, storeSchedules } = useScheduleStore.getState();
-  const { treatments, storeTreatments } = useTreatmentStore.getState();
+
+  const { schedules, lastUpdated } = useScheduleStore.getState();
 
   const now = Date.now();
-
-  // No treatments stored? Skip
-  if (treatments === null) {
-    console.log("[Scheduler] No treatments in store. Skipping refresh.");
-    return;
-  }
 
   // No schedules stored? Likely first-time sync
   const hasAtLeastOneSchedule = Object.values(schedules).some(
     (list) => list && list.length > 0
   );
-  
+
   if (!hasAtLeastOneSchedule) {
-    console.log("[Scheduler] No schedules found. Skipping refresh.");
-    return;
-  }
-
-  // Is it time to refresh?
-  const lastUpdatedValues = Object.values(lastUpdated);
-
-  if (lastUpdatedValues.length === 0) {
-    console.log("[Scheduler] No lastUpdated timestamps found. Skipping refresh.");
-    return;
-  }
-
-  const last = Math.max(...lastUpdatedValues);
-
-  if (now - last < SCHEDULE_EXPIRY_DAYS_MS) {
-    const days = Math.floor((now - last) / (1000 * 60 * 60 * 24));
-    console.log(`[Scheduler] Less than ${SCHEDULE_EXPIRY_DAYS_MS}ms (~${days} days) since last refresh. Skipping.`);
-    return;
-  }
-
-  console.log(`[Scheduler] Been ${Math.floor((now - last) / (1000 * 60 * 60 * 24))} days since last refresh.`);
-
-  // const last = Math.max(...Object.values(lastUpdated));
-  // if (now - last < SCHEDULE_EXPIRY_DAYS_MS) {
-  //   console.log(`[Scheduler] Less than ${SCHEDULE_EXPIRY_DAYS_MS} days since last refresh. Skipping.`);
-  //   return;
-  // }
-
-  // console.log(`[Scheduler] Been ${Math.floor((now - last) / (1000 * 60 * 60 * 24))} days since last refresh.`);
-  console.log("[Scheduler] Proceeding with refresh..");
-  // Proceed with refreshing
-  const start = toUtcISOString(now);
-  const end = toUtcISOString(now + SCHEDULE_EXPIRY_DAYS_MS);
-
-  try {
-    const latestTreatments = await getTreatments();
-    storeTreatments(latestTreatments.treatments);
-
-    const updatedSchedules = await updateSchedules(
-      latestTreatments.treatments,
-      start,
-      end,
-      storeSchedules
+    console.log(
+      "[Scheduler] No schedules found in store. Triggering forced backend schedule sync."
     );
-
-    updateNotificationsForSchedules(updatedSchedules);
-    setLastUpdated(now);
-
-    console.log("[Scheduler] Schedule refresh completed.");
-  } catch (err) {
-    console.error("[Scheduler] Failed to refresh schedules:", err);
+    await syncTreatmentsAndSchedules({
+      forceScheduleFetch: true,
+      reason: "refresh-expiring-empty-schedule-cache",
+    });
+    return;
   }
+
+  if (!Number.isFinite(lastUpdated) || lastUpdated <= 0) {
+    console.log(
+      "[Scheduler] lastUpdated timestamp missing. Triggering forced backend schedule sync."
+    );
+    await syncTreatmentsAndSchedules({
+      forceScheduleFetch: true,
+      reason: "refresh-expiring-missing-last-updated",
+    });
+    return;
+  }
+
+  if (now - lastUpdated < SCHEDULE_EXPIRY_DAYS_MS) {
+    const days = Math.floor((now - lastUpdated) / (1000 * 60 * 60 * 24));
+    console.log(
+      `[Scheduler] Less than ${SCHEDULE_EXPIRY_DAYS_MS}ms (~${days} days) since last refresh. Skipping.`
+    );
+    return;
+  }
+
+  console.log(
+    `[Scheduler] Been ${Math.floor((now - lastUpdated) / (1000 * 60 * 60 * 24))} days since last refresh.`
+  );
+  await syncTreatmentsAndSchedules({
+    forceScheduleFetch: true,
+    reason: "refresh-expiring-stale-cache",
+  });
 };
 
 type DeviceScheduleSyncData = {

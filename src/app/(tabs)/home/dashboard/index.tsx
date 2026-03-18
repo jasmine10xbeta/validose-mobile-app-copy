@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   Modal,
   StyleSheet,
   Text,
@@ -35,6 +36,7 @@ import { connectAndSetupDevice } from "@/utils/ble";
 import { syncTreatmentsAndSchedules } from "@/utils/schedule";
 
 const INBOX_SHEET_HEIGHT = Dimensions.get("window").height * 0.9;
+const HELP_NOTIF_ICON = require("../../../../assets/images/png/help-notif.png");
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -57,7 +59,11 @@ export default function DashboardScreen() {
     // clearTreatments();                   // UNCOMMENT FOR DEBUGGING
     // clearSchedules();                    // UNCOMMENT FOR DEBUGGING
     if (!isMockMode) {
-      syncTreatmentsAndSchedules();           // COMMENT FOR DEBUGGING
+      syncTreatmentsAndSchedules({
+        reason: "dashboard-mount",
+      }).catch((error) => {
+        console.error("[Dashboard] Failed to sync treatments/schedules:", error);
+      }); // COMMENT FOR DEBUGGING
     }
   }, [isMockMode]);
 
@@ -184,7 +190,7 @@ export default function DashboardScreen() {
             accessibilityLabel="Open inbox notifications"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Feather name="bell" size={21} color="#2E7787" />
+            <Image source={HELP_NOTIF_ICON} style={styles.topActionNotificationIcon} resizeMode="contain" />
           </TouchableOpacity>
         }
       />
@@ -322,6 +328,10 @@ const styles = StyleSheet.create({
   topActionNotificationButton: {
     padding: 8,
     borderRadius: 20,
+  },
+  topActionNotificationIcon: {
+    width: 22,
+    height: 22,
   },
   scrollViewSection: {
     height: "50%",

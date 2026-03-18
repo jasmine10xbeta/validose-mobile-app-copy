@@ -97,7 +97,6 @@ export function VTopActions({
       </View>
 
       <View style={styles.rightActions}>
-        {rightAccessory}
         <TouchableOpacity
           activeOpacity={0.8}
           style={styles.circleButton}
@@ -107,6 +106,7 @@ export function VTopActions({
         >
           <Feather name="help-circle" size={26} color="#252F3B" />
         </TouchableOpacity>
+        {rightAccessory}
       </View>
     </View>
   );

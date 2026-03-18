@@ -24,6 +24,6 @@ const createStyles = (color?: string) =>
       color: color,
       textAlign: "center",
       fontSize: 22,
-      fontWeight: "600",
+      fontWeight: "500",
     },
   });

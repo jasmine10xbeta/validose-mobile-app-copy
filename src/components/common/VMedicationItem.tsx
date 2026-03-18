@@ -21,23 +21,17 @@ interface VMedicationItemProps {
 const PIPE_BREAKS = 2;
 const DOSE_PROGRESS_COLOR = "#255F6C";
 
-function getAlphabetLabel(index: number): string {
-  let n = Math.max(0, index);
-  let label = "";
-
-  do {
-    label = String.fromCharCode(65 + (n % 26)) + label;
-    n = Math.floor(n / 26) - 1;
-  } while (n >= 0);
-
-  return label;
+function getMedicationInitial(medicationCode: string): string {
+  const normalized = medicationCode.trim().toUpperCase();
+  const match = normalized.match(/[A-Z0-9]/);
+  return match ? match[0] : "M";
 }
 
 function shouldShowReplaceMedicationMock(): boolean {
   return true;
 }
 
-export function VMedicationItem({ item, schedule, index = 0 }: VMedicationItemProps) {
+export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
   const router = useRouter();
   const deviceId = (item as any).deviceId ?? (item as any).device_id ?? item.deviceId;
   const treatment = useTreatmentStore((state) => state.getDeviceTreatment(deviceId));
@@ -46,7 +40,6 @@ export function VMedicationItem({ item, schedule, index = 0 }: VMedicationItemPr
   const showReplaceMedicationTrigger = shouldShowReplaceMedicationMock();
   const showErrorBanner = typeof item.error === "string" && item.error.trim().length > 0;
   const noConnection = item.connected !== true || !isNetworkConnected;
-  const initialLabel = useMemo(() => getAlphabetLabel(index), [index]);
 
   const pipeColor = noConnection || showErrorBanner
     ? "#F15050"
@@ -83,6 +76,10 @@ export function VMedicationItem({ item, schedule, index = 0 }: VMedicationItemPr
     const code = scheduleCode ?? treatment?.medication_code;
     return code?.trim()?.toUpperCase() ?? "MED";
   }, [schedule, treatment?.medication_code]);
+  const initialLabel = useMemo(
+    () => getMedicationInitial(medicationCode),
+    [medicationCode]
+  );
 
   const scrollRef = useRef<ScrollView>(null);
   const hasAutoScrolledRef = useRef(false);
@@ -255,7 +252,7 @@ const styles = StyleSheet.create({
   deviceInitialText: {
     color: "#252F3B",
     fontWeight: "700",
-    fontSize: 26,
+    fontSize: 30,
     textAlign: "center",
   },
   cardAccentTrack: {
@@ -263,7 +260,7 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     justifyContent: "space-between",
     paddingVertical: 2,
-    marginRight: 10,
+    marginRight: 22,
   },
   cardAccentSegment: {
     flex: 1,
@@ -289,7 +286,6 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   timelineContent: {
-    paddingTop: 8,
     paddingRight: 4,
     alignItems: "center",
   },

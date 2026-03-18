@@ -23,7 +23,7 @@ const createStyles = (state: number, color: string) => {
 
   return StyleSheet.create({
     doseItem: {
-      width: 20,
+      width: 26,
       height: 0,
       alignSelf: "center",
       borderWidth: 1,

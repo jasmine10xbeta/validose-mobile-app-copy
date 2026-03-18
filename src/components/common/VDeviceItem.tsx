@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Pressable, StyleSheet, View, Animated, Easing } from "react-native";
+import useTreatmentStore from "@/store/treatment";
 import { ValidoseDevice } from "@/types/device";
 import { VText } from "./VText";
 
@@ -11,20 +12,22 @@ interface VDeviceItemProps {
   index?: number;
 }
 
-function getAlphabetLabel(index: number): string {
-  let n = Math.max(0, index);
-  let label = "";
-
-  do {
-    label = String.fromCharCode(65 + (n % 26)) + label;
-    n = Math.floor(n / 26) - 1;
-  } while (n >= 0);
-
-  return label;
+function getMedicationInitial(medicationCode?: string): string {
+  const normalized = (medicationCode || "").trim().toUpperCase();
+  const match = normalized.match(/[A-Z0-9]/);
+  return match ? match[0] : "M";
 }
 
 export function VDeviceItem(props: VDeviceItemProps) {
-  const alphaLabel = getAlphabetLabel(props.index ?? 0);
+  const treatment = useTreatmentStore(
+    (state) =>
+      state.getDeviceTreatment(props.item.deviceId) ||
+      state.getDeviceTreatment(props.item.deviceName)
+  );
+  const alphaLabel = useMemo(
+    () => getMedicationInitial(treatment?.medication_code),
+    [treatment?.medication_code]
+  );
   const needsReconnect = !props.state && !props.isReconnecting;
   const reconnectLoaderSpin = useRef(new Animated.Value(0)).current;
 
