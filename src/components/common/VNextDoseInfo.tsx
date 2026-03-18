@@ -88,6 +88,7 @@ const styles = StyleSheet.create({
     color: "#505A66",
     fontSize: 16,
     fontWeight: "400",
+    marginBottom: 3,
     // fontFamily: "Inter",
     backgroundColor: "#FFF",
   },
@@ -364,7 +365,7 @@ function getDoseLabels(
     detailsLabel = "Thank you for logging a successful dose";
     state = 4;
   } else if (halfWindowReached) {
-    detailsLabel = `You are about to miss a scheduled dose for ${formattedCodes}. Take the dose(s) now.`;
+    detailsLabel = `Take dose ${formattedCodes}`;
     state = 3;
     isInDosingWindow = true;
   } else {
@@ -372,7 +373,7 @@ function getDoseLabels(
       formattedCodes === "your medication"
         ? "your medication"
         : `medication ${formattedCodes}`;
-    detailsLabel = `Take ${medicationPrompt}.`;
+    detailsLabel = `Take ${medicationPrompt}`;
     state = 6;
     isInDosingWindow = inWindow;
     isMissed = nowMs > activeGroup.windowEndMs;

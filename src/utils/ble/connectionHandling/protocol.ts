@@ -1,6 +1,5 @@
 import { Buffer } from "buffer";
 
-import { sendDoseEvent } from "@/services/schedule";
 import useDeviceStore from "@/store/device";
 import useScheduleStore from "@/store/schedule";
 import useTreatmentStore from "@/store/treatment";
@@ -265,48 +264,21 @@ export function setupMessageProtocolHandlers(deviceIdentifier: string): void {
     const scheduleDeviceKeys = buildDeviceKeyCandidates(device, backendDeviceId);
 
     const eventAtIso = new Date(decoded.start_timestamp_unix_s * 1000).toISOString();
-    const doseEventPayload = {
-      event_id: decoded.event_id,
-      dose_event_at: eventAtIso,
-      dose_state: decoded.dose_completed_in_time ? 1 : 0,
-      dose_amount_mg: 0,
-    };
-
     try {
-      const backendResponse = await sendDoseEvent(
-        doseEventPayload,
-        backendDeviceId,
-        treatment.medication_code,
-      );
-
+      // Dose event backend sync is now handled through /hardware/ingest only.
+      // Keep local schedule acknowledgment for UI state progression.
       let acknowledgedSchedule = null;
       let acknowledgedScheduleDeviceKey = "";
 
-      if (typeof backendResponse?.event_id === "string" && backendResponse.event_id.length > 0) {
-        for (const key of scheduleDeviceKeys) {
-          acknowledgedSchedule = scheduleStore.acknowledgeDoseEvent(
-            key,
-            backendResponse.event_id,
-            decoded,
-          );
-          if (acknowledgedSchedule) {
-            acknowledgedScheduleDeviceKey = key;
-            break;
-          }
-        }
-      }
-
-      if (!acknowledgedSchedule) {
-        for (const key of scheduleDeviceKeys) {
-          acknowledgedSchedule = scheduleStore.acknowledgeDoseEventByTimestamp(
-            key,
-            eventAtIso,
-            decoded,
-          );
-          if (acknowledgedSchedule) {
-            acknowledgedScheduleDeviceKey = key;
-            break;
-          }
+      for (const key of scheduleDeviceKeys) {
+        acknowledgedSchedule = scheduleStore.acknowledgeDoseEventByTimestamp(
+          key,
+          eventAtIso,
+          decoded,
+        );
+        if (acknowledgedSchedule) {
+          acknowledgedScheduleDeviceKey = key;
+          break;
         }
       }
 
@@ -314,7 +286,7 @@ export function setupMessageProtocolHandlers(deviceIdentifier: string): void {
         scheduleStore.markBackendSynced(acknowledgedScheduleDeviceKey, acknowledgedSchedule.id);
       }
 
-      console.log("💊 [MP] Received and synced dose event.", {
+      console.log("💊 [MP] Received dose event (ingest-only backend flow).", {
         rawDeviceIdentifier: deviceIdentifier,
         deviceId: device.deviceId,
         deviceName: device.deviceName,
@@ -326,10 +298,9 @@ export function setupMessageProtocolHandlers(deviceIdentifier: string): void {
         doseCompletedInTime: decoded.dose_completed_in_time,
         durationS: decoded.duration_s,
         tiltCount: decoded.tilt_count,
-        backendEventId: backendResponse?.event_id,
       });
     } catch (doseEventError) {
-      console.warn("[MP] Failed to sync dose event to backend.", {
+      console.warn("[MP] Failed to process local dose event acknowledgment.", {
         rawDeviceIdentifier: deviceIdentifier,
         deviceId: device.deviceId,
         deviceName: device.deviceName,

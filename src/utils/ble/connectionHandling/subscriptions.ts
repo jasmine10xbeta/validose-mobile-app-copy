@@ -7,7 +7,6 @@ import {
   UnitErrorCodes,
   UnitId,
 } from "@/constants/ble";
-import { sendDoseEvent } from "@/services/schedule";
 import useDeviceStore from "@/store/device";
 import useScheduleStore from "@/store/schedule";
 import useTreatmentStore from "@/store/treatment";
@@ -85,14 +84,13 @@ export async function subscribeToDoseEvent(deviceId: string): Promise<void> {
         return;
       }
 
-      const response = await sendDoseEvent(parsed, resolvedDeviceId, treatment.medication_code);
-      if (!response) {
-        return;
-      }
-
       const acknowledged = useScheduleStore
         .getState()
-        .acknowledgeDoseEvent(resolvedDeviceId, response.event_id, parsed);
+        .acknowledgeDoseEventByTimestamp(
+          resolvedDeviceId,
+          new Date(parsed.timestamp_unix * 1000).toISOString(),
+          parsed
+        );
 
       console.log("Locally acknowledged dose event?", acknowledged);
 

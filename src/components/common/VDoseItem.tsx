@@ -31,7 +31,7 @@ export function VDoseItem(props: VDoseItemProps) {
       borderRadius: 20,
       height: 40,
       width: 40,
-      borderWidth: isUpcoming ? 1 : 2,
+      borderWidth: isUpcoming ? 1 : 1.5,
       justifyContent: "center",
       borderStyle: isUpcoming ? "dashed" : "solid",
       borderColor,

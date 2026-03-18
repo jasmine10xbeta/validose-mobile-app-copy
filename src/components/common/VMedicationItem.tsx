@@ -20,6 +20,8 @@ interface VMedicationItemProps {
 
 const PIPE_BREAKS = 2;
 const DOSE_PROGRESS_COLOR = "#255F6C";
+const DOSE_ERROR_COLOR = "#A60000";
+const LOW_BATTERY_THRESHOLD_PERCENT = 30;
 
 function getMedicationInitial(medicationCode: string): string {
   const normalized = medicationCode.trim().toUpperCase();
@@ -40,6 +42,8 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
   const showReplaceMedicationTrigger = shouldShowReplaceMedicationMock();
   const showErrorBanner = typeof item.error === "string" && item.error.trim().length > 0;
   const noConnection = item.connected !== true || !isNetworkConnected;
+  const isReplaceMedicationState =
+    showReplaceMedicationTrigger && !noConnection && !showErrorBanner;
 
   const pipeColor = noConnection || showErrorBanner
     ? "#F15050"
@@ -55,16 +59,35 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
     typeof item.ringBatteryLevel === "number" && item.ringBatteryLevel >= 0
       ? item.ringBatteryLevel
       : null;
+  const legacyBatteryLevel =
+    typeof item.batteryLevel === "number" && item.batteryLevel >= 0
+      ? item.batteryLevel
+      : null;
   const lowBatteryLevels = useMemo(
-    () =>
-      [
+    () => {
+      const explicitLevels = [
         { key: "dock", label: "Dock", level: dockBatteryLevel },
         { key: "ring", label: "Ring", level: ringBatteryLevel },
       ].filter(
         (entry): entry is { key: string; label: string; level: number } =>
-          typeof entry.level === "number" && entry.level < 30
-      ),
-    [dockBatteryLevel, ringBatteryLevel]
+          typeof entry.level === "number" &&
+          entry.level <= LOW_BATTERY_THRESHOLD_PERCENT
+      );
+
+      if (explicitLevels.length > 0) {
+        return explicitLevels;
+      }
+
+      if (
+        typeof legacyBatteryLevel === "number" &&
+        legacyBatteryLevel <= LOW_BATTERY_THRESHOLD_PERCENT
+      ) {
+        return [{ key: "device", label: "Device", level: legacyBatteryLevel }];
+      }
+
+      return [];
+    },
+    [dockBatteryLevel, ringBatteryLevel, legacyBatteryLevel]
   );
   const showBatteryBanner = lowBatteryLevels.length > 0;
 
@@ -118,7 +141,9 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
         </View>
 
         <View style={styles.cardAccentTrack}>
-          {Array.from({ length: PIPE_BREAKS + 1 }).map((_, segmentIndex, all) => {
+          {Array.from({
+            length: isReplaceMedicationState ? 1 : PIPE_BREAKS + 1,
+          }).map((_, segmentIndex, all) => {
             const isFirst = segmentIndex === 0;
             const isLast = segmentIndex === all.length - 1;
 
@@ -130,7 +155,9 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
                   { backgroundColor: pipeColor },
                   isFirst ? styles.cardAccentSegmentFirst : null,
                   isLast ? styles.cardAccentSegmentLast : null,
-                  segmentIndex < PIPE_BREAKS ? styles.cardAccentSegmentGap : null,
+                  !isReplaceMedicationState && segmentIndex < PIPE_BREAKS
+                    ? styles.cardAccentSegmentGap
+                    : null,
                 ]}
               />
             );
@@ -150,16 +177,23 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
             >
               {schedule.map((dose: Schedule, i: number) => {
                 const state = getDoseState(dose);
+                const previousState = i > 0 ? getDoseState(schedule[i - 1]) : null;
+                const isErrorState = state === 4 || state === 5;
+                const hasErrorConnection =
+                  isErrorState || previousState === 4 || previousState === 5;
+                const timelineColor = hasErrorConnection
+                  ? DOSE_ERROR_COLOR
+                  : DOSE_PROGRESS_COLOR;
                 return (
                   <View key={`${dose.window_starts_at_local}-${i}`} style={styles.timelineItem}>
                     {i > 0 ? (
                       <VDoseLine
-                        color={DOSE_PROGRESS_COLOR}
+                        color={timelineColor}
                         state={state === 0 ? 0 : 1}
                       />
                     ) : null}
                     <VDoseItem
-                      color={DOSE_PROGRESS_COLOR}
+                      color={isErrorState ? DOSE_ERROR_COLOR : DOSE_PROGRESS_COLOR}
                       doseNumber={i + 1}
                       state={state}
                     />
@@ -199,14 +233,14 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
           <View style={styles.batteryBadgeGroup}>
             {lowBatteryLevels.map((entry) => (
               <View key={entry.key} style={styles.batteryBadgePair}>
-                <View style={styles.batteryLabelPill}>
-                  <VText textVariant="DeviceItemState" style={styles.batteryLabelText}>
-                    {entry.label}
-                  </VText>
-                </View>
                 <View style={styles.batteryValuePill}>
                   <VText textVariant="DeviceItemState" style={styles.batteryValueText}>
                     {`${entry.level}%`}
+                  </VText>
+                </View>
+                <View style={styles.batteryLabelPill}>
+                  <VText textVariant="DeviceItemState" style={styles.batteryLabelText}>
+                    {entry.label}
                   </VText>
                 </View>
               </View>
@@ -226,7 +260,7 @@ const styles = StyleSheet.create({
   deviceRow: {
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 78,
+    minHeight: 72,
     borderRadius: 14,
     backgroundColor: "#FFFFFF",
     borderWidth: 2,
@@ -241,7 +275,7 @@ const styles = StyleSheet.create({
   },
   deviceInitialPane: {
     backgroundColor: "#F4F6F9",
-    width: 58,
+    width: 57,
     alignSelf: "stretch",
     borderTopLeftRadius: 8,
     borderBottomLeftRadius: 8,
@@ -252,7 +286,7 @@ const styles = StyleSheet.create({
   deviceInitialText: {
     color: "#252F3B",
     fontWeight: "700",
-    fontSize: 30,
+    fontSize: 28,
     textAlign: "center",
   },
   cardAccentTrack: {
@@ -260,7 +294,7 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     justifyContent: "space-between",
     paddingVertical: 2,
-    marginRight: 22,
+    marginRight: 12,
   },
   cardAccentSegment: {
     flex: 1,
@@ -295,7 +329,7 @@ const styles = StyleSheet.create({
   },
   replaceMedicationBanner: {
     marginHorizontal: 8,
-    backgroundColor: "#EEF5F7",
+    backgroundColor: "#FAF2E8",
     paddingHorizontal: 12,
     paddingVertical: 10,
     alignItems: "center",
@@ -304,7 +338,7 @@ const styles = StyleSheet.create({
     borderBottomStartRadius: 8,
   },
   replaceMedicationText: {
-    color: "#255F6C",
+    color: "#7A4400",
     fontWeight: "500",
   },
   errorBanner: {
@@ -313,6 +347,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: "center",
     justifyContent: "center",
+    borderBottomEndRadius: 8,
+    borderBottomStartRadius: 8,
   },
   errorBannerText: {
     color: "#A60000",
@@ -327,6 +363,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
+    borderBottomEndRadius: 8,
+    borderBottomStartRadius: 8,
   },
   batteryBannerLead: {
     color: "#7A4A00",
@@ -342,26 +380,24 @@ const styles = StyleSheet.create({
   batteryBadgePair: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
   },
   batteryLabelPill: {
-    borderWidth: 1,
-    borderColor: "#F095254D",
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    backgroundColor: "#F095254D",
+    borderTopLeftRadius: 6,
+    borderBottomLeftRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
   },
   batteryLabelText: {
-    color: "#A76812",
-    width: "auto",
-    fontSize: 14,
+    color: "#7A4400",
+    fontSize: 15,
   },
   batteryValuePill: {
-    borderWidth: 1,
-    borderColor: "#D17A14",
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    backgroundColor: "#F09525",
+    borderTopRightRadius: 6,
+    borderBottomRightRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
   },
   batteryValueText: {
     color: "#8C4F00",

@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(8, 15, 26, 0.05)",
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
   },
   sheetContainer: {
     backgroundColor: "#FFF",

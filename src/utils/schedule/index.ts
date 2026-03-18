@@ -1,7 +1,6 @@
 import {
   getSchedules,
   getTreatments,
-  sendDoseEvent,
 } from "@/services/schedule";
 import useScheduleStore from "@/store/schedule";
 import useTreatmentStore from "@/store/treatment";
@@ -12,6 +11,18 @@ import { updateNotificationsForSchedules } from "../notifications";
 
 const SCHEDULE_EXPIRY_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
+function getLocalDayStart(date: Date): Date {
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    0,
+    0,
+    0,
+    0
+  );
+}
+
 export const syncPendingEvents = async () => {
   const { schedules, markBackendSynced, clearOldSchedules } =
     useScheduleStore.getState();
@@ -20,7 +31,7 @@ export const syncPendingEvents = async () => {
     for (const dose of doses) {
       if (dose.firmware_acknowledged && !dose.backend_synced) {
         try {
-          await sendDoseEvent(dose, deviceId, dose?.medication_code);
+          // Dose events are backend-synced via /hardware/ingest message protocol flow.
           markBackendSynced(deviceId, dose.id);
         } catch (err) {
           console.warn("Sync failed for", dose.id, err);
@@ -145,6 +156,7 @@ export const syncTreatmentsAndSchedules = async (
 
   const nowMs = Date.now();
   const nowDate = new Date(nowMs);
+  const rangeStartDate = getLocalDayStart(nowDate);
   const endDate = new Date(nowMs + SCHEDULE_EXPIRY_DAYS_MS);
   const scheduleStore = useScheduleStore.getState();
   const treatmentStore = useTreatmentStore.getState();
@@ -185,7 +197,7 @@ export const syncTreatmentsAndSchedules = async (
   try {
     updatedSchedules = await updateSchedules(
       treatmentsToRefresh,
-      toUtcISOString(nowDate),
+      toUtcISOString(rangeStartDate),
       toUtcISOString(endDate),
       scheduleStore.storeSchedules
     );
@@ -342,6 +354,7 @@ function buildDeviceDoseSchedulePayload(schedules: Schedule[]) {
 
 export async function fetchAndStoreDeviceSchedules(deviceId: string): Promise<Schedule[]> {
   const now = new Date();
+  const rangeStartDate = getLocalDayStart(now);
   const end = new Date(Date.now() + 604800000);
 
   const latestTreatments = await getTreatments();
@@ -355,7 +368,7 @@ export async function fetchAndStoreDeviceSchedules(deviceId: string): Promise<Sc
 
   const schedulesResponse = await getSchedules(treatment.id, {
     device: deviceId,
-    event_at: { ">=": toUtcISOString(now), "<": toUtcISOString(end) },
+    event_at: { ">=": toUtcISOString(rangeStartDate), "<": toUtcISOString(end) },
   });
 
   const scheduleList = Array.isArray(schedulesResponse?.data) ? schedulesResponse.data : [];

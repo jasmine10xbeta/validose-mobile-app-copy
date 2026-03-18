@@ -192,13 +192,28 @@ const useScheduleStore = create<ScheduleStore>()(
 
       clearOldSchedules: () => {
         console.log("[Scheduler] Cleaning old schedules..");
-        
-        const now = Date.now();
+
+        const now = new Date();
+        const localDayStart = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          0,
+          0,
+          0,
+          0
+        ).getTime();
         const newSchedules = Object.entries(get().schedules).reduce(
           (acc, [deviceId, list]) => {
             acc[deviceId] = list.filter((s) => {
               const eventTime = new Date(s.event_at_local).getTime();
-              return s.backend_synced || eventTime > now;
+              const isTodayOrFuture =
+                Number.isFinite(eventTime) && eventTime >= localDayStart;
+              const pendingBackendSync = !s.backend_synced;
+
+              // Keep the full current day timeline visible while still retaining
+              // unsynced historical events for backend ingest retries.
+              return isTodayOrFuture || pendingBackendSync;
             });
             return acc;
           },

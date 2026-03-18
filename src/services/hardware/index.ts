@@ -21,5 +21,5 @@ export async function ingestRawHardwareData({
     device_id: deviceId,
   };
 
-  // await axiosInstance.post("/hardware/ingest", body);
+  await axiosInstance.post("/hardware/ingest", body);
 }

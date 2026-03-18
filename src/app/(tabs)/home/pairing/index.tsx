@@ -86,6 +86,7 @@ export default function PairingScreen() {
   const handleHelpPress = () => router.push("/home/led-info");
 
   const hasScannedRef = useRef(false);
+  const hasFetchedAuthorizedDevicesRef = useRef(false);
   const [showCamera, setShowCamera] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [reconnectingDeviceId, setReconnectingDeviceId] = useState<
@@ -242,22 +243,42 @@ export default function PairingScreen() {
   ]);
 
   useEffect(() => {
+    if (!hasAccessToken || isLoading) {
+      hasFetchedAuthorizedDevicesRef.current = false;
+    }
+  }, [hasAccessToken, isLoading]);
+
+  useEffect(() => {
     async function fetchDevices() {
-      if (!isLoading && user?.access_token && !isMockBleModeEnabled()) {
-        try {
-          const list = await getValidoseDevices();
-          setAuthorizedDevices(list);
-        } catch (error) {
-          console.warn("[Pairing] Failed to fetch authorized devices:", error);
-          setAuthorizedDevices([]);
-        }
+      if (isLoading || !hasAccessToken || isMockBleModeEnabled()) {
+        return;
+      }
+
+      if (hasFetchedAuthorizedDevicesRef.current) {
+        return;
+      }
+
+      // Prevent repeated /devices polling on token refreshes/re-renders.
+      if (Array.isArray(authorizedDevices) && authorizedDevices.length > 0) {
+        hasFetchedAuthorizedDevicesRef.current = true;
+        return;
+      }
+
+      hasFetchedAuthorizedDevicesRef.current = true;
+      try {
+        const list = await getValidoseDevices();
+        setAuthorizedDevices(list);
+      } catch (error) {
+        console.warn("[Pairing] Failed to fetch authorized devices:", error);
+        setAuthorizedDevices([]);
       }
     }
 
     fetchDevices();
   }, [
     isLoading,
-    user?.access_token,
+    hasAccessToken,
+    authorizedDevices,
     setAuthorizedDevices,
     isMockBleModeEnabled,
   ]);

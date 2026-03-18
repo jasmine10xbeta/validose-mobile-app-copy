@@ -73,49 +73,81 @@ export const scheduleNotificationsForGroup = async (group: Schedule[]) => {
   const titleBase = `Time to take your medication${plural ? "s" : ""}`;
 
   const now = Date.now();
-  const safe = (d: Date) => (d.getTime() > now ? d : new Date(now + 5_000));
+  const MIN_GAP_MS = 60 * 1000;
 
-  // 1) 15 mins before avg window start
-  ids.push(
-    await Notifications.scheduleNotificationAsync({
+  const notificationPlan: {
+    key: "upcoming" | "due" | "almost_missed";
+    title: string;
+    body: string;
+    date: Date;
+  }[] = [
+    {
+      key: "upcoming",
+      title: "Upcoming dose" + (plural ? "s" : ""),
+      body: `${instruction} at ${formatTime(avgEvent)}.`,
+      date: fifteenMinutesBeforeStart,
+    },
+    {
+      key: "due",
+      title: titleBase,
+      body: `${instruction} now.`,
+      date: avgEvent,
+    },
+    {
+      key: "almost_missed",
+      title: plural ? "Almost missed doses" : "Almost missed dose",
+      body: `${instruction} now.`,
+      date: avgWindowEnd,
+    },
+  ];
+
+  const futurePlan = notificationPlan.filter(
+    (item) => item.date.getTime() > now
+  );
+
+  if (futurePlan.length === 0) {
+    console.log("[Notifications] Skipping group; all trigger times are in the past.");
+    return [];
+  }
+
+  let previousTriggerTime: number | null = null;
+
+  for (const plannedNotification of futurePlan) {
+    let triggerTime = plannedNotification.date.getTime();
+
+    if (
+      previousTriggerTime !== null &&
+      triggerTime <= previousTriggerTime
+    ) {
+      triggerTime = previousTriggerTime + MIN_GAP_MS;
+    }
+
+    const triggerDate = new Date(triggerTime);
+    const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
-        title: "Upcoming dose" + (plural ? "s" : ""),
-        body: `${instruction} at ${formatTime(avgEvent)}.`,
+        title: plannedNotification.title,
+        body: plannedNotification.body,
+        data: {
+          kind: plannedNotification.key,
+          medication_codes: medCodes,
+          event_time: avgEvent.toISOString(),
+          window_start_time: avgWindowStart.toISOString(),
+          window_end_time: avgWindowEnd.toISOString(),
+        },
       },
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: safe(fifteenMinutesBeforeStart),
+        date: triggerDate,
       },
-    })
-  );
+    });
 
-  // 2) At avg event time
-  ids.push(
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: titleBase,
-        body: `${instruction} now.`,
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: safe(avgEvent),
-      },
-    })
-  );
+    previousTriggerTime = triggerDate.getTime();
+    ids.push(notificationId);
 
-  // 3) At avg window end
-  ids.push(
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: plural ? "Almost missed doses" : "Almost missed dose",
-        body: `${instruction} now.`,
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: safe(avgWindowEnd),
-      },
-    })
-  );
+    console.log(
+      `[Notifications] Scheduled ${plannedNotification.key} notification at ${triggerDate.toISOString()}`
+    );
+  }
 
   return ids;
 };

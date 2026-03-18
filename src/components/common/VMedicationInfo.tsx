@@ -13,13 +13,13 @@ interface VMedicationInfoProps {
 const getBackgroundColor = (state: number) => {
   switch (state) {
     case 3:
-      return "#DFEFF0"; // Red (in window and not taken)
+      return "#FFEDED"; // Red (in window and not taken)
     case 4:
       return "#E8FAF0"; // Green (taken)
     case 5:
       return "#FFEDED"; // Orange (missed)
     case 6:
-      return "#FAFBFC"; // Grey with alarm icon
+      return "#DFEFF0"; // Grey with alarm icon
     default:
       return "#FAFBFC"; // Gray (no dose or future)
   }
@@ -28,10 +28,10 @@ const getBackgroundColor = (state: number) => {
 export function VMedicationInfo(props: VMedicationInfoProps) {
   const backgroundColor = getBackgroundColor(props.state);
   const detailsTextColor = props.isInDosingWindow
-    ? "#20535E"
+    ? "#A60000"
     : props.isMissed || props.state === 5
       ? "#A60000"
-      : "#252F3B";
+      : "#20535E";
 
   const getDetailsLabel = () => {
     if (!props.highlightedMedication) {
