@@ -9,7 +9,7 @@ const popupModalOptions = {
 const replacementModalOptions = {
   presentation: "transparentModal" as const,
   animation: "slide_from_bottom" as const,
-  contentStyle: { backgroundColor: "rgba(55, 65, 81, 0.24)" },
+  contentStyle: { backgroundColor: "transparent" },
 };
 
 export default function HomeStack() {

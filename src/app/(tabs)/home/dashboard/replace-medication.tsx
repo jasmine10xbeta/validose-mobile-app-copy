@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -444,10 +444,20 @@ export default function ReplaceMedicationScreen() {
     router.back();
   }
 
-  if (flowStage === "intro") {
+  function renderModalShell(content: ReactNode) {
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.container}>
+      <View style={styles.modalRoot}>
+        <View pointerEvents="none" style={styles.backdrop} />
+        <SafeAreaView edges={["bottom"]} style={styles.safeArea}>
+          {content}
+        </SafeAreaView>
+      </View>
+    );
+  }
+
+  if (flowStage === "intro") {
+    return renderModalShell(
+      <View style={styles.container}>
           <TouchableOpacity onPress={onCancelFlow} style={styles.cancelButton}>
             <Text style={styles.cancelText}>Cancel</Text>
           </TouchableOpacity>
@@ -490,14 +500,12 @@ export default function ReplaceMedicationScreen() {
             />
           </View>
         </View>
-      </SafeAreaView>
     );
   }
 
   if (flowStage === "success") {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.container}>
+    return renderModalShell(
+      <View style={styles.container}>
           <View style={styles.topRow}>
             <View style={styles.leftSpacer} />
             <View style={styles.timerPill}>
@@ -530,7 +538,6 @@ export default function ReplaceMedicationScreen() {
             style={styles.confirmButton}
           />
         </View>
-      </SafeAreaView>
     );
   }
 
@@ -542,9 +549,8 @@ export default function ReplaceMedicationScreen() {
       errorState?.message ??
       "Something went wrong during replacement. Please try again or contact support.";
 
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.container}>
+    return renderModalShell(
+      <View style={styles.container}>
           <View style={styles.topRow}>
             <TouchableOpacity onPress={onCancelFlow} style={styles.cancelButton}>
               <Text style={styles.cancelText}>Cancel</Text>
@@ -599,15 +605,13 @@ export default function ReplaceMedicationScreen() {
             labelStyle={styles.secondaryLabel}
           />
         </View>
-      </SafeAreaView>
     );
   }
 
   const stageMeta = getStageMeta(flowStage);
 
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
+  return renderModalShell(
+    <View style={styles.container}>
         <View style={styles.topRow}>
           <TouchableOpacity onPress={onCancelFlow} style={styles.cancelButton}>
             <Text style={styles.cancelText}>Cancel</Text>
@@ -645,33 +649,37 @@ export default function ReplaceMedicationScreen() {
           onReturnToChangingFlow={() => resetToIntro(true)}
         />
       </View>
-    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  modalRoot: {
     flex: 1,
-    marginTop: "20%",
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    overflow: "hidden",
+    justifyContent: "flex-end",
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
+  },
+  safeArea: {
+    height: "90%",
+    backgroundColor: "#FFF",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     shadowColor: "#000000",
-    shadowOpacity: 0.14,
+    shadowOpacity: 0.18,
     shadowRadius: 20,
     shadowOffset: { width: 0, height: -4 },
-    elevation: 18,
+    elevation: 24,
   },
   container: {
     flex: 1,
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
     paddingTop: 8,
     paddingBottom: 20,
   },
   cancelButton: {
     paddingVertical: 8,
-    paddingHorizontal: 8,
   },
   cancelText: {
     color: "#4D5A69",
@@ -742,7 +750,7 @@ const styles = StyleSheet.create({
   },
   title: {
     // marginTop: 56,
-    marginBottom: 24,
+    // marginBottom: 24,
     // textAlign: "center",
     color: "#2D3745",
     fontSize: 24,

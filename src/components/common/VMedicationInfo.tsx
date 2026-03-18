@@ -13,7 +13,7 @@ interface VMedicationInfoProps {
 const getBackgroundColor = (state: number) => {
   switch (state) {
     case 3:
-      return "#FFEDED"; // Red (in window and not taken)
+      return "#DFEFF0"; // Red (in window and not taken)
     case 4:
       return "#E8FAF0"; // Green (taken)
     case 5:
@@ -28,7 +28,7 @@ const getBackgroundColor = (state: number) => {
 export function VMedicationInfo(props: VMedicationInfoProps) {
   const backgroundColor = getBackgroundColor(props.state);
   const detailsTextColor = props.isInDosingWindow
-    ? "#A60000"
+    ? "#20535E"
     : props.isMissed || props.state === 5
       ? "#A60000"
       : "#20535E";

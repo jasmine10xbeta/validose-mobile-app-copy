@@ -18,7 +18,6 @@ interface VMedicationItemProps {
   index?: number;
 }
 
-const PIPE_BREAKS = 2;
 const DOSE_PROGRESS_COLOR = "#255F6C";
 const DOSE_ERROR_COLOR = "#A60000";
 const LOW_BATTERY_THRESHOLD_PERCENT = 30;
@@ -40,16 +39,26 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
   const isNetworkConnected = useNetworkStore((s) => s.isConnected);
 
   const showReplaceMedicationTrigger = shouldShowReplaceMedicationMock();
+  const showReplaceMedicationBanner = false;
   const showErrorBanner = typeof item.error === "string" && item.error.trim().length > 0;
   const noConnection = item.connected !== true || !isNetworkConnected;
+  const isDoseDueNow = useMemo(
+    () => schedule.some((dose) => getDoseState(dose) === 1),
+    [schedule]
+  );
   const isReplaceMedicationState =
-    showReplaceMedicationTrigger && !noConnection && !showErrorBanner;
+    showReplaceMedicationBanner &&
+    showReplaceMedicationTrigger &&
+    !noConnection &&
+    !showErrorBanner;
 
   const pipeColor = noConnection || showErrorBanner
     ? "#F15050"
-    : showReplaceMedicationTrigger
-      ? "#F09525"
-      : "#D7E0EA";
+    : isDoseDueNow
+      ? "#73D0D7"
+      : isReplaceMedicationState
+        ? "#F09525"
+        : "#FAFBFC";
 
   const dockBatteryLevel =
     typeof item.dockBatteryLevel === "number" && item.dockBatteryLevel >= 0
@@ -141,9 +150,7 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
         </View>
 
         <View style={styles.cardAccentTrack}>
-          {Array.from({
-            length: isReplaceMedicationState ? 1 : PIPE_BREAKS + 1,
-          }).map((_, segmentIndex, all) => {
+          {Array.from({ length: 1 }).map((_, segmentIndex, all) => {
             const isFirst = segmentIndex === 0;
             const isLast = segmentIndex === all.length - 1;
 
@@ -155,9 +162,6 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
                   { backgroundColor: pipeColor },
                   isFirst ? styles.cardAccentSegmentFirst : null,
                   isLast ? styles.cardAccentSegmentLast : null,
-                  !isReplaceMedicationState && segmentIndex < PIPE_BREAKS
-                    ? styles.cardAccentSegmentGap
-                    : null,
                 ]}
               />
             );
@@ -207,7 +211,7 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
         </View>
       </Pressable>
 
-      {showReplaceMedicationTrigger ? (
+      {showReplaceMedicationBanner && showReplaceMedicationTrigger ? (
         <TouchableOpacity
           activeOpacity={0.75}
           onPress={() => router.push("/home/dashboard/replace-medication")}
@@ -274,7 +278,7 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   deviceInitialPane: {
-    backgroundColor: "#F4F6F9",
+    backgroundColor: "#FAFBFC",
     width: 57,
     alignSelf: "stretch",
     borderTopLeftRadius: 8,
@@ -293,7 +297,7 @@ const styles = StyleSheet.create({
     width: 8,
     alignSelf: "stretch",
     justifyContent: "space-between",
-    paddingVertical: 2,
+    paddingVertical: 1,
     marginRight: 12,
   },
   cardAccentSegment: {
