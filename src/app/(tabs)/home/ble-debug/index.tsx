@@ -992,36 +992,36 @@ export default function BleDebugScreen() {
             return;
           }
 
-          // try {
-          //   await ingestRawHardwareData({
-          //     packetBytes,
-          //     timestamp: new Date(),
-          //     deviceId,
-          //   });
-          // } catch (error) {
-          //   const status =
-          //     typeof error === "object" && error !== null && "response" in error
-          //       ? (error as { response?: { status?: number } }).response?.status
-          //       : undefined;
+          try {
+            await ingestRawHardwareData({
+              packetBytes,
+              timestamp: new Date(),
+              deviceId,
+            });
+          } catch (error) {
+            const status =
+              typeof error === "object" && error !== null && "response" in error
+                ? (error as { response?: { status?: number } }).response?.status
+                : undefined;
 
-          //   addLog("[PPI][INGEST][WARN] Failed to ingest ACKed packet.", {
-          //     error: toErrorDetails(error),
-          //     status,
-          //     deviceId,
-          //     sessionId: ackedPacket.sessionId,
-          //     pktCounter: ackedPacket.pktCounter,
-          //     ppi: ackedPacket.payload.ppi,
-          //     type: ackedPacket.payload.type,
-          //     packetBytesLength: packetBytes.length,
-          //     packetBase64: Buffer.from(packetBytes).toString("base64"),
-          //   });
+            addLog("[PPI][INGEST][WARN] Failed to ingest ACKed packet.", {
+              error: toErrorDetails(error),
+              status,
+              deviceId,
+              sessionId: ackedPacket.sessionId,
+              pktCounter: ackedPacket.pktCounter,
+              ppi: ackedPacket.payload.ppi,
+              type: ackedPacket.payload.type,
+              packetBytesLength: packetBytes.length,
+              packetBase64: Buffer.from(packetBytes).toString("base64"),
+            });
 
-          //   if (status === 401 || status === 403) {
-          //     addLog(
-          //       "[PPI][INGEST][WARN] Missing or expired auth token for /api/mobile/hardware/ingest."
-          //     );
-          //   }
-          // }
+            if (status === 401 || status === 403) {
+              addLog(
+                "[PPI][INGEST][WARN] Missing or expired auth token for /api/mobile/hardware/ingest."
+              );
+            }
+          }
         })();
       },
       logger: {
