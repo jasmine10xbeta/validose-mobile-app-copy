@@ -13,7 +13,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { validoseAqua3, validoseDarkBlue, validoseGrey, validoseWhite } from "@/constants/colors";
 import { addBleDebugLog } from "@/utils/ble/debugLogStore";
@@ -40,6 +40,7 @@ type StoredLastDebugDevice = {
 };
 
 const LAST_DEBUG_DEVICE_STORAGE_KEY = "ble-debug:last-connected-device:v1";
+const BUILD_INFO_BADGE_CLEARANCE_PX = 72;
 
 function getSignalTone(rssi?: number) {
   if (typeof rssi !== "number") {
@@ -139,6 +140,7 @@ function normalizeDevices(raw: unknown): ScanDevice[] {
 
 export default function BleDebugConsoleScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [isScanning, setIsScanning] = useState(false);
   const [devices, setDevices] = useState<ScanDevice[]>([]);
   const [error, setError] = useState("");
@@ -146,6 +148,7 @@ export default function BleDebugConsoleScreen() {
   const [connectedLabel, setConnectedLabel] = useState("");
 
   const hasDevices = devices.length > 0;
+  const listBottomPadding = 28 + Math.max(insets.bottom, 8) + BUILD_INFO_BADGE_CLEARANCE_PX;
 
   const isBusy = useMemo(() => isScanning || Boolean(connectingKey), [isScanning, connectingKey]);
 
@@ -399,7 +402,7 @@ export default function BleDebugConsoleScreen() {
 
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-      <ScrollView contentContainerStyle={styles.listContent}>
+      <ScrollView contentContainerStyle={[styles.listContent, { paddingBottom: listBottomPadding }]}>
         <View style={styles.resultsHeader}>
           <Text style={styles.resultsTitle}>Scan Results</Text>
           <Text style={styles.resultsCount}>

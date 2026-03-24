@@ -295,6 +295,7 @@ const styles = StyleSheet.create({
   },
   debugTextAction: {
     marginTop: 14,
+    marginBottom: 14,
     paddingVertical: 4,
   },
   debugText: {

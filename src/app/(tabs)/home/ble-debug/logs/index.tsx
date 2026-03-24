@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   validoseAqua3,
@@ -33,6 +33,7 @@ type DecoratedLogEntry = BleDebugLogEntry & {
   connectTop: boolean;
   connectBottom: boolean;
 };
+const BUILD_INFO_BADGE_CLEARANCE_PX = 72;
 
 function stripLeadingLogTags(message: string): string {
   if (!message) return "";
@@ -272,9 +273,11 @@ function getPacketTagStyle(packet: PacketTag) {
 
 export default function BleDebugLogsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [logs, setLogs] = useState(getBleDebugLogs());
   const [isPaused, setIsPaused] = useState(false);
   const pausedRef = useRef(false);
+  const logListBottomPadding = 20 + Math.max(insets.bottom, 8) + BUILD_INFO_BADGE_CLEARANCE_PX;
 
   useEffect(() => {
     pausedRef.current = isPaused;
@@ -387,7 +390,7 @@ export default function BleDebugLogsScreen() {
         {formattedVisibleLogs.length} entries{isPaused ? " · Paused" : ""}
       </Text>
 
-      <ScrollView contentContainerStyle={styles.logList}>
+      <ScrollView contentContainerStyle={[styles.logList, { paddingBottom: logListBottomPadding }]}>
         {!formattedVisibleLogs.length ? (
           <Text style={styles.emptyText}>No logs yet.</Text>
         ) : (

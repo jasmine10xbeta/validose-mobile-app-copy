@@ -17,6 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { CHARACTERISTIC_UUIDS, SERVICE_UUIDS } from "@/constants/ble";
 import { getAccessToken, invokeSignIn } from "@/providers/auth";
 import { login as loginWithMobileId } from "@/services/auth";
+import { ingestRawHardwareData } from "@/services/hardware";
 import {
   addBleDebugLog,
   getBleDebugLogs,

@@ -19,6 +19,7 @@ import { PaperProvider } from "react-native-paper";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
 
+import { VBuildInfoBadge } from "@/components/common/VBuildInfoBadge";
 import { showToast, toastConfig } from "@/components/common/VToast";
 import { useAuth, AuthenticationProvider } from "@/providers/auth";
 import { LogProvider } from "@/providers/log";
@@ -148,6 +149,7 @@ export default function RootLayout() {
                     <Stack.Screen name="+not-found" />
                   </Stack> */}
               <Slot />
+              <VBuildInfoBadge />
               <StatusBar style="auto" />
               <Toast config={toastConfig} />
             </LogProvider>
