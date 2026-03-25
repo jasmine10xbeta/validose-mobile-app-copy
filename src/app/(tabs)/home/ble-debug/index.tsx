@@ -127,6 +127,9 @@ const CALIBRATION_INITIAL_INSTRUCTION = "Press Start Calibration to begin.";
 const MP_MIN_FRAME_LEN_BYTES = 14;
 const MP_PACKET_TYPE_DATA = 0;
 const CALIBRATION_WEIGHT_STORAGE_KEY = "ble_debug_calibration_weight_mg";
+const FILTER_ONLY_DOSE_EVENT_PPI_LOGS = true;
+// const FILTER_ONLY_DOSE_EVENT_PPI_LOGS = false; // Uncomment and disable the line above to allow all PPI types.
+const DOSE_EVENT_LOG_PPI = PpiId.AD_DOSE_EVENT_REPORT;
 const CALIBRATION_WEIGHT_MG_FALLBACK = 5000;
 const CAP_DETECTION_SAMPLE_PERIOD_MS_DEFAULT = 1000;
 const CAP_DETECTION_THRESHOLD_DEFAULT = 1000;
@@ -514,6 +517,51 @@ export default function BleDebugScreen() {
     addBleDebugLog(formatted);
   }
 
+  function asRecord(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+
+    return value as Record<string, unknown>;
+  }
+
+  function extractPpiFromLogPayload(payload: unknown): number | null {
+    const record = asRecord(payload);
+    if (!record) {
+      return null;
+    }
+
+    if (typeof record.ppi === "number") {
+      return record.ppi;
+    }
+
+    const nestedPayload = asRecord(record.payload);
+    if (nestedPayload && typeof nestedPayload.ppi === "number") {
+      return nestedPayload.ppi;
+    }
+
+    const receivedPacket = asRecord(record.receivedPacket);
+    const receivedPacketPayload = asRecord(receivedPacket?.payload);
+    if (receivedPacketPayload && typeof receivedPacketPayload.ppi === "number") {
+      return receivedPacketPayload.ppi;
+    }
+
+    return null;
+  }
+
+  function shouldKeepPpiLogEntry(payload: unknown): boolean {
+    const ppi = extractPpiFromLogPayload(payload);
+    if (ppi === null) {
+      return true;
+    }
+
+    if (!FILTER_ONLY_DOSE_EVENT_PPI_LOGS) {
+      return true;
+    }
+
+    return ppi === DOSE_EVENT_LOG_PPI;
+  }
+
   async function ensureAndroidBlePermissions(context: string): Promise<boolean> {
     if (Platform.OS !== "android") {
       return true;
@@ -691,6 +739,10 @@ export default function BleDebugScreen() {
         return;
       }
       if (rest.length === 1) {
+        if (!shouldKeepPpiLogEntry(rest[0])) {
+          return;
+        }
+
         const payload =
           first === "Parsed incoming value."
             ? enrichParsedIncomingPayload(rest[0])
@@ -698,7 +750,16 @@ export default function BleDebugScreen() {
         addLog(`[PPI][MP][${level}] ${first}`, payload);
         return;
       }
+
+      if (!shouldKeepPpiLogEntry(rest[0])) {
+        return;
+      }
+
       addLog(`[PPI][MP][${level}] ${first}`, rest);
+      return;
+    }
+
+    if (!shouldKeepPpiLogEntry(args[0])) {
       return;
     }
 

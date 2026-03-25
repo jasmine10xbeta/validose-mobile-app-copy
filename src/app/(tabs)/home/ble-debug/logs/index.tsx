@@ -34,6 +34,9 @@ type DecoratedLogEntry = BleDebugLogEntry & {
   connectBottom: boolean;
 };
 const BUILD_INFO_BADGE_CLEARANCE_PX = 72;
+const SHOW_ONLY_DOSE_EVENT_PPI = true;
+// const SHOW_ONLY_DOSE_EVENT_PPI = false; // Uncomment and disable the line above to render all PPI types.
+const DOSE_EVENT_PPI_TAG = `PPI ${PpiId[PpiId.AD_DOSE_EVENT_REPORT]}`;
 
 function stripLeadingLogTags(message: string): string {
   if (!message) return "";
@@ -319,8 +322,18 @@ export default function BleDebugLogsScreen() {
     [visibleLogs]
   );
 
+  const ppiFilteredLogs = useMemo<DecoratedLogEntry[]>(() => {
+    if (!SHOW_ONLY_DOSE_EVENT_PPI) {
+      return decoratedLogs;
+    }
+
+    return decoratedLogs.filter(
+      (entry) => entry.ppiTag === null || entry.ppiTag === DOSE_EVENT_PPI_TAG
+    );
+  }, [decoratedLogs]);
+
   const formattedVisibleLogs = useMemo<DecoratedLogEntry[]>(() => {
-    const mapped = decoratedLogs;
+    const mapped = ppiFilteredLogs;
 
     return mapped.map((entry, index, all) => {
       const previous = all[index - 1];
@@ -334,7 +347,7 @@ export default function BleDebugLogsScreen() {
         connectBottom,
       };
     });
-  }, [decoratedLogs]);
+  }, [ppiFilteredLogs]);
 
   async function onShare() {
     await exportLogsToFile(formattedVisibleLogs.map((entry) => entry.formattedMessage));

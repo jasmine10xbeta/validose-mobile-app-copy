@@ -516,11 +516,11 @@ export class BleMessageProtocol implements MessageProtocolInterface {
   }
 
   private handleIncomingRaw(raw: Uint8Array): void {
-    this.logger.debug("Received incoming value.", {
-      rawLen: raw.length,
-      rawHex: Buffer.from(raw).toString("hex"),
-      rawBase64: Buffer.from(raw).toString("base64"),
-    });
+    // this.logger.debug("Received incoming value.", {
+    //   rawLen: raw.length,
+    //   rawHex: Buffer.from(raw).toString("hex"),
+    //   rawBase64: Buffer.from(raw).toString("base64"),
+    // });
 
     // Mirror firmware behavior for blank mailbox reads.
     if (raw.length > 0 && raw.every((value) => value === 0)) {

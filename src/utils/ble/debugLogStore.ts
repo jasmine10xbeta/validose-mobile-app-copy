@@ -4,7 +4,7 @@ export type BleDebugLogEntry = {
   createdAtMs: number;
 };
 
-const MAX_LOG_ENTRIES = 1000;
+const MAX_LOG_ENTRIES = 200;
 
 let bleDebugLogs: BleDebugLogEntry[] = [];
 const listeners = new Set<() => void>();
@@ -20,7 +20,12 @@ export function addBleDebugLog(message: string) {
     createdAtMs: Date.now(),
   };
 
-  bleDebugLogs = [...bleDebugLogs, entry].slice(-MAX_LOG_ENTRIES);
+  // Keep logs bounded with a rolling window to avoid UI/memory pressure.
+  bleDebugLogs.push(entry);
+  if (bleDebugLogs.length > MAX_LOG_ENTRIES) {
+    const overflow = bleDebugLogs.length - MAX_LOG_ENTRIES;
+    bleDebugLogs = bleDebugLogs.slice(overflow);
+  }
   emitUpdate();
 }
 
@@ -39,4 +44,3 @@ export function subscribeBleDebugLogs(listener: () => void) {
     listeners.delete(listener);
   };
 }
-
