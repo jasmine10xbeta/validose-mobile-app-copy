@@ -18,6 +18,12 @@ import { CHARACTERISTIC_UUIDS, SERVICE_UUIDS } from "@/constants/ble";
 import { getAccessToken, invokeSignIn } from "@/providers/auth";
 import { login as loginWithMobileId } from "@/services/auth";
 import { ingestRawHardwareData } from "@/services/hardware";
+import { connectAndSetupDevice } from "@/utils/ble";
+import {
+  getMessageProtocolInstance,
+  stopAndClearMessageProtocol,
+  subscribeMessageProtocolRxPackets,
+} from "@/utils/ble/connectionHandling/state";
 import {
   addBleDebugLog,
   getBleDebugLogs,
@@ -25,6 +31,7 @@ import {
 } from "@/utils/ble/debugLogStore";
 import {
   BleMessageProtocol,
+  MpPacketPayload,
   MessageProtocolInterface,
   MsgProtError,
   MsgProtTxPacketStatus,
@@ -224,6 +231,8 @@ export default function BleDebugScreen() {
     useState<CalibrationFeedbackSnapshot | null>(null);
 
   const ppiProtocolRef = useRef<BleMessageProtocol | null>(null);
+  const ownsProtocolRef = useRef(false);
+  const sharedRxPacketUnsubscribeRef = useRef<(() => void) | null>(null);
   const ensurePpiProtocolRef = useRef<() => Promise<BleMessageProtocol>>(async () => {
     throw new Error("Message protocol not initialized.");
   });
@@ -799,12 +808,20 @@ export default function BleDebugScreen() {
 
   function stopPpiProtocol() {
     lateAckWatchTokenRef.current += 1;
+    detachSharedRxPacketSubscription();
+
     if (ppiProtocolRef.current) {
-      ppiProtocolRef.current.stop();
+      if (ownsProtocolRef.current) {
+        ppiProtocolRef.current.stop();
+        addLog("[PPI] Message protocol stopped.");
+      } else {
+        addLog("[PPI] Detached from shared app message protocol.");
+      }
       ppiProtocolRef.current = null;
-      setProtocolRunning(false);
-      addLog("[PPI] Message protocol stopped.");
+      ownsProtocolRef.current = false;
     }
+    setProtocolRunning(false);
+
     pendingResponseMatcherRef.current = null;
     setPendingResponseMatcher(null);
     setResolvedResponsePreview(null);
@@ -966,10 +983,324 @@ export default function BleDebugScreen() {
     }
   }
 
+  function detachSharedRxPacketSubscription() {
+    if (sharedRxPacketUnsubscribeRef.current) {
+      sharedRxPacketUnsubscribeRef.current();
+      sharedRxPacketUnsubscribeRef.current = null;
+    }
+  }
+
+  function attachSharedRxPacketSubscription() {
+    if (sharedRxPacketUnsubscribeRef.current) {
+      return;
+    }
+
+    sharedRxPacketUnsubscribeRef.current = subscribeMessageProtocolRxPackets((packet) => {
+      handleIncomingPpiPacket(packet);
+    });
+  }
+
+  function handleIncomingPpiPacket(packet: MpPacketPayload) {
+    const payloadHex = Buffer.from(packet.payload).toString("hex");
+    const payloadBase64 = Buffer.from(packet.payload).toString("base64");
+
+    let rxFrame: MpFramePreview | null = null;
+    try {
+      const rxFrameRaw = ppiProtocolRef.current?.getLastRxPacketRaw() ?? new Uint8Array(0);
+      rxFrame = parseMpFrameBytes(rxFrameRaw);
+    } catch (error) {
+      addLog("[PPI][NOTIFY][WARN] Failed to parse RX frame.", toErrorDetails(error));
+    }
+
+    let decodedValue: unknown = packet.payload;
+    try {
+      const decoded = decodePpiPayload(packet.ppi, packet.type as PpiType, packet.payload);
+      decodedValue = decoded.value;
+    } catch (error) {
+      addLog("[PPI][NOTIFY][WARN] Failed to decode PPI payload.", {
+        ppi: packet.ppi,
+        type: packet.type,
+        payloadHex,
+        error: toErrorDetails(error),
+      });
+    }
+    const normalizedDecodedValue = normalizeDecodedValue(decodedValue);
+    const receivedAtMs = Date.now();
+    const receivedAt = new Date(receivedAtMs).toLocaleTimeString();
+    const rxPreview: PpiRxPreview = {
+      source: "Message Protocol",
+      receivedAt,
+      receivedAtMs,
+      ppi: packet.ppi,
+      ppiName: PpiId[packet.ppi as PpiId] ?? `PPI_${packet.ppi}`,
+      type: packet.type,
+      typeName: PpiType[packet.type as PpiType] ?? `TYPE_${packet.type}`,
+      pktPayloadLen: packet.pktPayloadLen,
+      payloadHex,
+      payloadBase64,
+      fullFrameHex: rxFrame?.frameHex ?? "",
+      fullFrameBase64: rxFrame?.frameBase64 ?? "",
+      mpFrame: rxFrame,
+      decoded: normalizedDecodedValue,
+    };
+
+    try {
+      setLastPpiRxPreview(rxPreview);
+    } catch (error) {
+      addLog("[PPI][NOTIFY][ERR] Failed to update RX preview state.", toErrorDetails(error));
+    }
+
+    const packetType = packet.type as PpiType;
+    const pendingActionName = pendingResponseMatcherRef.current?.actionName ?? "";
+    const compactBase = {
+      updatedAt: receivedAt,
+      ppiName: rxPreview.ppiName ?? `PPI_${packet.ppi}`,
+      typeName: rxPreview.typeName ?? `TYPE_${packet.type}`,
+    };
+
+    if (
+      (packetType === PpiType.PUSH || packetType === PpiType.RE) &&
+      (packet.ppi === PpiId.AD_CALIBRATION_FEEDBACK ||
+        (packet.ppi === PpiId.AD_START_CALIBRATION && packetType === PpiType.PUSH))
+    ) {
+      setCalibrationFeedbackPreview({
+        ...compactBase,
+        summary: summarizeFeedbackValue(normalizedDecodedValue),
+      });
+
+      const feedbackSnapshot = extractCalibrationFeedbackSnapshot(normalizedDecodedValue, compactBase.updatedAt);
+      if (feedbackSnapshot) {
+        setCalibrationFeedbackSnapshot(feedbackSnapshot);
+        const stateCode = feedbackSnapshot.currentState;
+        const stateInstruction = getCalibrationInstructionForState(stateCode);
+
+        if (stateCode === 0 || stateCode === 1 || stateCode === 2) {
+          setCalibrationGuideStage("AWAITING_WEIGHT");
+        } else if (stateCode === 3 || stateCode === 4) {
+          setCalibrationGuideStage("WEIGHT_PRESENT_SENT");
+        } else if (stateCode === CALIBRATION_STATE_COMPLETE) {
+          setCalibrationGuideStage("COMPLETED");
+        } else if (stateCode === CALIBRATION_STATE_ERROR) {
+          setCalibrationGuideStage("ERROR");
+        }
+
+        if (stateInstruction) {
+          setCalibrationGuideInstruction(stateInstruction);
+        }
+
+        if (feedbackSnapshot.isComplete) {
+          setCalibrationGuideStage("COMPLETED");
+          setCalibrationCompletionMessage(
+            `Calibration complete feedback received at ${compactBase.updatedAt}.`
+          );
+          if (!calibrationCompletionAutoRequestRef.current) {
+            calibrationCompletionAutoRequestRef.current = true;
+            setCalibrationGuideInstruction("Calibration complete. Requesting calibration data...");
+            void requestCalibrationData();
+          }
+        }
+      }
+    }
+
+    if (
+      (packetType === PpiType.PUSH || packetType === PpiType.RE) &&
+      (packet.ppi === PpiId.AD_BASELINING_FEEDBACK ||
+        (packet.ppi === PpiId.AD_START_BASELINING && packetType === PpiType.PUSH))
+    ) {
+      const baseliningSnapshot = extractBaseliningFeedbackSnapshot(normalizedDecodedValue, compactBase.updatedAt);
+      if (baseliningSnapshot) {
+        setBaseliningFeedbackSnapshot(baseliningSnapshot);
+        const baseliningSummaryParts = [
+          describeBaseliningState(baseliningSnapshot.currentState),
+          typeof baseliningSnapshot.avgWeightMg === "number"
+            ? `avg ${baseliningSnapshot.avgWeightMg}mg`
+            : null,
+          baseliningSnapshot.isRingPresent === null ? null : `ring ${baseliningSnapshot.isRingPresent ? "on" : "off"}`,
+        ].filter((part): part is string => Boolean(part));
+
+        setBaseliningFeedbackPreview({
+          ...compactBase,
+          summary: baseliningSummaryParts.join(" · "),
+        });
+
+        if (baseliningSnapshot.currentState === BASELINING_STATE_WAIT_FOR_BACKEND_VALIDATION) {
+          if (baseliningValidationSentRef.current) {
+            setBaseliningGuideStage("VALIDATION_SENT");
+            setBaseliningGuideInstruction("Validation response sent. Waiting for next baselining state...");
+          } else {
+            setBaseliningGuideStage("AWAITING_VALIDATION");
+            setBaseliningGuideInstruction("Backend validation required. Send Validate Med OK or Validate Med Fail.");
+          }
+        } else {
+          baseliningValidationSentRef.current = false;
+          if (baseliningSnapshot.currentState === BASELINING_STATE_COMPLETE) {
+            setBaseliningGuideStage("COMPLETED");
+            setBaseliningGuideInstruction("Baselining complete. Start Baselining is enabled.");
+          } else if (baseliningSnapshot.currentState === BASELINING_STATE_ERROR) {
+            setBaseliningGuideStage("ERROR");
+            setBaseliningGuideInstruction("Baselining entered ERROR state. Restart using Start Baselining.");
+          } else {
+            setBaseliningGuideStage("RUNNING");
+            setBaseliningGuideInstruction(
+              `Baselining in progress: ${describeBaseliningState(baseliningSnapshot.currentState)}.`
+            );
+          }
+        }
+      } else {
+        setBaseliningFeedbackPreview({
+          ...compactBase,
+          summary: summarizeFeedbackValue(normalizedDecodedValue),
+        });
+      }
+    }
+
+    if (
+      (packetType === PpiType.RE || packetType === PpiType.PUSH) &&
+      (packet.ppi === PpiId.AD_START_CALIBRATION || packet.ppi === PpiId.AD_CALIBRATION_DATA)
+    ) {
+      setCalibrationResponsePreview({
+        ...compactBase,
+        summary: summarizeCalibrationResponseValue(packet.ppi, normalizedDecodedValue),
+      });
+    }
+
+    if ((packetType === PpiType.RE || packetType === PpiType.PUSH) && packet.ppi === PpiId.AD_CALIBRATION_DATA) {
+      const dataSnapshot = extractCalibrationDataSnapshot(normalizedDecodedValue, compactBase.updatedAt);
+      if (dataSnapshot) {
+        setCalibrationDataSnapshot(dataSnapshot);
+      }
+    }
+
+    if (packetType === PpiType.RE && packet.ppi === PpiId.AD_START_CALIBRATION) {
+      const accepted =
+        typeof normalizedDecodedValue === "boolean"
+          ? normalizedDecodedValue
+          : typeof normalizedDecodedValue === "number"
+            ? normalizedDecodedValue !== 0
+            : null;
+      if (pendingActionName === "START_CALIBRATION_RQ") {
+        if (accepted === true) {
+          setCalibrationGuideStage("AWAITING_WEIGHT");
+          setCalibrationGuideInstruction(
+            getCalibrationInstructionForState(0) ?? "Remove ring from dock. Place dock on a stable, level surface."
+          );
+        } else if (accepted === false) {
+          setCalibrationGuideStage("IDLE");
+          setCalibrationGuideInstruction("Firmware rejected start calibration.");
+        }
+      } else if (pendingActionName === "STOP_CALIBRATION_RQ" || calibrationStopRequestedRef.current) {
+        if (accepted === true) {
+          calibrationStopRequestedRef.current = false;
+          setCalibrationGuideStage("IDLE");
+          setCalibrationGuideInstruction("Calibration stopped.");
+          pendingResponseMatcherRef.current = null;
+          setPendingResponseMatcher(null);
+        } else if (accepted === false) {
+          calibrationStopRequestedRef.current = false;
+          setCalibrationGuideInstruction("Firmware rejected stop calibration.");
+          pendingResponseMatcherRef.current = null;
+          setPendingResponseMatcher(null);
+        }
+      }
+    }
+
+    if (packetType === PpiType.RE && packet.ppi === PpiId.AD_START_BASELINING) {
+      setBaseliningResponsePreview({
+        ...compactBase,
+        summary: summarizeCalibrationResponseValue(packet.ppi, normalizedDecodedValue),
+      });
+
+      const accepted =
+        typeof normalizedDecodedValue === "boolean"
+          ? normalizedDecodedValue
+          : typeof normalizedDecodedValue === "number"
+            ? normalizedDecodedValue !== 0
+            : null;
+      if (pendingActionName === "START_BASELINING_RQ") {
+        if (accepted === true) {
+          baseliningValidationSentRef.current = false;
+          setBaseliningGuideStage("RUNNING");
+          setBaseliningGuideInstruction("Baselining started. Follow live state updates below.");
+        } else if (accepted === false) {
+          baseliningValidationSentRef.current = false;
+          setBaseliningGuideStage("IDLE");
+          setBaseliningGuideInstruction("Firmware rejected start baselining.");
+        }
+      } else if (pendingActionName === "STOP_BASELINING_RQ") {
+        if (accepted === true) {
+          baseliningValidationSentRef.current = false;
+          setBaseliningGuideStage("IDLE");
+          setBaseliningGuideInstruction("Baselining stopped.");
+        } else if (accepted === false) {
+          setBaseliningGuideInstruction("Firmware rejected stop baselining.");
+        }
+      }
+    }
+
+    const pending = pendingResponseMatcherRef.current;
+    if (
+      pending &&
+      packet.ppi === pending.ppi &&
+      isResponseTypeForRequest(pending.requestType, packet.type) &&
+      receivedAtMs >= pending.sentAtMs
+    ) {
+      setResolvedResponsePreview(rxPreview);
+      addLog(`[PPI][${pending.actionName}] RESPONSE_RESOLVED`, {
+        sentAt: pending.sentAt,
+        receivedAt: rxPreview.receivedAt,
+        ppi: rxPreview.ppi,
+        ppiName: rxPreview.ppiName,
+        type: rxPreview.type,
+        typeName: rxPreview.typeName,
+        payloadLen: rxPreview.pktPayloadLen,
+        decoded: rxPreview.decoded,
+      });
+      pendingResponseMatcherRef.current = null;
+      setPendingResponseMatcher(null);
+    }
+  }
+
   async function ensurePpiProtocol() {
     if (ppiProtocolRef.current) {
       setProtocolRunning(true);
       return ppiProtocolRef.current;
+    }
+
+    const sharedProtocol = getMessageProtocolInstance();
+    if (sharedProtocol) {
+      ppiProtocolRef.current = sharedProtocol;
+      ownsProtocolRef.current = false;
+      attachSharedRxPacketSubscription();
+      setProtocolRunning(true);
+      addLog("[PPI] Using shared app message protocol.");
+      return sharedProtocol;
+    }
+
+    const reconnectIdentifier = connectedDeviceIdRef.current.trim();
+    if (reconnectIdentifier) {
+      addLog("[PPI] Shared protocol missing. Reinitializing app protocol setup.", {
+        reconnectIdentifier,
+      });
+
+      const setupResult = await connectAndSetupDevice(reconnectIdentifier);
+      if (setupResult.status === "error") {
+        addLog("[PPI][WARN] Failed to reinitialize app protocol setup.", {
+          reconnectIdentifier,
+          error: toErrorDetails(setupResult.error),
+        });
+      } else {
+        const protocolAfterSetup = getMessageProtocolInstance();
+        if (protocolAfterSetup) {
+          ppiProtocolRef.current = protocolAfterSetup;
+          ownsProtocolRef.current = false;
+          attachSharedRxPacketSubscription();
+          setProtocolRunning(true);
+          addLog("[PPI] Reattached to app message protocol after setup refresh.");
+          return protocolAfterSetup;
+        }
+      }
+    } else {
+      addLog("[PPI][WARN] Shared protocol missing and no connected device identifier was available.");
     }
 
     const hasPermissions = await ensureAndroidBlePermissions("protocol-start");
@@ -1093,288 +1424,12 @@ export default function BleDebugScreen() {
         error: (...args: unknown[]) => relayMessageProtocolLog("ERR", args),
       },
       onRxPacket: (packet) => {
-        const payloadHex = Buffer.from(packet.payload).toString("hex");
-        const payloadBase64 = Buffer.from(packet.payload).toString("base64");
-
-        let rxFrame: MpFramePreview | null = null;
-        try {
-          const rxFrameRaw = ppiProtocolRef.current?.getLastRxPacketRaw() ?? new Uint8Array(0);
-          rxFrame = parseMpFrameBytes(rxFrameRaw);
-        } catch (error) {
-          addLog("[PPI][NOTIFY][WARN] Failed to parse RX frame.", toErrorDetails(error));
-        }
-
-        let decodedValue: unknown = packet.payload;
-        try {
-          const decoded = decodePpiPayload(packet.ppi, packet.type as PpiType, packet.payload);
-          decodedValue = decoded.value;
-        } catch (error) {
-          addLog("[PPI][NOTIFY][WARN] Failed to decode PPI payload.", {
-            ppi: packet.ppi,
-            type: packet.type,
-            payloadHex,
-            error: toErrorDetails(error),
-          });
-        }
-        const normalizedDecodedValue = normalizeDecodedValue(decodedValue);
-        const receivedAtMs = Date.now();
-        const receivedAt = new Date(receivedAtMs).toLocaleTimeString();
-        const rxPreview: PpiRxPreview = {
-          source: "Message Protocol",
-          receivedAt,
-          receivedAtMs,
-          ppi: packet.ppi,
-          ppiName: PpiId[packet.ppi as PpiId] ?? `PPI_${packet.ppi}`,
-          type: packet.type,
-          typeName: PpiType[packet.type as PpiType] ?? `TYPE_${packet.type}`,
-          pktPayloadLen: packet.pktPayloadLen,
-          payloadHex,
-          payloadBase64,
-          fullFrameHex: rxFrame?.frameHex ?? "",
-          fullFrameBase64: rxFrame?.frameBase64 ?? "",
-          mpFrame: rxFrame,
-          decoded: normalizedDecodedValue,
-        };
-
-        try {
-          setLastPpiRxPreview(rxPreview);
-        } catch (error) {
-          addLog("[PPI][NOTIFY][ERR] Failed to update RX preview state.", toErrorDetails(error));
-        }
-
-        const packetType = packet.type as PpiType;
-        const pendingActionName = pendingResponseMatcherRef.current?.actionName ?? "";
-        const compactBase = {
-          updatedAt: receivedAt,
-          ppiName: rxPreview.ppiName ?? `PPI_${packet.ppi}`,
-          typeName: rxPreview.typeName ?? `TYPE_${packet.type}`,
-        };
-
-        if (
-          (packetType === PpiType.PUSH || packetType === PpiType.RE) &&
-          (
-            packet.ppi === PpiId.AD_CALIBRATION_FEEDBACK ||
-            (packet.ppi === PpiId.AD_START_CALIBRATION && packetType === PpiType.PUSH)
-          )
-        ) {
-          setCalibrationFeedbackPreview({
-            ...compactBase,
-            summary: summarizeFeedbackValue(normalizedDecodedValue),
-          });
-
-          const feedbackSnapshot = extractCalibrationFeedbackSnapshot(
-            normalizedDecodedValue,
-            compactBase.updatedAt
-          );
-          if (feedbackSnapshot) {
-            setCalibrationFeedbackSnapshot(feedbackSnapshot);
-            const stateCode = feedbackSnapshot.currentState;
-            const stateInstruction = getCalibrationInstructionForState(stateCode);
-
-            if (stateCode === 0 || stateCode === 1 || stateCode === 2) {
-              setCalibrationGuideStage("AWAITING_WEIGHT");
-            } else if (stateCode === 3 || stateCode === 4) {
-              setCalibrationGuideStage("WEIGHT_PRESENT_SENT");
-            } else if (stateCode === CALIBRATION_STATE_COMPLETE) {
-              setCalibrationGuideStage("COMPLETED");
-            } else if (stateCode === CALIBRATION_STATE_ERROR) {
-              setCalibrationGuideStage("ERROR");
-            }
-
-            if (stateInstruction) {
-              setCalibrationGuideInstruction(stateInstruction);
-            }
-
-            if (feedbackSnapshot.isComplete) {
-              setCalibrationGuideStage("COMPLETED");
-              setCalibrationCompletionMessage(
-                `Calibration complete feedback received at ${compactBase.updatedAt}.`
-              );
-              if (!calibrationCompletionAutoRequestRef.current) {
-                calibrationCompletionAutoRequestRef.current = true;
-                setCalibrationGuideInstruction("Calibration complete. Requesting calibration data...");
-                void requestCalibrationData();
-              }
-            }
-          }
-        }
-
-        if (
-          (packetType === PpiType.PUSH || packetType === PpiType.RE) &&
-          (
-            packet.ppi === PpiId.AD_BASELINING_FEEDBACK ||
-            (packet.ppi === PpiId.AD_START_BASELINING && packetType === PpiType.PUSH)
-          )
-        ) {
-          const baseliningSnapshot = extractBaseliningFeedbackSnapshot(
-            normalizedDecodedValue,
-            compactBase.updatedAt
-          );
-          if (baseliningSnapshot) {
-            setBaseliningFeedbackSnapshot(baseliningSnapshot);
-            const baseliningSummaryParts = [
-              describeBaseliningState(baseliningSnapshot.currentState),
-              typeof baseliningSnapshot.avgWeightMg === "number"
-                ? `avg ${baseliningSnapshot.avgWeightMg}mg`
-                : null,
-              baseliningSnapshot.isRingPresent === null
-                ? null
-                : `ring ${baseliningSnapshot.isRingPresent ? "on" : "off"}`,
-            ].filter((part): part is string => Boolean(part));
-
-            setBaseliningFeedbackPreview({
-              ...compactBase,
-              summary: baseliningSummaryParts.join(" · "),
-            });
-
-            if (baseliningSnapshot.currentState === BASELINING_STATE_WAIT_FOR_BACKEND_VALIDATION) {
-              if (baseliningValidationSentRef.current) {
-                setBaseliningGuideStage("VALIDATION_SENT");
-                setBaseliningGuideInstruction(
-                  "Validation response sent. Waiting for next baselining state..."
-                );
-              } else {
-                setBaseliningGuideStage("AWAITING_VALIDATION");
-                setBaseliningGuideInstruction(
-                  "Backend validation required. Send Validate Med OK or Validate Med Fail."
-                );
-              }
-            } else {
-              baseliningValidationSentRef.current = false;
-              if (baseliningSnapshot.currentState === BASELINING_STATE_COMPLETE) {
-                setBaseliningGuideStage("COMPLETED");
-                setBaseliningGuideInstruction("Baselining complete. Start Baselining is enabled.");
-              } else if (baseliningSnapshot.currentState === BASELINING_STATE_ERROR) {
-                setBaseliningGuideStage("ERROR");
-                setBaseliningGuideInstruction(
-                  "Baselining entered ERROR state. Restart using Start Baselining."
-                );
-              } else {
-                setBaseliningGuideStage("RUNNING");
-                setBaseliningGuideInstruction(
-                  `Baselining in progress: ${describeBaseliningState(
-                    baseliningSnapshot.currentState
-                  )}.`
-                );
-              }
-            }
-          } else {
-            setBaseliningFeedbackPreview({
-              ...compactBase,
-              summary: summarizeFeedbackValue(normalizedDecodedValue),
-            });
-          }
-        }
-
-        if (
-          (packetType === PpiType.RE || packetType === PpiType.PUSH) &&
-          (packet.ppi === PpiId.AD_START_CALIBRATION || packet.ppi === PpiId.AD_CALIBRATION_DATA)
-        ) {
-          setCalibrationResponsePreview({
-            ...compactBase,
-            summary: summarizeCalibrationResponseValue(packet.ppi, normalizedDecodedValue),
-          });
-        }
-
-        if ((packetType === PpiType.RE || packetType === PpiType.PUSH) && packet.ppi === PpiId.AD_CALIBRATION_DATA) {
-          const dataSnapshot = extractCalibrationDataSnapshot(normalizedDecodedValue, compactBase.updatedAt);
-          if (dataSnapshot) {
-            setCalibrationDataSnapshot(dataSnapshot);
-          }
-        }
-
-        if (packetType === PpiType.RE && packet.ppi === PpiId.AD_START_CALIBRATION) {
-          const accepted =
-            typeof normalizedDecodedValue === "boolean"
-              ? normalizedDecodedValue
-              : typeof normalizedDecodedValue === "number"
-                ? normalizedDecodedValue !== 0
-                : null;
-          if (pendingActionName === "START_CALIBRATION_RQ") {
-            if (accepted === true) {
-              setCalibrationGuideStage("AWAITING_WEIGHT");
-              setCalibrationGuideInstruction(
-                getCalibrationInstructionForState(0) ??
-                  "Remove ring from dock. Place dock on a stable, level surface."
-              );
-            } else if (accepted === false) {
-              setCalibrationGuideStage("IDLE");
-              setCalibrationGuideInstruction("Firmware rejected start calibration.");
-            }
-          } else if (pendingActionName === "STOP_CALIBRATION_RQ" || calibrationStopRequestedRef.current) {
-            if (accepted === true) {
-              calibrationStopRequestedRef.current = false;
-              setCalibrationGuideStage("IDLE");
-              setCalibrationGuideInstruction("Calibration stopped.");
-              pendingResponseMatcherRef.current = null;
-              setPendingResponseMatcher(null);
-            } else if (accepted === false) {
-              calibrationStopRequestedRef.current = false;
-              setCalibrationGuideInstruction("Firmware rejected stop calibration.");
-              pendingResponseMatcherRef.current = null;
-              setPendingResponseMatcher(null);
-            }
-          }
-        }
-
-        if (packetType === PpiType.RE && packet.ppi === PpiId.AD_START_BASELINING) {
-          setBaseliningResponsePreview({
-            ...compactBase,
-            summary: summarizeCalibrationResponseValue(packet.ppi, normalizedDecodedValue),
-          });
-
-          const accepted =
-            typeof normalizedDecodedValue === "boolean"
-              ? normalizedDecodedValue
-              : typeof normalizedDecodedValue === "number"
-                ? normalizedDecodedValue !== 0
-                : null;
-          if (pendingActionName === "START_BASELINING_RQ") {
-            if (accepted === true) {
-              baseliningValidationSentRef.current = false;
-              setBaseliningGuideStage("RUNNING");
-              setBaseliningGuideInstruction("Baselining started. Follow live state updates below.");
-            } else if (accepted === false) {
-              baseliningValidationSentRef.current = false;
-              setBaseliningGuideStage("IDLE");
-              setBaseliningGuideInstruction("Firmware rejected start baselining.");
-            }
-          } else if (pendingActionName === "STOP_BASELINING_RQ") {
-            if (accepted === true) {
-              baseliningValidationSentRef.current = false;
-              setBaseliningGuideStage("IDLE");
-              setBaseliningGuideInstruction("Baselining stopped.");
-            } else if (accepted === false) {
-              setBaseliningGuideInstruction("Firmware rejected stop baselining.");
-            }
-          }
-        }
-
-        const pending = pendingResponseMatcherRef.current;
-        if (
-          pending &&
-          packet.ppi === pending.ppi &&
-          isResponseTypeForRequest(pending.requestType, packet.type) &&
-          receivedAtMs >= pending.sentAtMs
-        ) {
-          setResolvedResponsePreview(rxPreview);
-          addLog(`[PPI][${pending.actionName}] RESPONSE_RESOLVED`, {
-            sentAt: pending.sentAt,
-            receivedAt: rxPreview.receivedAt,
-            ppi: rxPreview.ppi,
-            ppiName: rxPreview.ppiName,
-            type: rxPreview.type,
-            typeName: rxPreview.typeName,
-            payloadLen: rxPreview.pktPayloadLen,
-            decoded: rxPreview.decoded,
-          });
-          pendingResponseMatcherRef.current = null;
-          setPendingResponseMatcher(null);
-        }
+        handleIncomingPpiPacket(packet);
       },
     });
 
     ppiProtocolRef.current = protocol;
+    ownsProtocolRef.current = true;
     let syncStartResult: MsgProtError | null = null;
     let syncReady = false;
     try {
@@ -2047,6 +2102,7 @@ export default function BleDebugScreen() {
     await withBusy("disconnect", async () => {
       try {
         stopPpiProtocol();
+        stopAndClearMessageProtocol();
         resolvedMpTxUuidRef.current = MP_TX_UUID;
         resolvedMpRxUuidRef.current = MP_RX_UUID;
         resolvedMpServiceUuidRef.current = MP_SERVICE_UUID;
@@ -2076,11 +2132,12 @@ export default function BleDebugScreen() {
   useEffect(() => {
     return () => {
       lateAckWatchTokenRef.current += 1;
-      if (ppiProtocolRef.current) {
+      detachSharedRxPacketSubscription();
+      if (ppiProtocolRef.current && ownsProtocolRef.current) {
         ppiProtocolRef.current.stop();
-        ppiProtocolRef.current = null;
       }
-      setProtocolRunning(false);
+      ppiProtocolRef.current = null;
+      ownsProtocolRef.current = false;
     };
   }, []);
 

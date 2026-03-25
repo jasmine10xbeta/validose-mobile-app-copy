@@ -1,7 +1,18 @@
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+<!-- <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
   <item>
     <bitmap
       android:gravity="center"
       android:src="@drawable/splashscreen_logo" />
   </item>
+</layer-list> -->
+
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="50dp"
+        android:height="50dp"
+        android:gravity="center">
+        <bitmap
+            android:src="@drawable/splashscreen_logo"
+            android:gravity="center" />
+    </item>
 </layer-list>

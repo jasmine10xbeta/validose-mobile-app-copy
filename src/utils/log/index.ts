@@ -2,7 +2,34 @@ import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import type { AxiosError, AxiosResponse } from "axios";
 
-const BOLD = (text: string) => `\x1b[1m${text}\x1b[22m`;
+const ENABLE_VERBOSE_API_LOGS = false;
+
+function summarizeApiData(data: unknown): string {
+  if (data === null || data === undefined) return "-";
+  if (typeof data === "string") {
+    return data.length > 160 ? `${data.slice(0, 160)}...` : data;
+  }
+  if (typeof data !== "object") return String(data);
+  if (Array.isArray(data)) return `Array(len=${data.length})`;
+
+  const record = data as Record<string, unknown>;
+  const keys = Object.keys(record);
+  const summaryParts: string[] = [];
+  if (Array.isArray(record.data)) summaryParts.push(`data=${record.data.length}`);
+  if (Array.isArray(record.treatments)) summaryParts.push(`treatments=${record.treatments.length}`);
+  if (Array.isArray(record.device_ids)) summaryParts.push(`device_ids=${record.device_ids.length}`);
+  if (record.pagination && typeof record.pagination === "object") {
+    const pagination = record.pagination as Record<string, unknown>;
+    if (typeof pagination.total === "number") {
+      summaryParts.push(`total=${pagination.total}`);
+    }
+  }
+
+  const keyPreview = keys.slice(0, 6).join(", ");
+  return summaryParts.length
+    ? `Object(keys=[${keyPreview}]; ${summaryParts.join(", ")})`
+    : `Object(keys=[${keyPreview}])`;
+}
 
 export function logAPIRequest(config: any) {
   const fullUrl = `${config.baseURL || ""}${config.url || ""}`;
@@ -10,7 +37,11 @@ export function logAPIRequest(config: any) {
   console.log("➡️ [API Request]");
   console.log(`${config.method?.toUpperCase() || ""} ${fullUrl}`);
   console.log(`${"Headers:"} ${config.headers}`);
-  console.log(`${"Payload:"}`, config?.data ? config?.data: "-");
+  if (ENABLE_VERBOSE_API_LOGS) {
+    console.log(`${"Payload:"}`, config?.data ? config?.data : "-");
+    return;
+  }
+  console.log(`${"Payload:"} ${summarizeApiData(config?.data)}`);
 }
 
 export function logAPIResponse(response: AxiosResponse) {
@@ -19,7 +50,11 @@ export function logAPIResponse(response: AxiosResponse) {
   console.log("✅ [API Response]");
   console.log(`${response.config.method?.toUpperCase() || ""} ${fullUrl}`);
   console.log(`${"Status:"} ${response.status}`);
-  console.log(`${"Data:"}`, response.data);
+  if (ENABLE_VERBOSE_API_LOGS) {
+    console.log(`${"Data:"}`, response.data);
+    return;
+  }
+  console.log(`${"Data:"} ${summarizeApiData(response.data)}`);
 }
 
 export function logAPIError(error: AxiosError) {
@@ -31,7 +66,11 @@ export function logAPIError(error: AxiosError) {
 
   if (error.response) {
     console.log(`${"Status:"} ${error.response.status}`);
-    console.log(`${"Data:"}`, error.response.data);
+    if (ENABLE_VERBOSE_API_LOGS) {
+      console.log(`${"Data:"}`, error.response.data);
+    } else {
+      console.log(`${"Data:"} ${summarizeApiData(error.response.data)}`);
+    }
   } else {
     console.log(`${"Message:"} ${error.message}`);
   }

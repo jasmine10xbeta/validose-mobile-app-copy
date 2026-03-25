@@ -127,7 +127,6 @@ export function AuthenticationProvider({
       } catch (error) {
         console.log("Error loading user from SecureStore:", error);
       } finally {
-        await new Promise((res) => setTimeout(res, 1000));
         setIsLoading(false);
       }
     };

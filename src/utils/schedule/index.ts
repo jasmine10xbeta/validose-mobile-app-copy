@@ -267,7 +267,7 @@ export const refreshExpiringSchedules = async () => {
   });
 };
 
-type DeviceScheduleSyncData = {
+export type DeviceScheduleSyncData = {
   treatment: Treatment;
   schedules: Schedule[];
   signature: string;
@@ -308,6 +308,8 @@ function buildDeviceScheduleSignature(
   treatment: Treatment,
   schedules: Schedule[],
 ): string {
+  const canonicalDeviceId =
+    (typeof treatment.device_id === "string" && treatment.device_id.trim()) || deviceId;
   const normalized = schedules
     .map((schedule) => ({
       id: schedule.id,
@@ -319,7 +321,7 @@ function buildDeviceScheduleSignature(
     .sort((a, b) => a.event_at.localeCompare(b.event_at));
 
   return JSON.stringify({
-    deviceId,
+    deviceId: canonicalDeviceId,
     treatmentId: treatment.id,
     scheduleUpdatedAt: treatment.schedule_updated_at ?? "",
     schedules: normalized,
@@ -393,6 +395,104 @@ export async function getDeviceScheduleSyncData(
     schedules,
     payload,
     signature: buildDeviceScheduleSignature(deviceId, treatment, schedules),
+  };
+}
+
+function normalizeIdentifier(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function resolveCachedSchedulesForDevice(deviceId: string): {
+  deviceKey: string;
+  schedules: Schedule[];
+} | null {
+  const scheduleState = useScheduleStore.getState().schedules;
+  const normalizedTarget = normalizeIdentifier(deviceId);
+  if (!normalizedTarget) return null;
+
+  const directSchedules = scheduleState[deviceId];
+  if (Array.isArray(directSchedules) && directSchedules.length) {
+    return {
+      deviceKey: deviceId,
+      schedules: directSchedules,
+    };
+  }
+
+  for (const [scheduleKey, scheduleList] of Object.entries(scheduleState)) {
+    if (!Array.isArray(scheduleList) || !scheduleList.length) continue;
+    if (normalizeIdentifier(scheduleKey) === normalizedTarget) {
+      return {
+        deviceKey: scheduleKey,
+        schedules: scheduleList,
+      };
+    }
+  }
+
+  for (const [scheduleKey, scheduleList] of Object.entries(scheduleState)) {
+    if (!Array.isArray(scheduleList) || !scheduleList.length) continue;
+    const matchesScheduleDeviceId = scheduleList.some((schedule) => {
+      if (typeof schedule.device_id !== "string") return false;
+      return normalizeIdentifier(schedule.device_id) === normalizedTarget;
+    });
+    if (matchesScheduleDeviceId) {
+      return {
+        deviceKey: scheduleKey,
+        schedules: scheduleList,
+      };
+    }
+  }
+
+  return null;
+}
+
+function resolveCachedTreatmentForDevice(
+  deviceId: string,
+  schedules: Schedule[]
+): Treatment | null {
+  const treatmentStore = useTreatmentStore.getState();
+  const directTreatment = treatmentStore.getDeviceTreatment(deviceId);
+  if (directTreatment) return directTreatment;
+
+  const scheduleTreatmentId = schedules[0]?.treatment_id;
+  if (scheduleTreatmentId) {
+    const byTreatmentId = treatmentStore.getTreatmentById(scheduleTreatmentId);
+    if (byTreatmentId) return byTreatmentId;
+  }
+
+  const scheduleDeviceId = schedules[0]?.device_id;
+  if (scheduleDeviceId) {
+    const byScheduleDeviceId = treatmentStore.getDeviceTreatment(scheduleDeviceId);
+    if (byScheduleDeviceId) return byScheduleDeviceId;
+  }
+
+  return null;
+}
+
+export function getCachedDeviceScheduleSyncData(
+  deviceId: string
+): DeviceScheduleSyncData | null {
+  const resolved = resolveCachedSchedulesForDevice(deviceId);
+  if (!resolved || !resolved.schedules.length) return null;
+
+  const treatment = resolveCachedTreatmentForDevice(deviceId, resolved.schedules);
+  if (!treatment) return null;
+
+  const payload = buildDeviceDoseSchedulePayload(resolved.schedules);
+  if (!payload) return null;
+
+  const signatureSourceDeviceId =
+    (typeof treatment.device_id === "string" && treatment.device_id.trim()) ||
+    resolved.deviceKey;
+
+  return {
+    treatment,
+    schedules: resolved.schedules,
+    payload,
+    signature: buildDeviceScheduleSignature(
+      signatureSourceDeviceId,
+      treatment,
+      resolved.schedules
+    ),
   };
 }
 

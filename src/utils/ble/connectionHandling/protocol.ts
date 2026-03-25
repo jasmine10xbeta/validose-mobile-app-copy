@@ -84,7 +84,11 @@ export async function waitForTxSendable(
 
 export async function ensureProtocolReadyForDataSend(
   protocol: MessageProtocolInterface,
-  context: string
+  context: string,
+  options: {
+    timeoutMs?: number;
+    pollMs?: number;
+  } = {}
 ): Promise<boolean> {
   if (protocol.getCurrentSessionId() === 0) {
     const syncResult = await protocol.startSync();
@@ -94,7 +98,11 @@ export async function ensureProtocolReadyForDataSend(
     }
   }
 
-  const txReady = await waitForTxSendable(protocol);
+  const txReady = await waitForTxSendable(
+    protocol,
+    options.timeoutMs,
+    options.pollMs
+  );
   if (!txReady) {
     console.warn(`[MP] TX not ready for ${context}; waiting for sync/ACK state.`);
   }
@@ -131,14 +139,24 @@ function resolveLegacyBatteryLevel(
   return Math.min(...levels);
 }
 
-async function sendPpiRequest(ppiId: PpiId): Promise<boolean> {
+async function sendPpiRequest(
+  ppiId: PpiId,
+  options: {
+    timeoutMs?: number;
+    pollMs?: number;
+  } = {}
+): Promise<boolean> {
   const messageProtocol = getMessageProtocolInstance();
   if (!messageProtocol) return false;
 
   const maxAttempts = 3;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const txReady = await waitForTxSendable(messageProtocol);
+    const txReady = await waitForTxSendable(
+      messageProtocol,
+      options.timeoutMs,
+      options.pollMs
+    );
     if (!txReady) {
       console.warn(`[MP] TX not ready to queue runtime PPI request ${ppiId}.`);
       return false;
@@ -183,16 +201,25 @@ async function sendPpiRequest(ppiId: PpiId): Promise<boolean> {
   return false;
 }
 
-export async function requestRuntimePpiState(): Promise<void> {
+export async function requestRuntimePpiState(
+  options: {
+    timeoutMs?: number;
+    pollMs?: number;
+  } = {}
+): Promise<void> {
   const messageProtocol = getMessageProtocolInstance();
   if (!messageProtocol) return;
 
-  const txReady = await ensureProtocolReadyForDataSend(messageProtocol, "runtime PPI state request");
+  const txReady = await ensureProtocolReadyForDataSend(
+    messageProtocol,
+    "runtime PPI state request",
+    options
+  );
   if (!txReady) return;
 
-  await sendPpiRequest(PpiId.AD_DOCK_BATT_LEVEL_LOG);
-  await sendPpiRequest(PpiId.AD_RING_BATT_LEVEL_LOG);
-  await sendPpiRequest(PpiId.AD_RING_STATUS);
+  await sendPpiRequest(PpiId.AD_DOCK_BATT_LEVEL_LOG, options);
+  await sendPpiRequest(PpiId.AD_RING_BATT_LEVEL_LOG, options);
+  await sendPpiRequest(PpiId.AD_RING_STATUS, options);
 }
 
 function buildDeviceKeyCandidates(device: { deviceId: string; deviceName: string }, backendDeviceId?: string): string[] {

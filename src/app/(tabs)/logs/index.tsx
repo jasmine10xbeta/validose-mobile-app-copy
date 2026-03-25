@@ -1,7 +1,7 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useNavigation } from "expo-router";
 import { useEffect, useRef, useCallback } from "react";
-import { ScrollView, Text, View, Button, Pressable } from "react-native";
+import { ScrollView, Text, View, Pressable } from "react-native";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLogs } from "@/providers/log";

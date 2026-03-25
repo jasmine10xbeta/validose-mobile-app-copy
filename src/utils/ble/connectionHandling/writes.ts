@@ -59,7 +59,12 @@ export async function resetBufferCharacteristic(): Promise<void> {
   }
 }
 
-export async function writeSystemTime(): Promise<boolean> {
+type WriteOptions = {
+  txReadyTimeoutMs?: number;
+  txReadyPollMs?: number;
+};
+
+export async function writeSystemTime(options: WriteOptions = {}): Promise<boolean> {
   const unixTime = Math.floor(Date.now() / 1000);
   const messageProtocol = getMessageProtocolInstance();
 
@@ -69,7 +74,14 @@ export async function writeSystemTime(): Promise<boolean> {
   try {
     if (USE_MESSAGE_PROTOCOL_PPI && messageProtocol) {
       const payload = encodeUint32LE(unixTime);
-      const txReady = await ensureProtocolReadyForDataSend(messageProtocol, "time update");
+      const txReady = await ensureProtocolReadyForDataSend(
+        messageProtocol,
+        "time update",
+        {
+          timeoutMs: options.txReadyTimeoutMs,
+          pollMs: options.txReadyPollMs,
+        }
+      );
 
       if (!txReady) {
         console.warn("[MP] TX busy; cannot send time update yet.");
@@ -110,7 +122,10 @@ export async function writeSystemTime(): Promise<boolean> {
   }
 }
 
-export async function writeDoseSchedule(doseSchedule: any): Promise<void> {
+export async function writeDoseSchedule(
+  doseSchedule: any,
+  options: WriteOptions = {}
+): Promise<boolean> {
   const messageProtocol = getMessageProtocolInstance();
 
   try {
@@ -177,10 +192,17 @@ export async function writeDoseSchedule(doseSchedule: any): Promise<void> {
     });
 
     if (USE_MESSAGE_PROTOCOL_PPI && messageProtocol) {
-      const txReady = await ensureProtocolReadyForDataSend(messageProtocol, "dose schedule update");
+      const txReady = await ensureProtocolReadyForDataSend(
+        messageProtocol,
+        "dose schedule update",
+        {
+          timeoutMs: options.txReadyTimeoutMs,
+          pollMs: options.txReadyPollMs,
+        }
+      );
       if (!txReady) {
         console.warn("[MP] TX busy; cannot send dose schedule yet.");
-        return;
+        return false;
       }
 
       const txPacket = buildPpiPayload(PpiId.AD_DOSE_SCHEDULE, PpiType.PUSH, schedule);
@@ -199,7 +221,7 @@ export async function writeDoseSchedule(doseSchedule: any): Promise<void> {
         await messageProtocol.process();
       }
       console.log(`\n📝 [MP] Sent dose schedule. result=${result}`);
-      return;
+      return result === MsgProtError.NONE;
     }
 
     const legacyPayload = encodeDoseScheduleLegacy({
@@ -217,8 +239,9 @@ export async function writeDoseSchedule(doseSchedule: any): Promise<void> {
     console.log("\n📝 [BLE] Attempting to write dose schedule to device..");
     console.log(`Successful? ${result}`);
     console.log(`Value (base64): ${base64DoseSchedule}`);
+    return result === true;
   } catch (error) {
     console.log("Error writing dose schedule:", error);
+    return false;
   }
-
 }

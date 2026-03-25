@@ -16,11 +16,9 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { validoseAqua3, validoseDarkBlue, validoseGrey, validoseWhite } from "@/constants/colors";
+import { connectAndSetupDevice } from "@/utils/ble";
 import { addBleDebugLog } from "@/utils/ble/debugLogStore";
 import {
-  bondDevice,
-  connect,
-  discoverServicesAndCharacteristics,
   getConnectedDevice,
   isDeviceConnected,
   scanLeDevice,
@@ -278,58 +276,31 @@ export default function BleDebugConsoleScreen() {
         return;
       }
 
-      const bondIdentifier =
+      const connectIdentifier =
         Platform.OS === "ios"
           ? device.deviceName || device.deviceAddress || ""
           : device.deviceAddress || device.deviceName || "";
-      const connectIdentifier = device.deviceAddress || device.deviceName || bondIdentifier;
 
-      if (!bondIdentifier || !connectIdentifier) {
+      if (!connectIdentifier) {
         setError("Invalid device identifier.");
         return;
       }
 
-      logDebug("[DEBUG-CONSOLE][CONNECT] Attempting bond", {
+      logDebug("[DEBUG-CONSOLE][CONNECT] Attempting connectAndSetupDevice", {
         source: "manual",
-        bondIdentifier,
         connectIdentifier,
         device,
       });
 
-      try {
-        const bondResult = await bondDevice(bondIdentifier);
-        logDebug("[DEBUG-CONSOLE][CONNECT] bondDevice result", bondResult);
-      } catch (bondError) {
-        logDebug("[DEBUG-CONSOLE][CONNECT][WARN] bondDevice failed, trying connect anyway", String(bondError));
-      }
-
-      try {
-        const connectResult = await connect(connectIdentifier);
-        logDebug("[DEBUG-CONSOLE][CONNECT] connect result", connectResult);
-      } catch (connectError) {
-        const normalized = String(connectError).toLowerCase();
-        if (!normalized.includes("already connected")) {
-          throw connectError;
-        }
-        logDebug("[DEBUG-CONSOLE][CONNECT][INFO] Device already connected.", String(connectError));
-      }
-
-      // Ensure pairing state is established for newly connected peripherals.
-      try {
-        const postConnectBondResult = await bondDevice(bondIdentifier);
-        logDebug("[DEBUG-CONSOLE][CONNECT] post-connect bondDevice result", postConnectBondResult);
-      } catch (postConnectBondError) {
-        logDebug(
-          "[DEBUG-CONSOLE][CONNECT][WARN] post-connect bondDevice failed",
-          String(postConnectBondError)
-        );
-      }
-
-      try {
-        const discoverResult = await discoverServicesAndCharacteristics();
-        logDebug("[DEBUG-CONSOLE][CONNECT] discoverServicesAndCharacteristics result", discoverResult);
-      } catch (discoverError) {
-        logDebug("[DEBUG-CONSOLE][CONNECT][WARN] discovery failed", String(discoverError));
+      const setupResult = await connectAndSetupDevice(connectIdentifier);
+      logDebug("[DEBUG-CONSOLE][CONNECT] connectAndSetupDevice result", setupResult);
+      if (setupResult.status === "error") {
+        const message =
+          setupResult.error instanceof Error
+            ? setupResult.error.message
+            : String(setupResult.error ?? "Connection failed");
+        setError(message);
+        return;
       }
 
       await saveLastDebugDevice(device);

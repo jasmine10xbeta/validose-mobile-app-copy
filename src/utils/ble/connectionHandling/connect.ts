@@ -4,7 +4,10 @@ import { ingestRawHardwareData } from "@/services/hardware";
 import useDevStore from "@/store/dev";
 import useDeviceStore from "@/store/device";
 import useScheduleStore from "@/store/schedule";
-import { getDeviceScheduleSyncData } from "@/utils/schedule";
+import {
+  getCachedDeviceScheduleSyncData,
+  type DeviceScheduleSyncData,
+} from "@/utils/schedule";
 import {
   bondDevice,
   connect,
@@ -23,6 +26,8 @@ import {
   waitForTxSendable,
 } from "./protocol";
 import {
+  emitMessageProtocolRxDataAcked,
+  emitMessageProtocolRxPacket,
   getMessageProtocolInstance,
   setMessageProtocol,
   stopAndClearMessageProtocol,
@@ -37,6 +42,8 @@ import { writeDoseSchedule, writeSystemTime } from "./writes";
 const { addDevice, updateDevice } = useDeviceStore.getState();
 const MP_MIN_FRAME_LEN_BYTES = 14;
 const MP_PACKET_TYPE_DATA = 0;
+const POST_CONNECT_TX_READY_TIMEOUT_MS = 1200;
+const POST_CONNECT_TX_READY_POLL_MS = 40;
 
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -61,6 +68,109 @@ function buildCandidateIdentifiers(
   }
 
   return Array.from(unique);
+}
+
+async function runPostConnectTasks(
+  deviceId: string,
+  resolvedDeviceName: string
+): Promise<void> {
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    if (USE_MESSAGE_PROTOCOL_PPI) {
+      try {
+        await requestRuntimePpiState({
+          timeoutMs: POST_CONNECT_TX_READY_TIMEOUT_MS,
+          pollMs: POST_CONNECT_TX_READY_POLL_MS,
+        });
+      } catch (runtimeStateError) {
+        console.warn("[MP] Failed to request runtime PPI state.", runtimeStateError);
+      }
+    }
+
+    const maxWriteAttempts = 3;
+    let timeSyncSucceeded = false;
+    try {
+      for (let attempt = 1; attempt <= maxWriteAttempts; attempt += 1) {
+        timeSyncSucceeded = await writeSystemTime({
+          txReadyTimeoutMs: POST_CONNECT_TX_READY_TIMEOUT_MS,
+          txReadyPollMs: POST_CONNECT_TX_READY_POLL_MS,
+        });
+        if (timeSyncSucceeded) break;
+
+        if (attempt < maxWriteAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, 700));
+        }
+      }
+
+      if (!timeSyncSucceeded) {
+        console.warn("[BLE] Skipping system time sync after retry window.");
+      }
+    } catch (timeSyncError) {
+      console.warn("[BLE] Failed to write system time over message protocol.", timeSyncError);
+    }
+
+    try {
+      const scheduleLookupIdentifiers = buildCandidateIdentifiers(deviceId, {
+        deviceId,
+        deviceName: resolvedDeviceName,
+      });
+      let scheduleSyncData: DeviceScheduleSyncData | null = null;
+      let scheduleSyncIdentifier = deviceId;
+
+      for (const identifier of scheduleLookupIdentifiers) {
+        scheduleSyncData = getCachedDeviceScheduleSyncData(identifier);
+        if (scheduleSyncData) {
+          scheduleSyncIdentifier = identifier;
+          break;
+        }
+      }
+
+      if (scheduleSyncData && scheduleSyncIdentifier !== deviceId) {
+        useScheduleStore.getState().storeSchedules(deviceId, scheduleSyncData.schedules);
+      }
+
+      const existingDevice = useDeviceStore.getState().getDevice(deviceId);
+      const hasScheduleChanged =
+        scheduleSyncData?.signature &&
+        scheduleSyncData.signature !== existingDevice?.lastScheduleSyncSignature;
+
+      if (scheduleSyncData && hasScheduleChanged) {
+        let scheduleSyncSucceeded = false;
+        for (let attempt = 1; attempt <= maxWriteAttempts; attempt += 1) {
+          scheduleSyncSucceeded = await writeDoseSchedule(scheduleSyncData.payload, {
+            txReadyTimeoutMs: POST_CONNECT_TX_READY_TIMEOUT_MS,
+            txReadyPollMs: POST_CONNECT_TX_READY_POLL_MS,
+          });
+          if (scheduleSyncSucceeded) break;
+
+          if (attempt < maxWriteAttempts) {
+            await new Promise((resolve) => setTimeout(resolve, 700));
+          }
+        }
+
+        if (scheduleSyncSucceeded) {
+          updateDevice(deviceId, {
+            lastScheduleSyncSignature: scheduleSyncData.signature,
+            lastScheduleSyncedAt: new Date().toISOString(),
+          });
+          console.log("[BLE] Updated cached dose schedule via message protocol.");
+        } else {
+          console.warn("[BLE] Skipping schedule push after retry window.");
+        }
+      } else if (scheduleSyncData) {
+        console.log("[BLE] Cached dose schedule unchanged, skipping message protocol schedule push.");
+      } else {
+        console.log("[BLE] No cached schedule available to push for this device.", {
+          lookupIdentifiers: scheduleLookupIdentifiers,
+        });
+      }
+    } catch (scheduleSyncError) {
+      console.warn("[BLE] Failed to sync cached schedule to device.", scheduleSyncError);
+    }
+  } catch (postConnectError) {
+    console.warn("[BLE] Deferred post-connect setup failed.", postConnectError);
+  }
 }
 
 export async function connectAndSetupDevice(deviceIdentifier: string) {
@@ -194,6 +304,8 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
         sendAckNak: true,
         autoConsumeRx: true,
         onRxPacket: (packet) => {
+          emitMessageProtocolRxPacket(packet);
+
           const ppiName = PpiId[packet.ppi as PpiId] ?? `PPI_${packet.ppi}`;
           const typeName = PpiType[packet.type as PpiType] ?? `TYPE_${packet.type}`;
           const decoded = decodePpiPayload(packet.ppi, packet.type as PpiType, packet.payload);
@@ -211,6 +323,8 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
           });
         },
         onRxDataAcked: (packet) => {
+          emitMessageProtocolRxDataAcked(packet);
+
           const packetBytes = getMessageProtocolInstance()?.getLastRxPacketRaw() ?? new Uint8Array(0);
           if (!packetBytes.length) {
             console.warn("[MP][INGEST] Skipping ingest because no raw RX packet was available.", {
@@ -297,7 +411,11 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
     const syncStartResult = await messageProtocol.startSync();
     const syncReady =
       syncStartResult === MsgProtError.NONE
-        ? await waitForTxSendable(messageProtocol)
+        ? await waitForTxSendable(
+            messageProtocol,
+            POST_CONNECT_TX_READY_TIMEOUT_MS,
+            POST_CONNECT_TX_READY_POLL_MS
+          )
         : false;
 
     console.info("[MP][PROTOCOL] Message protocol started.", {
@@ -323,12 +441,6 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
       } catch (handlerSetupError) {
         console.warn("[MP] Failed to register runtime protocol handlers.", handlerSetupError);
       }
-
-      try {
-        await requestRuntimePpiState();
-      } catch (runtimeStateError) {
-        console.warn("[MP] Failed to request runtime PPI state.", runtimeStateError);
-      }
     } else {
       try {
         await subscribeToDoseEvent(deviceId);
@@ -349,56 +461,7 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
       }
     }
 
-    await new Promise((res) => setTimeout(res, 300));
-
-    try {
-      await writeSystemTime();
-    } catch (timeSyncError) {
-      console.warn("[BLE] Failed to write system time over message protocol.", timeSyncError);
-    }
-
-    try {
-      const scheduleLookupIdentifiers = buildCandidateIdentifiers(deviceId, {
-        deviceId,
-        deviceName: resolvedDeviceName,
-      });
-      let scheduleSyncData: Awaited<ReturnType<typeof getDeviceScheduleSyncData>> = null;
-      let scheduleSyncIdentifier = deviceId;
-
-      for (const identifier of scheduleLookupIdentifiers) {
-        scheduleSyncData = await getDeviceScheduleSyncData(identifier);
-        if (scheduleSyncData) {
-          scheduleSyncIdentifier = identifier;
-          break;
-        }
-      }
-
-      if (scheduleSyncData && scheduleSyncIdentifier !== deviceId) {
-        useScheduleStore.getState().storeSchedules(deviceId, scheduleSyncData.schedules);
-      }
-
-      const existingDevice = useDeviceStore.getState().getDevice(deviceId);
-      const hasScheduleChanged =
-        scheduleSyncData?.signature &&
-        scheduleSyncData.signature !== existingDevice?.lastScheduleSyncSignature;
-
-      if (scheduleSyncData && hasScheduleChanged) {
-        await writeDoseSchedule(scheduleSyncData.payload);
-        updateDevice(deviceId, {
-          lastScheduleSyncSignature: scheduleSyncData.signature,
-          lastScheduleSyncedAt: new Date().toISOString(),
-        });
-        console.log("[BLE] Updated dose schedule via message protocol.");
-      } else if (scheduleSyncData) {
-        console.log("[BLE] Dose schedule unchanged, skipping message protocol schedule push.");
-      } else {
-        console.log("[BLE] No backend schedule available to push for this device.", {
-          lookupIdentifiers: scheduleLookupIdentifiers,
-        });
-      }
-    } catch (scheduleSyncError) {
-      console.warn("[BLE] Failed to sync backend schedule to device.", scheduleSyncError);
-    }
+    void runPostConnectTasks(deviceId, resolvedDeviceName);
 
     return { deviceId, deviceName: resolvedDeviceName, status: "success" };
   } catch (error) {
