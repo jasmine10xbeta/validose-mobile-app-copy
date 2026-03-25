@@ -167,6 +167,16 @@ export default function LoginScreen() {
 
       if (onboardingCode) {
         if (matchesBypassKey(onboardingCode)) {
+          const bluetoothGranted = await requestBluetoothPermissions();
+          if (!bluetoothGranted) {
+            showToast(
+              "error",
+              "Bluetooth permission denied",
+              "Cannot connect to a device without Bluetooth permissions."
+            );
+            return;
+          }
+
           enableMockBleMode();
           await signIn({
             access_token: "mock-access-token",
@@ -226,18 +236,8 @@ export default function LoginScreen() {
         buttonLabel="Scan QR code"
         onPressDebug={() => router.push("/home/ble-debug/console")}
         onPress={async () => {
-          const granted = await requestBluetoothPermissions();
-          if (!granted) {
-            showToast(
-              "error",
-              "Bluetooth permission denied",
-              "Bluetooth features may not work."
-            );
-            return;
-          }
-
-          const cameraGranted = await requestPermission();
-          if (!cameraGranted?.granted) {
+          const cameraPermission = permission.granted ? permission : await requestPermission();
+          if (!cameraPermission?.granted) {
             showToast(
               "error",
               "Camera permission denied",
