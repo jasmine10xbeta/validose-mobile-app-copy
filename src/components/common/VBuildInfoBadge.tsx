@@ -81,10 +81,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    backgroundColor: "rgba(37, 47, 59, 0.55)",
+    backgroundColor: "rgba(56, 67, 82, 0.20)",
   },
   text: {
-    color: "rgba(255, 255, 255, 0.9)",
+    color: "rgba(255, 255, 255, 0.94)",
     fontSize: 10,
     letterSpacing: 0.3,
     fontWeight: "600",

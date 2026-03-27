@@ -39,7 +39,7 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
   const isNetworkConnected = useNetworkStore((s) => s.isConnected);
 
   const showReplaceMedicationTrigger = shouldShowReplaceMedicationMock();
-  const showReplaceMedicationBanner = false;
+  const showReplaceMedicationBanner = true; // Temporary: always show "Tap to replace medication" banner.
   const showErrorBanner = typeof item.error === "string" && item.error.trim().length > 0;
   const noConnection = item.connected !== true || !isNetworkConnected;
   const isDoseDueNow = useMemo(

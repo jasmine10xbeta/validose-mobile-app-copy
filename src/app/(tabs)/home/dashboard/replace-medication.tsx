@@ -422,7 +422,7 @@ export default function ReplaceMedicationScreen() {
         showToast(
           "error",
           "Could not start replacement",
-          "Unable to send start signal to dock."
+          "Ensure the Validose device is nearby and try again."
         );
         return;
       }
