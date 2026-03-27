@@ -3,7 +3,16 @@ import { Buffer } from "buffer";
 import { REPLACEMENT_FLOW_SIGNAL } from "@/constants/replacementFlow";
 import { writeCharacteristic } from "../../../../modules/tenx-mdk-ble-rn-library/src/index";
 import { MsgProtError, MpPacketPayload, subscribeToBleCharacteristic } from "../messageProtocol";
-import { buildPpiPayload, decodePpiPayload, encodeBool, PpiId, PpiType } from "../messageProtocolPpi";
+import {
+  buildPpiPayload,
+  decodePpiPayload,
+  encodeBool,
+  encodeDoseSchedulePpi,
+  MAX_DOSES_PER_DAY,
+  PpiId,
+  PpiType,
+  type DoseSchedulePpi,
+} from "../messageProtocolPpi";
 import { ensureProtocolReadyForDataSend, waitForTxSendable } from "./protocol";
 import { getMessageProtocolInstance } from "./state";
 
@@ -21,9 +30,29 @@ const replacementFlowListeners = new Set<ReplacementFlowHexListener>();
 let replacementFlowRegisteredProtocol: ReturnType<typeof getMessageProtocolInstance> | null = null;
 const REPLACEMENT_STAGE_SIGNAL_PREFIX = "stage:";
 let hasSentValidateMedForActiveFlow = false;
+let hasSentDoseScheduleForActiveFlow = false;
+let isAutoFinalizeInProgressForActiveFlow = false;
+
+const REPLACEMENT_DOSE_SCHEDULE_PUSH_A: DoseSchedulePpi = {
+  medication_type: 0,
+  dosage_mg: 2,
+  temp_upper_limit_deg_c: 60,
+  temp_lower_limit_deg_c: 0,
+  temp_avg_window_duration_sec: 1800,
+  dose_days_bitfield: 0x7f,
+  dose_window_duration_minutes: 30,
+  dose_window_count: 4,
+  dose_window_start_times_minutes: [630, 840, 1050, 1260].slice(0, MAX_DOSES_PER_DAY),
+};
 
 function toReplacementStageSignal(stage: ReplacementStageSignal): string {
   return `${REPLACEMENT_STAGE_SIGNAL_PREFIX}${stage}`;
+}
+
+function resetAutoFinalizeState(): void {
+  hasSentValidateMedForActiveFlow = false;
+  hasSentDoseScheduleForActiveFlow = false;
+  isAutoFinalizeInProgressForActiveFlow = false;
 }
 
 function normalizeHex(rawHex: string): string | null {
@@ -157,6 +186,15 @@ async function writeValidateMedViaMessageProtocol(success: boolean): Promise<boo
   );
 }
 
+async function writeDoseSchedulePushAViaMessageProtocol(): Promise<boolean> {
+  return sendPpiViaMessageProtocol(
+    PpiId.AD_DOSE_SCHEDULE,
+    PpiType.PUSH,
+    encodeDoseSchedulePpi(REPLACEMENT_DOSE_SCHEDULE_PUSH_A),
+    "replacement push dose schedule A"
+  );
+}
+
 function dispatchReplacementFlowHex(rawHex: string): void {
   const normalizedHex = rawHex.trim().toLowerCase();
   if (!normalizedHex) {
@@ -244,24 +282,54 @@ function decodeReplacementFlowFeedbackPacket(packet: MpPacketPayload): {
   return null;
 }
 
-function maybeAutoValidateMedForBaseliningState(currentState: number): void {
-  if (currentState === 4 && !hasSentValidateMedForActiveFlow) {
-    hasSentValidateMedForActiveFlow = true;
-    void writeValidateMedViaMessageProtocol(true).then((sent) => {
-      if (sent) {
-        console.log("[Replacement] Auto-sent Validate Med OK for baselining state 4.");
-        return;
-      }
-
-      hasSentValidateMedForActiveFlow = false;
-      console.warn("[Replacement] Failed to auto-send Validate Med response for baselining state 4.");
-    });
+function maybeAutoFinalizeBaseliningForReplacement(currentState: number): void {
+  if (currentState <= 3 || currentState >= 6) {
+    resetAutoFinalizeState();
     return;
   }
 
-  if (currentState <= 3 || currentState >= 6) {
-    hasSentValidateMedForActiveFlow = false;
+  if (currentState !== 4 && currentState !== 5) {
+    return;
   }
+
+  if (isAutoFinalizeInProgressForActiveFlow) {
+    return;
+  }
+
+  if (hasSentValidateMedForActiveFlow && hasSentDoseScheduleForActiveFlow) {
+    return;
+  }
+
+  isAutoFinalizeInProgressForActiveFlow = true;
+  void (async () => {
+    if (!hasSentValidateMedForActiveFlow) {
+      const validateSent = await writeValidateMedViaMessageProtocol(true);
+      if (!validateSent) {
+        console.warn("[Replacement] Failed to auto-send Validate Med response.");
+        return;
+      }
+
+      hasSentValidateMedForActiveFlow = true;
+      console.log("[Replacement] Auto-sent Validate Med OK for baselining flow.");
+    }
+
+    if (!hasSentDoseScheduleForActiveFlow) {
+      const doseScheduleSent = await writeDoseSchedulePushAViaMessageProtocol();
+      if (!doseScheduleSent) {
+        console.warn("[Replacement] Failed to auto-send Dose Schedule PUSH A after validation.");
+        return;
+      }
+
+      hasSentDoseScheduleForActiveFlow = true;
+      console.log("[Replacement] Auto-sent Dose Schedule PUSH A for baselining flow.");
+    }
+  })()
+    .catch((error) => {
+      console.warn("[Replacement] Auto baselining finalize sequence failed.", error);
+    })
+    .finally(() => {
+      isAutoFinalizeInProgressForActiveFlow = false;
+    });
 }
 
 function handleReplacementFlowPacket(packet: MpPacketPayload): void {
@@ -280,7 +348,7 @@ function handleReplacementFlowPacket(packet: MpPacketPayload): void {
     });
 
     if (feedback.flow === "BASELINING") {
-      maybeAutoValidateMedForBaseliningState(feedback.currentState);
+      maybeAutoFinalizeBaseliningForReplacement(feedback.currentState);
     }
 
     const mappedSignal =
@@ -358,12 +426,12 @@ async function writeReplacementCommand(
   const base64Value = Buffer.from(normalized, "hex").toString("base64");
   const hasMessageProtocol = !!getMessageProtocolInstance();
 
+  if (typeof options?.baseliningStart === "boolean") {
+    resetAutoFinalizeState();
+  }
+
   if (hasMessageProtocol) {
     if (typeof options?.baseliningStart === "boolean") {
-      if (options.baseliningStart) {
-        hasSentValidateMedForActiveFlow = false;
-      }
-
       const sentBaseliningControl = await writeBaseliningStartStopViaMessageProtocol(
         options.baseliningStart,
         label
@@ -378,9 +446,6 @@ async function writeReplacementCommand(
 
     const sentViaMessageProtocol = await writeReplacementViaMessageProtocol(commandByte, label);
     if (sentViaMessageProtocol) {
-      if (options?.baseliningStart === false) {
-        hasSentValidateMedForActiveFlow = false;
-      }
       return true;
     }
     console.warn(
