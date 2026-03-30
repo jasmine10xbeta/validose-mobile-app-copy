@@ -257,28 +257,35 @@ function decodeReplacementFlowFeedbackPacket(packet: MpPacketPayload): {
   currentState: number;
   decoded: Record<string, unknown>;
 } | null {
-  const decoded = decodeFeedbackRecord(packet);
-  if (!decoded) {
+  const isBaseliningPacket =
+    packet.ppi === PpiId.AD_START_BASELINING ||
+    packet.ppi === PpiId.AD_BASELINING_FEEDBACK;
+  const isCalibrationPacket =
+    packet.ppi === PpiId.AD_START_CALIBRATION ||
+    packet.ppi === PpiId.AD_CALIBRATION_FEEDBACK;
+
+  if (!isBaseliningPacket && !isCalibrationPacket) {
     return null;
   }
 
-  const currentState = extractCurrentStateFromFeedbackRecord(decoded);
+  const decoded = decodeFeedbackRecord(packet);
+  const decodedCurrentState = decoded ? extractCurrentStateFromFeedbackRecord(decoded) : null;
+  const fallbackCurrentState =
+    packet.payload.length > 0 && Number.isFinite(packet.payload[0]) ? packet.payload[0] : null;
+  const currentState = decodedCurrentState ?? fallbackCurrentState;
+
   if (currentState === null) {
     return null;
   }
 
-  if (
-    packet.ppi === PpiId.AD_START_BASELINING ||
-    packet.ppi === PpiId.AD_BASELINING_FEEDBACK
-  ) {
-    return { flow: "BASELINING", currentState, decoded };
+  const normalizedDecoded = decoded ?? { current_state: currentState };
+
+  if (isBaseliningPacket) {
+    return { flow: "BASELINING", currentState, decoded: normalizedDecoded };
   }
 
-  if (
-    packet.ppi === PpiId.AD_START_CALIBRATION ||
-    packet.ppi === PpiId.AD_CALIBRATION_FEEDBACK
-  ) {
-    return { flow: "CALIBRATION", currentState, decoded };
+  if (isCalibrationPacket) {
+    return { flow: "CALIBRATION", currentState, decoded: normalizedDecoded };
   }
 
   return null;

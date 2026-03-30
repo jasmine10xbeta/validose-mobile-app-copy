@@ -162,6 +162,8 @@ export default function ReplaceMedicationScreen() {
   const stepFivePartTwoOpacity = useRef(new Animated.Value(0)).current;
   const stepSixPartOneOpacity = useRef(new Animated.Value(1)).current;
   const stepSixPartTwoOpacity = useRef(new Animated.Value(0)).current;
+  const flowStageRef = useRef<ReplacementStage>("intro");
+  const transitionInProgressRef = useRef(false);
 
   useEffect(() => {
     if (startedAtMs === null) {
@@ -177,6 +179,10 @@ export default function ReplaceMedicationScreen() {
     const interval = setInterval(updateRemaining, 1000);
     return () => clearInterval(interval);
   }, [startedAtMs]);
+
+  useEffect(() => {
+    flowStageRef.current = flowStage;
+  }, [flowStage]);
 
   useEffect(() => {
     if (flowStage !== "step1") {
@@ -492,7 +498,11 @@ export default function ReplaceMedicationScreen() {
     }
 
     const timeoutId = setTimeout(() => {
-      setFlowStage((currentStage) => (currentStage === "step2" ? "step3" : currentStage));
+      setFlowStage((currentStage) => {
+        const nextStage = currentStage === "step2" ? "step3" : currentStage;
+        flowStageRef.current = nextStage;
+        return nextStage;
+      });
     }, 15000);
 
     return () => clearTimeout(timeoutId);
@@ -504,40 +514,45 @@ export default function ReplaceMedicationScreen() {
     }
 
     const timeoutId = setTimeout(() => {
-      setFlowStage((currentStage) =>
-        currentStage === "step3" ? "step3Docking" : currentStage
-      );
+      setFlowStage((currentStage) => {
+        const nextStage = currentStage === "step3" ? "step3Docking" : currentStage;
+        flowStageRef.current = nextStage;
+        return nextStage;
+      });
     }, 15000);
 
     return () => clearTimeout(timeoutId);
   }, [flowStage]);
 
   useEffect(() => {
-    if (!isActiveFlowStage(flowStage)) {
-      return;
-    }
-
     let active = true;
-    let transitionInProgress = false;
     let unsub: (() => void) | null = null;
 
-    const currentStageMeta = getStageMeta(flowStage);
-
     async function moveTo(nextStage: ReplacementStage) {
-      if (transitionInProgress || !active) return;
-      transitionInProgress = true;
+      if (transitionInProgressRef.current || !active) return;
+      transitionInProgressRef.current = true;
       setIsTransitionProcessing(true);
       await waitForMinimumTransitionTime();
-      if (!active) return;
+      if (!active) {
+        transitionInProgressRef.current = false;
+        setIsTransitionProcessing(false);
+        return;
+      }
+      flowStageRef.current = nextStage;
       setFlowStage(nextStage);
       setIsTransitionProcessing(false);
-      transitionInProgress = false;
+      transitionInProgressRef.current = false;
     }
 
     async function watchFlowSignals() {
       try {
         unsub = await subscribeToReplacementFlowSignal(async (hex) => {
           if (!active) return;
+          const currentStage = flowStageRef.current;
+          if (!isActiveFlowStage(currentStage)) {
+            return;
+          }
+          const currentStageMeta = getStageMeta(currentStage);
 
           const nextStage = parseReplacementStageSignal(hex);
           if (nextStage) {
@@ -550,13 +565,14 @@ export default function ReplaceMedicationScreen() {
                 unitHex: "FEED",
                 reasonHex: "0001",
               });
+              flowStageRef.current = "error";
               setFlowStage("error");
               setIsTransitionProcessing(false);
-              transitionInProgress = false;
+              transitionInProgressRef.current = false;
               return;
             }
 
-            if (shouldMoveStageForward(flowStage, nextStage)) {
+            if (shouldMoveStageForward(currentStage, nextStage)) {
               await moveTo(nextStage);
             }
             return;
@@ -572,30 +588,32 @@ export default function ReplaceMedicationScreen() {
               unitHex: decodedError.unitHex,
               reasonHex: decodedError.reasonHex,
             });
+            flowStageRef.current = "error";
             setFlowStage("error");
             setIsTransitionProcessing(false);
+            transitionInProgressRef.current = false;
             return;
           }
 
-          if (flowStage === "step1" && doesMatchReplacementStep1Signal(hex)) {
+          if (currentStage === "step1" && doesMatchReplacementStep1Signal(hex)) {
             await moveTo("checking1");
             return;
           }
 
-          if (flowStage === "checking1" && doesMatchReplacementCheckingCompleteSignal(hex)) {
+          if (currentStage === "checking1" && doesMatchReplacementCheckingCompleteSignal(hex)) {
             await moveTo("step2");
             return;
           }
 
           if (
-            (flowStage === "step2" || flowStage === "step3" || flowStage === "step3Docking") &&
+            (currentStage === "step2" || currentStage === "step3" || currentStage === "step3Docking") &&
             doesMatchReplacementStep3ToStep4CheckingSignal(hex)
           ) {
             await moveTo("step4Checking");
             return;
           }
 
-          if (flowStage === "step4Checking" && doesMatchReplacementStep4CheckingToSuccessSignal(hex)) {
+          if (currentStage === "step4Checking" && doesMatchReplacementStep4CheckingToSuccessSignal(hex)) {
             await moveTo("success");
           }
         });
@@ -608,10 +626,10 @@ export default function ReplaceMedicationScreen() {
 
     return () => {
       active = false;
-      transitionInProgress = false;
+      transitionInProgressRef.current = false;
       if (unsub) unsub();
     };
-  }, [flowStage]);
+  }, []);
 
   useEffect(() => {
     if (!isActiveFlowStage(flowStage) || remainingSeconds > 0) {
@@ -633,8 +651,10 @@ export default function ReplaceMedicationScreen() {
         unitHex: "TIME",
         reasonHex: "0000",
       });
+      flowStageRef.current = "error";
       setFlowStage("error");
       setIsTransitionProcessing(false);
+      transitionInProgressRef.current = false;
     })();
 
     return () => {
@@ -815,6 +835,7 @@ export default function ReplaceMedicationScreen() {
   }
 
   function resetToIntro(restartFlow: boolean) {
+    flowStageRef.current = "intro";
     setFlowStage("intro");
     setShouldRestart(restartFlow);
     setStartedAtMs(null);
@@ -843,6 +864,7 @@ export default function ReplaceMedicationScreen() {
       setStartedAtMs(Date.now());
       setRemainingSeconds(300);
       setErrorState(null);
+      flowStageRef.current = "step1";
       setFlowStage("step1");
       setShouldRestart(false);
     } finally {

@@ -1048,11 +1048,10 @@ export class BleMessageProtocol implements MessageProtocolInterface {
     const directHandler = this.rxHandlers.get(directKey);
     if (directHandler) {
       directHandler(payload);
-      return;
     }
 
     const wildcardHandler = this.rxHandlers.get(wildcardKey);
-    if (wildcardHandler) {
+    if (wildcardHandler && wildcardHandler !== directHandler) {
       wildcardHandler(payload);
     }
   }
