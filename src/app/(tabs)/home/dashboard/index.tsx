@@ -32,6 +32,7 @@ import useScheduleStore from "@/store/schedule";
 import useTreatmentStore from "@/store/treatment";
 import { SupportRequest } from "@/types/support";
 import { connectAndSetupDevice } from "@/utils/ble";
+import { bleLog, bleLogError } from "@/utils/ble/logger";
 import { syncTreatmentsAndSchedules } from "@/utils/schedule";
 
 const INBOX_SHEET_HEIGHT = Dimensions.get("window").height * 0.9;
@@ -114,7 +115,7 @@ export default function DashboardScreen() {
       syncTreatmentsAndSchedules({
         reason: "dashboard-mount",
       }).catch((error) => {
-        console.error("[Dashboard] Failed to sync treatments/schedules:", error);
+        bleLogError("[Dashboard] Failed to sync treatments/schedules:", error);
       }); // COMMENT FOR DEBUGGING
     }
   }, [isMockMode]);
@@ -123,14 +124,14 @@ export default function DashboardScreen() {
     const entries = Object.entries(todaySchedulesByDevice);
 
     if (entries.length === 0) {
-      console.log("[Dashboard] No doses scheduled for today.");
+      bleLog("[Dashboard] No doses scheduled for today.");
       return;
     }
 
-    console.log("[Dashboard] Today's dose schedule:");
+    bleLog("[Dashboard] Today's dose schedule:");
     entries.forEach(([deviceName, deviceSchedules]) => {
       if (!deviceSchedules || deviceSchedules.length === 0) {
-        console.log(`  • ${deviceName}: no remaining doses today.`);
+        bleLog(`  • ${deviceName}: no remaining doses today.`);
         return;
       }
 
@@ -143,7 +144,7 @@ export default function DashboardScreen() {
         )
         .join(", ");
 
-      console.log(`  • ${deviceName}: ${times}`);
+      bleLog(`  • ${deviceName}: ${times}`);
     });
   }, [todaySchedulesByDevice]);
 
@@ -162,7 +163,7 @@ export default function DashboardScreen() {
       }
       // TODO: Handle toast
     } catch (error) {
-      console.error("Error resetting device:", error);
+      bleLogError("Error resetting device:", error);
     }
   }
 
@@ -178,7 +179,7 @@ export default function DashboardScreen() {
       setSupportRequests(requests);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      console.error("[Dashboard] Failed to load inbox:", message);
+      bleLogError("[Dashboard] Failed to load inbox:", message);
       setSupportRequests([]);
       setInboxError("Unable to load inbox right now.");
     } finally {
@@ -221,15 +222,30 @@ export default function DashboardScreen() {
         onPressHelp={handleHelpPress}
         personDisabled={!hasAccessToken}
         rightAccessory={
-          <TouchableOpacity
-            style={styles.topActionNotificationButton}
-            onPress={handleOpenInbox}
-            accessibilityRole="button"
-            accessibilityLabel="Open inbox notifications"
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Image source={HELP_NOTIF_ICON} style={styles.topActionNotificationIcon} resizeMode="contain" />
-          </TouchableOpacity>
+          <View style={styles.topActionCluster}>
+            <TouchableOpacity
+              style={styles.topActionLogsButton}
+              onPress={() => router.push("/logs")}
+              accessibilityRole="button"
+              accessibilityLabel="Open logs"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.topActionLogsButtonText}>Logs</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.topActionNotificationButton}
+              onPress={handleOpenInbox}
+              accessibilityRole="button"
+              accessibilityLabel="Open inbox notifications"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Image
+                source={HELP_NOTIF_ICON}
+                style={styles.topActionNotificationIcon}
+                resizeMode="contain"
+              />
+            </TouchableOpacity>
+          </View>
         }
       />
       <VNextDoseInfo todaySchedulesByDevice={todaySchedulesByDevice} />
@@ -371,6 +387,24 @@ const styles = StyleSheet.create({
   topActionNotificationButton: {
     padding: 8,
     borderRadius: 20,
+  },
+  topActionCluster: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  topActionLogsButton: {
+    borderWidth: 1,
+    borderColor: "#C6D0DA",
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: "#FFFFFF",
+  },
+  topActionLogsButtonText: {
+    color: "#2B3645",
+    fontSize: 13,
+    fontWeight: "600",
   },
   topActionNotificationIcon: {
     width: 22,

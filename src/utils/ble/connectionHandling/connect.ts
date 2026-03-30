@@ -15,6 +15,7 @@ import {
   getConnectedDevice,
   scanLeDevice,
 } from "../../../../modules/tenx-mdk-ble-rn-library/src/index";
+import { bleLog, bleLogError, bleLogInfo, bleLogWarn } from "../logger";
 import { BleMessageProtocol, MsgProtError } from "../messageProtocol";
 import { decodePpiPayload, PpiId, PpiType } from "../messageProtocolPpi";
 import { USE_MESSAGE_PROTOCOL_PPI, MESSAGE_PROTOCOL_PROCESS_INTERVAL_MS } from "./constants";
@@ -84,7 +85,7 @@ async function runPostConnectTasks(
           pollMs: POST_CONNECT_TX_READY_POLL_MS,
         });
       } catch (runtimeStateError) {
-        console.warn("[MP] Failed to request runtime PPI state.", runtimeStateError);
+        bleLogWarn("[MP] Failed to request runtime PPI state.", runtimeStateError);
       }
     }
 
@@ -104,10 +105,10 @@ async function runPostConnectTasks(
       }
 
       if (!timeSyncSucceeded) {
-        console.warn("[BLE] Skipping system time sync after retry window.");
+        bleLogWarn("[BLE] Skipping system time sync after retry window.");
       }
     } catch (timeSyncError) {
-      console.warn("[BLE] Failed to write system time over message protocol.", timeSyncError);
+      bleLogWarn("[BLE] Failed to write system time over message protocol.", timeSyncError);
     }
 
     try {
@@ -154,22 +155,22 @@ async function runPostConnectTasks(
             lastScheduleSyncSignature: scheduleSyncData.signature,
             lastScheduleSyncedAt: new Date().toISOString(),
           });
-          console.log("[BLE] Updated cached dose schedule via message protocol.");
+          bleLog("[BLE] Updated cached dose schedule via message protocol.");
         } else {
-          console.warn("[BLE] Skipping schedule push after retry window.");
+          bleLogWarn("[BLE] Skipping schedule push after retry window.");
         }
       } else if (scheduleSyncData) {
-        console.log("[BLE] Cached dose schedule unchanged, skipping message protocol schedule push.");
+        bleLog("[BLE] Cached dose schedule unchanged, skipping message protocol schedule push.");
       } else {
-        console.log("[BLE] No cached schedule available to push for this device.", {
+        bleLog("[BLE] No cached schedule available to push for this device.", {
           lookupIdentifiers: scheduleLookupIdentifiers,
         });
       }
     } catch (scheduleSyncError) {
-      console.warn("[BLE] Failed to sync cached schedule to device.", scheduleSyncError);
+      bleLogWarn("[BLE] Failed to sync cached schedule to device.", scheduleSyncError);
     }
   } catch (postConnectError) {
-    console.warn("[BLE] Deferred post-connect setup failed.", postConnectError);
+    bleLogWarn("[BLE] Deferred post-connect setup failed.", postConnectError);
   }
 }
 
@@ -196,13 +197,13 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
       });
     }
 
-    console.log(`[MOCK BLE] Bypassing BLE setup for ${mockDeviceName}`);
+    bleLog(`[MOCK BLE] Bypassing BLE setup for ${mockDeviceName}`);
     return { deviceId: mockDeviceId, deviceName: mockDeviceName, status: "success" };
   }
 
   const scanResponse = await scanLeDevice(1);
 
-  console.log("Scan result:", scanResponse);
+  bleLog("Scan result:", scanResponse);
 
   const knownDevice = useDeviceStore.getState().getDevice(deviceIdentifier);
   const candidateIdentifiers = buildCandidateIdentifiers(deviceIdentifier, knownDevice);
@@ -216,22 +217,22 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
 
     for (const candidate of candidateIdentifiers) {
       try {
-        console.log(`Bonding with device ${candidate}`);
+        bleLog(`Bonding with device ${candidate}`);
         const bondResponse = await bondDevice(candidate);
-        console.log("Bond response:", bondResponse);
+        bleLog("Bond response:", bondResponse);
         if (bondResponse) {
           connectionResponse = bondResponse;
           break;
         }
       } catch (bondError) {
         lastConnectionError = bondError;
-        console.warn(`[BLE] bondDevice failed for ${candidate}:`, bondError);
+        bleLogWarn(`[BLE] bondDevice failed for ${candidate}:`, bondError);
       }
 
       try {
-        console.log(`Connecting to device ${candidate}`);
+        bleLog(`Connecting to device ${candidate}`);
         const connectResponse = await connect(candidate);
-        console.log("Connect response:", connectResponse);
+        bleLog("Connect response:", connectResponse);
         if (connectResponse) {
           connectionResponse = connectResponse;
           break;
@@ -249,7 +250,7 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
             lastConnectionError = getConnectedDeviceError;
           }
         }
-        console.warn(`[BLE] connect failed for ${candidate}:`, connectError);
+        bleLogWarn(`[BLE] connect failed for ${candidate}:`, connectError);
       }
     }
 
@@ -273,7 +274,7 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
       deviceName: resolvedDeviceName,
     });
 
-    console.log("Device successfully added?", added);
+    bleLog("Device successfully added?", added);
 
     if (!added) {
       updateDevice(deviceId, {
@@ -287,7 +288,7 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
     const discoveryResponse = await discoverServicesAndCharacteristics();
     const resolvedMpUuids = resolveMessageProtocolUuidsFromDiscovery(discoveryResponse);
 
-    console.log("[MP] Resolved UUIDs from discovery:", resolvedMpUuids);
+    bleLog("[MP] Resolved UUIDs from discovery:", resolvedMpUuids);
 
     stopAndClearMessageProtocol();
     setMessageProtocol(
@@ -310,7 +311,7 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
           const typeName = PpiType[packet.type as PpiType] ?? `TYPE_${packet.type}`;
           const decoded = decodePpiPayload(packet.ppi, packet.type as PpiType, packet.payload);
 
-          console.log("[MP][RX]", {
+          bleLog("[MP][RX]", {
             deviceId,
             deviceName: resolvedDeviceName,
             ppi: packet.ppi,
@@ -327,7 +328,7 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
 
           const packetBytes = getMessageProtocolInstance()?.getLastRxPacketRaw() ?? new Uint8Array(0);
           if (!packetBytes.length) {
-            console.warn("[MP][INGEST] Skipping ingest because no raw RX packet was available.", {
+            bleLogWarn("[MP][INGEST] Skipping ingest because no raw RX packet was available.", {
               pktCounter: packet.pktCounter,
               sessionId: packet.sessionId,
               ppi: packet.payload.ppi,
@@ -336,7 +337,7 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
             return;
           }
           if (packetBytes.length < MP_MIN_FRAME_LEN_BYTES) {
-            console.warn("[MP][INGEST] Skipping ingest because RX packet was shorter than MP frame header.", {
+            bleLogWarn("[MP][INGEST] Skipping ingest because RX packet was shorter than MP frame header.", {
               packetBytesLength: packetBytes.length,
               pktCounter: packet.pktCounter,
               sessionId: packet.sessionId,
@@ -347,7 +348,7 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
           const pktType = packetBytes[8];
           const pktPayloadLen = packetBytes[12] | (packetBytes[13] << 8);
           if (pktType !== MP_PACKET_TYPE_DATA) {
-            console.warn("[MP][INGEST] Skipping ingest because RX packet is not DATA.", {
+            bleLogWarn("[MP][INGEST] Skipping ingest because RX packet is not DATA.", {
               pktType,
               pktCounter: packet.pktCounter,
               sessionId: packet.sessionId,
@@ -355,7 +356,7 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
             return;
           }
           if (pktPayloadLen <= 0 || packet.payload.payload.length <= 0) {
-            console.warn("[MP][INGEST] Skipping ingest because DATA packet has empty payload.", {
+            bleLogWarn("[MP][INGEST] Skipping ingest because DATA packet has empty payload.", {
               pktPayloadLen,
               pktCounter: packet.pktCounter,
               sessionId: packet.sessionId,
@@ -365,7 +366,7 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
             return;
           }
           if (packetBytes.length < MP_MIN_FRAME_LEN_BYTES + pktPayloadLen) {
-            console.warn("[MP][INGEST] Skipping ingest because DATA packet appears truncated.", {
+            bleLogWarn("[MP][INGEST] Skipping ingest because DATA packet appears truncated.", {
               packetBytesLength: packetBytes.length,
               pktPayloadLen,
               pktCounter: packet.pktCounter,
@@ -381,7 +382,7 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
             timestamp: new Date(),
             deviceId: ingestDeviceName,
           }).catch((error) => {
-            console.warn("[MP][INGEST] Failed to ingest ACKed packet.", {
+            bleLogWarn("[MP][INGEST] Failed to ingest ACKed packet.", {
               error: error instanceof Error ? error.message : String(error),
               ingestDeviceName,
               pktCounter: packet.pktCounter,
@@ -418,7 +419,7 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
           )
         : false;
 
-    console.info("[MP][PROTOCOL] Message protocol started.", {
+    bleLogInfo("[MP][PROTOCOL] Message protocol started.", {
       mode: "MASTER",
       enableSyncControl: true,
       sendAckNak: true,
@@ -430,7 +431,7 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
       syncReady,
     });
     if (!syncReady) {
-      console.warn(
+      bleLogWarn(
         "[MP][PROTOCOL] Sync did not complete in readiness window; waiting for SYNC_ACK."
       );
     }
@@ -439,25 +440,25 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
       try {
         setupMessageProtocolHandlers(deviceId);
       } catch (handlerSetupError) {
-        console.warn("[MP] Failed to register runtime protocol handlers.", handlerSetupError);
+        bleLogWarn("[MP] Failed to register runtime protocol handlers.", handlerSetupError);
       }
     } else {
       try {
         await subscribeToDoseEvent(deviceId);
       } catch (doseSubscriptionError) {
-        console.warn("[BLE] Failed to subscribe to dose events.", doseSubscriptionError);
+        bleLogWarn("[BLE] Failed to subscribe to dose events.", doseSubscriptionError);
       }
 
       try {
         await subscribeToBatteryLevel(deviceId);
       } catch (batterySubscriptionError) {
-        console.warn("[BLE] Failed to subscribe to battery updates.", batterySubscriptionError);
+        bleLogWarn("[BLE] Failed to subscribe to battery updates.", batterySubscriptionError);
       }
 
       try {
         await subscribeToError(deviceId);
       } catch (errorSubscriptionError) {
-        console.warn("[BLE] Failed to subscribe to device errors.", errorSubscriptionError);
+        bleLogWarn("[BLE] Failed to subscribe to device errors.", errorSubscriptionError);
       }
     }
 
@@ -465,7 +466,7 @@ export async function connectAndSetupDevice(deviceIdentifier: string) {
 
     return { deviceId, deviceName: resolvedDeviceName, status: "success" };
   } catch (error) {
-    console.log("error", error);
+    bleLogError("[BLE] connectAndSetupDevice failed.", error);
 
     stopAndClearMessageProtocol();
 

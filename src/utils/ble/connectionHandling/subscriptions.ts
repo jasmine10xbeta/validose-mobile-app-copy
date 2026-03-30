@@ -10,6 +10,7 @@ import {
 import useDeviceStore from "@/store/device";
 import useScheduleStore from "@/store/schedule";
 import useTreatmentStore from "@/store/treatment";
+import { bleLog, bleLogError, bleLogWarn } from "@/utils/ble/logger";
 import { subscribeToCharacteristic } from "../../../../modules/tenx-mdk-ble-rn-library/src/index";
 
 const { updateDevice } = useDeviceStore.getState();
@@ -18,7 +19,7 @@ export function decodeDoseEvent(hex: string) {
   const buffer = Buffer.from(hex, "hex");
 
   if (buffer.length !== 10) {
-    console.warn(`Dose event data must be 10 bytes, got ${buffer.length}:`, hex);
+    bleLogWarn(`Dose event data must be 10 bytes, got ${buffer.length}:`, hex);
     return null;
   }
 
@@ -68,7 +69,7 @@ export async function subscribeToDoseEvent(deviceId: string): Promise<void> {
       if (uuid.toLowerCase() !== CHARACTERISTIC_UUIDS.DOSE_EVENT || callbackDeviceId !== deviceId) return;
 
       const parsed = decodeDoseEvent(hex);
-      console.log(`💊 [BLE] Recieved dose event: (Hex: ${hex})`, parsed);
+      bleLog(`💊 [BLE] Recieved dose event: (Hex: ${hex})`, parsed);
 
       if (!parsed) {
         return;
@@ -92,7 +93,7 @@ export async function subscribeToDoseEvent(deviceId: string): Promise<void> {
           parsed
         );
 
-      console.log("Locally acknowledged dose event?", acknowledged);
+      bleLog("Locally acknowledged dose event?", acknowledged);
 
       if (acknowledged !== null) {
         showToast("success", `Dose recorded for ${treatment.medication_code}`);
@@ -112,14 +113,14 @@ export async function subscribeToError(deviceId: string): Promise<void> {
 
       const error = decodeErrorNotification(hex);
       if (!error) {
-        console.log("ℹ️ [BLE] Unrecognized data format.");
+        bleLog("ℹ️ [BLE] Unrecognized data format.");
         return;
       }
 
-      console.log("⚠️ [BLE] Received and parsed the following error from device..");
-      console.log(`Unit: ${error.unitName} (${error.unitId})`);
-      console.log(`Code: ${error.errorNumber} \nMessage: ${error.errorMessage}`);
-      console.log(`Hex: ${hex}`);
+      bleLog("⚠️ [BLE] Received and parsed the following error from device..");
+      bleLog(`Unit: ${error.unitName} (${error.unitId})`);
+      bleLog(`Code: ${error.errorNumber} \nMessage: ${error.errorMessage}`);
+      bleLog(`Hex: ${hex}`);
 
       updateDevice(deviceId, { error: `Error: ${error.errorMessage}` });
     }
@@ -137,11 +138,11 @@ export async function subscribeToBatteryLevel(deviceId: string): Promise<void> {
         const battery = Buffer.from(hex, "hex").readUInt8(0);
         updateDevice(deviceId, { batteryLevel: battery });
 
-        console.log("🔋 [BLE] Received and parsed battery level from device..");
-        console.log(`Battery level: ${battery}%`);
-        console.log(`Hex: ${hex}`);
+        bleLog("🔋 [BLE] Received and parsed battery level from device..");
+        bleLog(`Battery level: ${battery}%`);
+        bleLog(`Hex: ${hex}`);
       } catch (error) {
-        console.error("Error parsing battery level:", error);
+        bleLogError("Error parsing battery level:", error);
       }
     }
   );

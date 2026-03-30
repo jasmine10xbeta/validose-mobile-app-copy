@@ -1,3 +1,4 @@
+import { bleLogWarn } from "../logger";
 import {
   AckedRxDataPacket,
   BleMessageProtocol,
@@ -33,7 +34,7 @@ export function emitMessageProtocolRxPacket(packet: MpPacketPayload): void {
     try {
       listener(packet);
     } catch (error) {
-      console.warn("[MP][STATE] RX packet listener failed.", error);
+      bleLogWarn("[MP][STATE] RX packet listener failed.", error);
     }
   });
 }
@@ -43,7 +44,7 @@ export function emitMessageProtocolRxDataAcked(packet: AckedRxDataPacket): void 
     try {
       listener(packet);
     } catch (error) {
-      console.warn("[MP][STATE] RX-ACK listener failed.", error);
+      bleLogWarn("[MP][STATE] RX-ACK listener failed.", error);
     }
   });
 }

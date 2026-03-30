@@ -1,6 +1,7 @@
 import { Buffer } from "buffer";
 
 import { REPLACEMENT_FLOW_SIGNAL } from "@/constants/replacementFlow";
+import { bleLog, bleLogWarn } from "@/utils/ble/logger";
 import { writeCharacteristic } from "../../../../modules/tenx-mdk-ble-rn-library/src/index";
 import { MsgProtError, MpPacketPayload, subscribeToBleCharacteristic } from "../messageProtocol";
 import {
@@ -116,7 +117,7 @@ async function sendPpiViaMessageProtocol(
     context
   );
   if (!txReady) {
-    console.warn(`[Replacement] Message protocol TX not ready for ${context}.`);
+    bleLogWarn(`[Replacement] Message protocol TX not ready for ${context}.`);
     return false;
   }
 
@@ -125,7 +126,7 @@ async function sendPpiViaMessageProtocol(
   );
 
   const decoded = decodePpiPayload(ppi, type as PpiType, payload).value;
-  console.log("[MP][TX][Replacement]", {
+  bleLog("[MP][TX][Replacement]", {
     context,
     ppi,
     ppiName: PpiId[ppi as PpiId] ?? `PPI_${ppi}`,
@@ -137,7 +138,7 @@ async function sendPpiViaMessageProtocol(
   });
 
   if (result !== MsgProtError.NONE) {
-    console.warn(`[Replacement] Message protocol send failed for ${context}.`, {
+    bleLogWarn(`[Replacement] Message protocol send failed for ${context}.`, {
       ppi,
       type,
       result,
@@ -148,7 +149,7 @@ async function sendPpiViaMessageProtocol(
   await messageProtocol.process();
   const completed = await waitForTxSendable(messageProtocol);
   if (!completed) {
-    console.warn(`[Replacement] Message protocol TX did not complete for ${context}.`, {
+    bleLogWarn(`[Replacement] Message protocol TX did not complete for ${context}.`, {
       ppi,
       type,
     });
@@ -206,7 +207,7 @@ function dispatchReplacementFlowHex(rawHex: string): void {
     try {
       listener(normalizedHex);
     } catch (listenerError) {
-      console.warn("[Replacement] Replacement flow listener failed.", listenerError);
+      bleLogWarn("[Replacement] Replacement flow listener failed.", listenerError);
     }
   }
 }
@@ -233,9 +234,9 @@ function mapBaseliningStateToSignal(currentState: number): string | null {
   if (currentState <= 0) return toReplacementStageSignal("step1");
   if (currentState === 1) return toReplacementStageSignal("checking1");
   if (currentState === 2) return toReplacementStageSignal("step2");
-  if (currentState === 3 || currentState === 4 || currentState === 5) {
-    return toReplacementStageSignal("step4Checking");
-  }
+  if (currentState === 3) return toReplacementStageSignal("step3");
+  if (currentState === 4) return toReplacementStageSignal("step3Docking");
+  if (currentState === 5) return toReplacementStageSignal("step4Checking");
   if (currentState === 6) return toReplacementStageSignal("success");
   if (currentState >= 7) return toReplacementStageSignal("error");
   return null;
@@ -314,27 +315,27 @@ function maybeAutoFinalizeBaseliningForReplacement(currentState: number): void {
     if (!hasSentValidateMedForActiveFlow) {
       const validateSent = await writeValidateMedViaMessageProtocol(true);
       if (!validateSent) {
-        console.warn("[Replacement] Failed to auto-send Validate Med response.");
+        bleLogWarn("[Replacement] Failed to auto-send Validate Med response.");
         return;
       }
 
       hasSentValidateMedForActiveFlow = true;
-      console.log("[Replacement] Auto-sent Validate Med OK for baselining flow.");
+      bleLog("[Replacement] Auto-sent Validate Med OK for baselining flow.");
     }
 
     if (!hasSentDoseScheduleForActiveFlow) {
       const doseScheduleSent = await writeDoseSchedulePushAViaMessageProtocol();
       if (!doseScheduleSent) {
-        console.warn("[Replacement] Failed to auto-send Dose Schedule PUSH A after validation.");
+        bleLogWarn("[Replacement] Failed to auto-send Dose Schedule PUSH A after validation.");
         return;
       }
 
       hasSentDoseScheduleForActiveFlow = true;
-      console.log("[Replacement] Auto-sent Dose Schedule PUSH A for baselining flow.");
+      bleLog("[Replacement] Auto-sent Dose Schedule PUSH A for baselining flow.");
     }
   })()
     .catch((error) => {
-      console.warn("[Replacement] Auto baselining finalize sequence failed.", error);
+      bleLogWarn("[Replacement] Auto baselining finalize sequence failed.", error);
     })
     .finally(() => {
       isAutoFinalizeInProgressForActiveFlow = false;
@@ -348,7 +349,7 @@ function handleReplacementFlowPacket(packet: MpPacketPayload): void {
 
   const feedback = decodeReplacementFlowFeedbackPacket(packet);
   if (feedback) {
-    console.log("[Replacement] Flow feedback received.", {
+    bleLog("[Replacement] Flow feedback received.", {
       flow: feedback.flow,
       ppi: packet.ppi,
       type: packet.type,
@@ -427,7 +428,7 @@ async function writeReplacementCommand(
 ): Promise<boolean> {
   const normalized = normalizeHex(commandHex);
   if (!normalized) {
-    console.warn(`[Replacement] Invalid ${label} command hex.`, { commandHex });
+    bleLogWarn(`[Replacement] Invalid ${label} command hex.`, { commandHex });
     return false;
   }
 
@@ -448,7 +449,7 @@ async function writeReplacementCommand(
       if (sentBaseliningControl) {
         return true;
       }
-      console.warn(
+      bleLogWarn(
         `[Replacement] Failed AD_START_BASELINING for ${label}. Falling back to development command path.`
       );
     }
@@ -457,7 +458,7 @@ async function writeReplacementCommand(
     if (sentViaMessageProtocol) {
       return true;
     }
-    console.warn(
+    bleLogWarn(
       `[Replacement] Message protocol command failed for ${label}. Falling back to legacy replacement characteristic.`
     );
   }
@@ -471,20 +472,20 @@ async function writeReplacementCommand(
       return true;
     }
 
-    console.warn(
+    bleLogWarn(
       `[Replacement] Legacy characteristic write returned false for ${label}.`
     );
     return false;
   } catch (error) {
     if (isCharacteristicNotFoundError(error)) {
       if (!hasMessageProtocol) {
-        console.warn(
+        bleLogWarn(
           `[Replacement] Legacy replacement characteristic missing for ${label}.`
         );
       }
       return false;
     }
-    console.warn(`[Replacement] Failed to send ${label} command.`, error);
+    bleLogWarn(`[Replacement] Failed to send ${label} command.`, error);
     return false;
   }
 }

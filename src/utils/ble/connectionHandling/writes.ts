@@ -2,6 +2,7 @@ import { Buffer } from "buffer";
 
 import { CHARACTERISTIC_UUIDS } from "@/constants/ble";
 import { DoseScheduleInput } from "@/types/dose";
+import { bleLog, bleLogError, bleLogWarn } from "@/utils/ble/logger";
 import { writeCharacteristic } from "../../../../modules/tenx-mdk-ble-rn-library/src/index";
 import { MsgProtError } from "../messageProtocol";
 import {
@@ -51,11 +52,11 @@ export async function resetBufferCharacteristic(): Promise<void> {
 
     const result = await writeCharacteristic(CHARACTERISTIC_UUIDS.RESET, base64Value);
 
-    console.log("\n📝 [BLE] Writing reset buffer flag (0x02) to device..");
-    console.log(`Successful? ${result}`);
-    console.log(`Value (base64): ${base64Value}`);
+    bleLog("\n📝 [BLE] Writing reset buffer flag (0x02) to device..");
+    bleLog(`Successful? ${result}`);
+    bleLog(`Value (base64): ${base64Value}`);
   } catch (error) {
-    console.log("Error writing reset buffer flag:", error);
+    bleLogError("Error writing reset buffer flag:", error);
   }
 }
 
@@ -68,8 +69,8 @@ export async function writeSystemTime(options: WriteOptions = {}): Promise<boole
   const unixTime = Math.floor(Date.now() / 1000);
   const messageProtocol = getMessageProtocolInstance();
 
-  console.log("📝 [BLE] Writing system time to device..");
-  console.log(`Unix time: ${unixTime}`);
+  bleLog("📝 [BLE] Writing system time to device..");
+  bleLog(`Unix time: ${unixTime}`);
 
   try {
     if (USE_MESSAGE_PROTOCOL_PPI && messageProtocol) {
@@ -84,13 +85,13 @@ export async function writeSystemTime(options: WriteOptions = {}): Promise<boole
       );
 
       if (!txReady) {
-        console.warn("[MP] TX busy; cannot send time update yet.");
+        bleLogWarn("[MP] TX busy; cannot send time update yet.");
         return false;
       }
 
       const txPacket = buildPpiPayload(PpiId.AD_TIME, PpiType.PUSH, payload);
       const decoded = decodePpiPayload(txPacket.ppi, txPacket.type as PpiType, txPacket.payload);
-      console.log("[MP][TX]", {
+      bleLog("[MP][TX]", {
         ppi: txPacket.ppi,
         ppiName: PpiId[txPacket.ppi as PpiId] ?? `PPI_${txPacket.ppi}`,
         type: txPacket.type,
@@ -100,7 +101,7 @@ export async function writeSystemTime(options: WriteOptions = {}): Promise<boole
       });
 
       const result = messageProtocol.send(txPacket);
-      console.log(`Message protocol send result: ${result}`);
+      bleLog(`Message protocol send result: ${result}`);
       if (result === MsgProtError.NONE) {
         await messageProtocol.process();
       }
@@ -110,14 +111,14 @@ export async function writeSystemTime(options: WriteOptions = {}): Promise<boole
     const buffer = Buffer.alloc(4);
     buffer.writeUInt32LE(unixTime, 0);
     const base64Time = buffer.toString("base64");
-    console.log(`Payload (base64): ${base64Time}`);
+    bleLog(`Payload (base64): ${base64Time}`);
 
     const result = await writeCharacteristic(CHARACTERISTIC_UUIDS.TIME, base64Time);
     const success = result === true;
-    console.log(`Success? ${success}`);
+    bleLog(`Success? ${success}`);
     return success;
   } catch (error) {
-    console.error("Error writing system time:", error);
+    bleLogError("Error writing system time:", error);
     throw error;
   }
 }
@@ -201,13 +202,13 @@ export async function writeDoseSchedule(
         }
       );
       if (!txReady) {
-        console.warn("[MP] TX busy; cannot send dose schedule yet.");
+        bleLogWarn("[MP] TX busy; cannot send dose schedule yet.");
         return false;
       }
 
       const txPacket = buildPpiPayload(PpiId.AD_DOSE_SCHEDULE, PpiType.PUSH, schedule);
       const decoded = decodePpiPayload(txPacket.ppi, txPacket.type as PpiType, txPacket.payload);
-      console.log("[MP][TX]", {
+      bleLog("[MP][TX]", {
         ppi: txPacket.ppi,
         ppiName: PpiId[txPacket.ppi as PpiId] ?? `PPI_${txPacket.ppi}`,
         type: txPacket.type,
@@ -220,7 +221,7 @@ export async function writeDoseSchedule(
       if (result === MsgProtError.NONE) {
         await messageProtocol.process();
       }
-      console.log(`\n📝 [MP] Sent dose schedule. result=${result}`);
+      bleLog(`\n📝 [MP] Sent dose schedule. result=${result}`);
       return result === MsgProtError.NONE;
     }
 
@@ -236,12 +237,12 @@ export async function writeDoseSchedule(
 
     const result = await writeCharacteristic(CHARACTERISTIC_UUIDS.DOSE_SCHEDULE, base64DoseSchedule);
 
-    console.log("\n📝 [BLE] Attempting to write dose schedule to device..");
-    console.log(`Successful? ${result}`);
-    console.log(`Value (base64): ${base64DoseSchedule}`);
+    bleLog("\n📝 [BLE] Attempting to write dose schedule to device..");
+    bleLog(`Successful? ${result}`);
+    bleLog(`Value (base64): ${base64DoseSchedule}`);
     return result === true;
   } catch (error) {
-    console.log("Error writing dose schedule:", error);
+    bleLogError("Error writing dose schedule:", error);
     return false;
   }
 }

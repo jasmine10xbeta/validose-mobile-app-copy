@@ -3,6 +3,7 @@ import { Buffer } from "buffer";
 import useDeviceStore from "@/store/device";
 import useScheduleStore from "@/store/schedule";
 import useTreatmentStore from "@/store/treatment";
+import { bleLog, bleLogWarn } from "@/utils/ble/logger";
 import {
   MessageProtocolInterface,
   MsgProtError,
@@ -25,42 +26,19 @@ export function relayMessageProtocolConsoleLog(
 ): void {
   const prefix = `[MP][PROTOCOL][${level}]`;
   if (!args.length) {
-    if (level === "DBG") {
-      console.log(prefix);
-    } else if (level === "INFO") {
-      console.info(prefix);
-    } else if (level === "WARN") {
-      console.warn(prefix);
-    } else {
-      console.error(prefix);
-    }
+    bleLog(prefix);
     return;
   }
 
   const [first, ...rest] = args;
   if (typeof first === "string") {
     const message = `${prefix} ${first}`;
-    if (level === "DBG") {
-      console.log(message, ...rest);
-    } else if (level === "INFO") {
-      console.info(message, ...rest);
-    } else if (level === "WARN") {
-      console.warn(message, ...rest);
-    } else {
-      console.error(message, ...rest);
-    }
+    const payload = rest.length === 0 ? undefined : rest.length === 1 ? rest[0] : rest;
+    bleLog(message, payload);
     return;
   }
 
-  if (level === "DBG") {
-    console.log(prefix, ...args);
-  } else if (level === "INFO") {
-    console.info(prefix, ...args);
-  } else if (level === "WARN") {
-    console.warn(prefix, ...args);
-  } else {
-    console.error(prefix, ...args);
-  }
+  bleLog(prefix, args.length === 1 ? args[0] : args);
 }
 
 export async function waitForTxSendable(
@@ -93,7 +71,7 @@ export async function ensureProtocolReadyForDataSend(
   if (protocol.getCurrentSessionId() === 0) {
     const syncResult = await protocol.startSync();
     if (syncResult !== MsgProtError.NONE) {
-      console.warn(`[MP] Could not start sync before ${context}.`, { syncResult });
+      bleLogWarn(`[MP] Could not start sync before ${context}.`, { syncResult });
       return false;
     }
   }
@@ -104,7 +82,7 @@ export async function ensureProtocolReadyForDataSend(
     options.pollMs
   );
   if (!txReady) {
-    console.warn(`[MP] TX not ready for ${context}; waiting for sync/ACK state.`);
+    bleLogWarn(`[MP] TX not ready for ${context}; waiting for sync/ACK state.`);
   }
 
   return txReady;
@@ -158,13 +136,13 @@ async function sendPpiRequest(
       options.pollMs
     );
     if (!txReady) {
-      console.warn(`[MP] TX not ready to queue runtime PPI request ${ppiId}.`);
+      bleLogWarn(`[MP] TX not ready to queue runtime PPI request ${ppiId}.`);
       return false;
     }
 
     const txPacket = buildPpiPayload(ppiId, PpiType.RQ, new Uint8Array(0));
     const decoded = decodePpiPayload(txPacket.ppi, txPacket.type as PpiType, txPacket.payload);
-    console.log("[MP][TX]", {
+    bleLog("[MP][TX]", {
       ppi: txPacket.ppi,
       ppiName: PpiId[txPacket.ppi as PpiId] ?? `PPI_${txPacket.ppi}`,
       type: txPacket.type,
@@ -178,13 +156,13 @@ async function sendPpiRequest(
       await messageProtocol.process();
       const completed = await waitForTxSendable(messageProtocol);
       if (!completed) {
-        console.warn(`[MP] Runtime PPI request ${ppiId} did not complete in the ready window.`);
+        bleLogWarn(`[MP] Runtime PPI request ${ppiId} did not complete in the ready window.`);
       }
       return completed;
     }
 
     if (result === MsgProtError.BUSY) {
-      console.warn(`[MP] TX busy while queueing runtime PPI request ${ppiId}; retrying.`, {
+      bleLogWarn(`[MP] TX busy while queueing runtime PPI request ${ppiId}; retrying.`, {
         attempt,
         maxAttempts,
       });
@@ -193,11 +171,11 @@ async function sendPpiRequest(
       continue;
     }
 
-    console.warn(`[MP] Failed to queue runtime PPI request ${ppiId}.`, { result });
+    bleLogWarn(`[MP] Failed to queue runtime PPI request ${ppiId}.`, { result });
     return false;
   }
 
-  console.warn(`[MP] Failed to queue runtime PPI request ${ppiId} after retries.`);
+  bleLogWarn(`[MP] Failed to queue runtime PPI request ${ppiId} after retries.`);
   return false;
 }
 
@@ -249,11 +227,11 @@ export function setupMessageProtocolHandlers(deviceIdentifier: string): void {
 
     const decoded = decodeDoseEventPpi(packet.payload);
     if (!decoded) {
-      console.warn("[MP] Dose event payload size mismatch.");
+      bleLogWarn("[MP] Dose event payload size mismatch.");
       return;
     }
 
-    console.log("💊 [MP] Dose event received from device.", {
+    bleLog("💊 [MP] Dose event received from device.", {
       deviceIdentifier,
       eventId: decoded.event_id,
       startTimestampUnixS: decoded.start_timestamp_unix_s,
@@ -266,7 +244,7 @@ export function setupMessageProtocolHandlers(deviceIdentifier: string): void {
     const scheduleStore = useScheduleStore.getState();
     const device = deviceStore.getDevice(deviceIdentifier);
     if (!device) {
-      console.warn("[MP] Dose event received for unknown device.", { deviceIdentifier });
+      bleLogWarn("[MP] Dose event received for unknown device.", { deviceIdentifier });
       return;
     }
 
@@ -274,7 +252,7 @@ export function setupMessageProtocolHandlers(deviceIdentifier: string): void {
       useTreatmentStore.getState().getDeviceTreatment(device.deviceId) ??
       useTreatmentStore.getState().getDeviceTreatment(device.deviceName);
     if (!treatment?.medication_code) {
-      console.warn("[MP] Dose event received but no treatment/medication code is available.", {
+      bleLogWarn("[MP] Dose event received but no treatment/medication code is available.", {
         deviceId: device.deviceId,
         deviceName: device.deviceName,
       });
@@ -313,7 +291,7 @@ export function setupMessageProtocolHandlers(deviceIdentifier: string): void {
         scheduleStore.markBackendSynced(acknowledgedScheduleDeviceKey, acknowledgedSchedule.id);
       }
 
-      console.log("💊 [MP] Received dose event (ingest-only backend flow).", {
+      bleLog("💊 [MP] Received dose event (ingest-only backend flow).", {
         rawDeviceIdentifier: deviceIdentifier,
         deviceId: device.deviceId,
         deviceName: device.deviceName,
@@ -327,7 +305,7 @@ export function setupMessageProtocolHandlers(deviceIdentifier: string): void {
         tiltCount: decoded.tilt_count,
       });
     } catch (doseEventError) {
-      console.warn("[MP] Failed to process local dose event acknowledgment.", {
+      bleLogWarn("[MP] Failed to process local dose event acknowledgment.", {
         rawDeviceIdentifier: deviceIdentifier,
         deviceId: device.deviceId,
         deviceName: device.deviceName,
@@ -342,7 +320,7 @@ export function setupMessageProtocolHandlers(deviceIdentifier: string): void {
 
   messageProtocol.registerRxHandler(PpiId.AD_TIME, PpiType.RE, (packet) => {
     const decoded = decodePpiPayload(packet.ppi, packet.type as PpiType, packet.payload);
-    console.log("🕒 [MP] Time update response", decoded.value);
+    bleLog("🕒 [MP] Time update response", decoded.value);
   });
 
   const updateDockBatteryFromPacket = (packet: { ppi: number; type: number; payload: Uint8Array }) => {
@@ -407,7 +385,7 @@ export function setupMessageProtocolHandlers(deviceIdentifier: string): void {
     const decoded = decodePpiPayload(packet.ppi, packet.type as PpiType, packet.payload);
     const ppiName = PpiId[packet.ppi as PpiId] ?? `PPI_${packet.ppi}`;
     const typeName = PpiType[packet.type as PpiType] ?? `TYPE_${packet.type}`;
-    console.log("🧪 [MP] Baselining/Calibration feedback", {
+    bleLog("🧪 [MP] Baselining/Calibration feedback", {
       deviceIdentifier,
       ppi: packet.ppi,
       ppiName,

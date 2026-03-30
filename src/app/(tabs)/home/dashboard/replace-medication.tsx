@@ -19,6 +19,7 @@ import {
   writeReplacementProcessRestarted,
   writeReplacementProcessStarted,
 } from "@/utils/ble";
+import { bleLogWarn } from "@/utils/ble/logger";
 import { decodeReplacementErrorFromHex } from "@/utils/replacementError";
 
 const REPLACEMENT_STEPS = [
@@ -75,6 +76,7 @@ const ACTIVE_FLOW_STAGES: ReplacementStage[] = [
   "step4Checking",
 ];
 const REPLACEMENT_STAGE_SIGNAL_PREFIX = "stage:";
+const REPLACEMENT_FALLBACK_STAGE_ADVANCE_MS = 15000;
 const FLOW_STAGE_ORDER: Record<ReplacementStage, number> = {
   intro: 0,
   step1: 1,
@@ -503,7 +505,7 @@ export default function ReplaceMedicationScreen() {
         flowStageRef.current = nextStage;
         return nextStage;
       });
-    }, 15000);
+    }, REPLACEMENT_FALLBACK_STAGE_ADVANCE_MS);
 
     return () => clearTimeout(timeoutId);
   }, [flowStage]);
@@ -519,7 +521,23 @@ export default function ReplaceMedicationScreen() {
         flowStageRef.current = nextStage;
         return nextStage;
       });
-    }, 15000);
+    }, REPLACEMENT_FALLBACK_STAGE_ADVANCE_MS);
+
+    return () => clearTimeout(timeoutId);
+  }, [flowStage]);
+
+  useEffect(() => {
+    if (flowStage !== "step3Docking") {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      setFlowStage((currentStage) => {
+        const nextStage = currentStage === "step3Docking" ? "step4Checking" : currentStage;
+        flowStageRef.current = nextStage;
+        return nextStage;
+      });
+    }, REPLACEMENT_FALLBACK_STAGE_ADVANCE_MS);
 
     return () => clearTimeout(timeoutId);
   }, [flowStage]);
@@ -618,7 +636,7 @@ export default function ReplaceMedicationScreen() {
           }
         });
       } catch (error) {
-        console.warn("[Replacement] Could not subscribe to replacement flow signal", error);
+        bleLogWarn("[Replacement] Could not subscribe to replacement flow signal", error);
       }
     }
 
