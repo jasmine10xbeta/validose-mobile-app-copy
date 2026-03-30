@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Animated, Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Animated, Easing, Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { VButton } from "@/components/common/VButton";
@@ -9,7 +9,6 @@ import { showToast } from "@/components/common/VToast";
 import {
   doesMatchReplacementCheckingCompleteSignal,
   doesMatchReplacementStep1Signal,
-  doesMatchReplacementStep2ToStep3Signal,
   doesMatchReplacementStep3ToStep4CheckingSignal,
   doesMatchReplacementStep4CheckingToSuccessSignal,
 } from "@/constants/replacementFlow";
@@ -29,14 +28,23 @@ const REPLACEMENT_STEPS = [
   "Place new bottle in dock",
 ];
 
-const ASSEMBLE_RING_IMAGE = require("../../../../assets/images/png/assemble-ring.png");
-const ATTACH_NEW_BOTTLE_IMAGE = require("../../../../assets/images/png/attach-new-bottle.png");
+const BASELINE_STEP1_PART1_IMAGE = require("../../../../assets/images/png/baseline-step-1/part1.png");
+const BASELINE_STEP1_PART2_IMAGE = require("../../../../assets/images/png/baseline-step-1/part2.png");
+const BASELINE_STEP2_PART1_IMAGE = require("../../../../assets/images/png/baseline-step-2/part1.png");
+const BASELINE_STEP2_PART2_IMAGE = require("../../../../assets/images/png/baseline-step-2/part2.png");
+const BASELINE_STEP2_PART3_IMAGE = require("../../../../assets/images/png/baseline-step-2/part3.png");
+const BASELINE_STEP2_PART4_IMAGE = require("../../../../assets/images/png/baseline-step-2/part4.png");
+const BASELINE_STEP3_PART1_IMAGE = require("../../../../assets/images/png/baseline-step-3/part1.png");
+const BASELINE_STEP3_PART2_IMAGE = require("../../../../assets/images/png/baseline-step-3/part2.png");
+const BASELINE_STEP4_PART1_IMAGE = require("../../../../assets/images/png/baseline-step-4/part1.png");
+const BASELINE_STEP4_PART2_IMAGE = require("../../../../assets/images/png/baseline-step-4/part2.png");
+const BASELINE_STEP5_PART1_IMAGE = require("../../../../assets/images/png/baseline-step-5/part1.png");
+const BASELINE_STEP5_PART2_IMAGE = require("../../../../assets/images/png/baseline-step-5/part2.png");
+const BASELINE_STEP6_PART1_IMAGE = require("../../../../assets/images/png/baseline-step-6/part1.png");
+const BASELINE_STEP6_PART2_IMAGE = require("../../../../assets/images/png/baseline-step-6/part2.png");
 const BOTTLE_ERROR_IMAGE = require("../../../../assets/images/png/bottle-error.png");
 const CHECK_DOCK_TWO_IMAGE = require("../../../../assets/images/png/check-dock-2.png");
-const CHECK_DOCK_IMAGE = require("../../../../assets/images/png/check-dock.png");
 const INSTALLED_BOTTLE_IMAGE = require("../../../../assets/images/png/installed-bottle.png");
-const REMOVE_BOTTLE_IMAGE = require("../../../../assets/images/png/remove-bottle-2.png");
-const REMOVE_RING_IMAGE = require("../../../../assets/images/png/remove-ring.png");
 
 type ReplacementStage =
   | "intro"
@@ -44,6 +52,7 @@ type ReplacementStage =
   | "checking1"
   | "step2"
   | "step3"
+  | "step3Docking"
   | "step4Checking"
   | "success"
   | "error";
@@ -62,6 +71,7 @@ const ACTIVE_FLOW_STAGES: ReplacementStage[] = [
   "checking1",
   "step2",
   "step3",
+  "step3Docking",
   "step4Checking",
 ];
 const REPLACEMENT_STAGE_SIGNAL_PREFIX = "stage:";
@@ -71,9 +81,10 @@ const FLOW_STAGE_ORDER: Record<ReplacementStage, number> = {
   checking1: 2,
   step2: 3,
   step3: 4,
-  step4Checking: 5,
-  success: 6,
-  error: 7,
+  step3Docking: 5,
+  step4Checking: 6,
+  success: 7,
+  error: 8,
 };
 
 function parseReplacementStageSignal(signal: string): ReplacementStage | null {
@@ -86,6 +97,7 @@ function parseReplacementStageSignal(signal: string): ReplacementStage | null {
   if (rawStage === "checking1") return "checking1";
   if (rawStage === "step2") return "step2";
   if (rawStage === "step3") return "step3";
+  if (rawStage === "step3docking") return "step3Docking";
   if (rawStage === "step4checking") return "step4Checking";
   if (rawStage === "success") return "success";
   if (rawStage === "error") return "error";
@@ -110,6 +122,8 @@ function getStageMeta(stage: ReplacementStage): { step: number; progress: number
       return { step: 2, progress: 50 };
     case "step3":
       return { step: 3, progress: 70 };
+    case "step3Docking":
+      return { step: 3, progress: 82 };
     case "step4Checking":
       return { step: 4, progress: 95 };
     case "success":
@@ -134,7 +148,20 @@ export default function ReplaceMedicationScreen() {
   const [isTransitionProcessing, setIsTransitionProcessing] = useState(false);
   const [errorState, setErrorState] = useState<ReplacementErrorState | null>(null);
   const [isHelpLoading, setIsHelpLoading] = useState(false);
-  const animationPhase = useRef(new Animated.Value(0)).current;
+  const stepOnePartOneOpacity = useRef(new Animated.Value(1)).current;
+  const stepOnePartTwoOpacity = useRef(new Animated.Value(0)).current;
+  const stepTwoPartOneOpacity = useRef(new Animated.Value(1)).current;
+  const stepTwoPartTwoOpacity = useRef(new Animated.Value(0)).current;
+  const stepTwoPartThreeOpacity = useRef(new Animated.Value(0)).current;
+  const stepTwoPartFourOpacity = useRef(new Animated.Value(0)).current;
+  const stepThreePartOneOpacity = useRef(new Animated.Value(1)).current;
+  const stepThreePartTwoOpacity = useRef(new Animated.Value(0)).current;
+  const stepFourPartOneOpacity = useRef(new Animated.Value(1)).current;
+  const stepFourPartTwoOpacity = useRef(new Animated.Value(0)).current;
+  const stepFivePartOneOpacity = useRef(new Animated.Value(1)).current;
+  const stepFivePartTwoOpacity = useRef(new Animated.Value(0)).current;
+  const stepSixPartOneOpacity = useRef(new Animated.Value(1)).current;
+  const stepSixPartTwoOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (startedAtMs === null) {
@@ -152,32 +179,338 @@ export default function ReplaceMedicationScreen() {
   }, [startedAtMs]);
 
   useEffect(() => {
-    if (flowStage !== "step3") {
-      animationPhase.setValue(0);
+    if (flowStage !== "step1") {
+      stepOnePartOneOpacity.setValue(1);
+      stepOnePartTwoOpacity.setValue(0);
       return;
     }
 
+    const fadeDurationMs = 1800;
+    const fadeEasing = Easing.inOut(Easing.quad);
     const animation = Animated.loop(
       Animated.sequence([
-        Animated.timing(animationPhase, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.delay(220),
-        Animated.timing(animationPhase, {
-          toValue: 0,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.delay(220),
+        Animated.parallel([
+          Animated.timing(stepOnePartOneOpacity, {
+            toValue: 0,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+          Animated.timing(stepOnePartTwoOpacity, {
+            toValue: 1,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.parallel([
+          Animated.timing(stepOnePartOneOpacity, {
+            toValue: 1,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+          Animated.timing(stepOnePartTwoOpacity, {
+            toValue: 0,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+        ]),
       ])
     );
 
     animation.start();
 
-    return () => animation.stop();
-  }, [animationPhase, flowStage]);
+    return () => {
+      animation.stop();
+      stepOnePartOneOpacity.setValue(1);
+      stepOnePartTwoOpacity.setValue(0);
+    };
+  }, [flowStage, stepOnePartOneOpacity, stepOnePartTwoOpacity]);
+
+  useEffect(() => {
+    if (flowStage !== "checking1") {
+      stepTwoPartOneOpacity.setValue(1);
+      stepTwoPartTwoOpacity.setValue(0);
+      stepTwoPartThreeOpacity.setValue(0);
+      stepTwoPartFourOpacity.setValue(0);
+      return;
+    }
+
+    const fadeDurationMs = 1100;
+    const fadeEasing = Easing.inOut(Easing.quad);
+    const crossFade = (from: Animated.Value, to: Animated.Value) =>
+      Animated.parallel([
+        Animated.timing(from, {
+          toValue: 0,
+          duration: fadeDurationMs,
+          easing: fadeEasing,
+          useNativeDriver: true,
+        }),
+        Animated.timing(to, {
+          toValue: 1,
+          duration: fadeDurationMs,
+          easing: fadeEasing,
+          useNativeDriver: true,
+        }),
+      ]);
+
+    const animation = Animated.loop(
+      Animated.sequence([
+        crossFade(stepTwoPartOneOpacity, stepTwoPartTwoOpacity),
+        crossFade(stepTwoPartTwoOpacity, stepTwoPartThreeOpacity),
+        crossFade(stepTwoPartThreeOpacity, stepTwoPartFourOpacity),
+        crossFade(stepTwoPartFourOpacity, stepTwoPartOneOpacity),
+      ])
+    );
+
+    animation.start();
+
+    return () => {
+      animation.stop();
+      stepTwoPartOneOpacity.setValue(1);
+      stepTwoPartTwoOpacity.setValue(0);
+      stepTwoPartThreeOpacity.setValue(0);
+      stepTwoPartFourOpacity.setValue(0);
+    };
+  }, [
+    flowStage,
+    stepTwoPartOneOpacity,
+    stepTwoPartTwoOpacity,
+    stepTwoPartThreeOpacity,
+    stepTwoPartFourOpacity,
+  ]);
+
+  useEffect(() => {
+    if (flowStage !== "step2") {
+      stepThreePartOneOpacity.setValue(1);
+      stepThreePartTwoOpacity.setValue(0);
+      return;
+    }
+
+    const fadeDurationMs = 1500;
+    const fadeEasing = Easing.inOut(Easing.quad);
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(stepThreePartOneOpacity, {
+            toValue: 0,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+          Animated.timing(stepThreePartTwoOpacity, {
+            toValue: 1,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.parallel([
+          Animated.timing(stepThreePartOneOpacity, {
+            toValue: 1,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+          Animated.timing(stepThreePartTwoOpacity, {
+            toValue: 0,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+        ]),
+      ])
+    );
+
+    animation.start();
+
+    return () => {
+      animation.stop();
+      stepThreePartOneOpacity.setValue(1);
+      stepThreePartTwoOpacity.setValue(0);
+    };
+  }, [flowStage, stepThreePartOneOpacity, stepThreePartTwoOpacity]);
+
+  useEffect(() => {
+    if (flowStage !== "step3") {
+      stepFourPartOneOpacity.setValue(1);
+      stepFourPartTwoOpacity.setValue(0);
+      return;
+    }
+
+    const fadeDurationMs = 1500;
+    const fadeEasing = Easing.inOut(Easing.quad);
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(stepFourPartOneOpacity, {
+            toValue: 0,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+          Animated.timing(stepFourPartTwoOpacity, {
+            toValue: 1,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.parallel([
+          Animated.timing(stepFourPartOneOpacity, {
+            toValue: 1,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+          Animated.timing(stepFourPartTwoOpacity, {
+            toValue: 0,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+        ]),
+      ])
+    );
+
+    animation.start();
+
+    return () => {
+      animation.stop();
+      stepFourPartOneOpacity.setValue(1);
+      stepFourPartTwoOpacity.setValue(0);
+    };
+  }, [flowStage, stepFourPartOneOpacity, stepFourPartTwoOpacity]);
+
+  useEffect(() => {
+    if (flowStage !== "step3Docking") {
+      stepFivePartOneOpacity.setValue(1);
+      stepFivePartTwoOpacity.setValue(0);
+      return;
+    }
+
+    const fadeDurationMs = 1500;
+    const fadeEasing = Easing.inOut(Easing.quad);
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(stepFivePartOneOpacity, {
+            toValue: 0,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+          Animated.timing(stepFivePartTwoOpacity, {
+            toValue: 1,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.parallel([
+          Animated.timing(stepFivePartOneOpacity, {
+            toValue: 1,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+          Animated.timing(stepFivePartTwoOpacity, {
+            toValue: 0,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+        ]),
+      ])
+    );
+
+    animation.start();
+
+    return () => {
+      animation.stop();
+      stepFivePartOneOpacity.setValue(1);
+      stepFivePartTwoOpacity.setValue(0);
+    };
+  }, [flowStage, stepFivePartOneOpacity, stepFivePartTwoOpacity]);
+
+  useEffect(() => {
+    if (flowStage !== "step4Checking") {
+      stepSixPartOneOpacity.setValue(1);
+      stepSixPartTwoOpacity.setValue(0);
+      return;
+    }
+
+    const fadeDurationMs = 1500;
+    const fadeEasing = Easing.inOut(Easing.quad);
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(stepSixPartOneOpacity, {
+            toValue: 0,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+          Animated.timing(stepSixPartTwoOpacity, {
+            toValue: 1,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.parallel([
+          Animated.timing(stepSixPartOneOpacity, {
+            toValue: 1,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+          Animated.timing(stepSixPartTwoOpacity, {
+            toValue: 0,
+            duration: fadeDurationMs,
+            easing: fadeEasing,
+            useNativeDriver: true,
+          }),
+        ]),
+      ])
+    );
+
+    animation.start();
+
+    return () => {
+      animation.stop();
+      stepSixPartOneOpacity.setValue(1);
+      stepSixPartTwoOpacity.setValue(0);
+    };
+  }, [flowStage, stepSixPartOneOpacity, stepSixPartTwoOpacity]);
+
+  useEffect(() => {
+    if (flowStage !== "step2") {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      setFlowStage((currentStage) => (currentStage === "step2" ? "step3" : currentStage));
+    }, 15000);
+
+    return () => clearTimeout(timeoutId);
+  }, [flowStage]);
+
+  useEffect(() => {
+    if (flowStage !== "step3") {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      setFlowStage((currentStage) =>
+        currentStage === "step3" ? "step3Docking" : currentStage
+      );
+    }, 15000);
+
+    return () => clearTimeout(timeoutId);
+  }, [flowStage]);
 
   useEffect(() => {
     if (!isActiveFlowStage(flowStage)) {
@@ -254,12 +587,10 @@ export default function ReplaceMedicationScreen() {
             return;
           }
 
-          if (flowStage === "step2" && doesMatchReplacementStep2ToStep3Signal(hex)) {
-            await moveTo("step3");
-            return;
-          }
-
-          if (flowStage === "step3" && doesMatchReplacementStep3ToStep4CheckingSignal(hex)) {
+          if (
+            (flowStage === "step2" || flowStage === "step3" || flowStage === "step3Docking") &&
+            doesMatchReplacementStep3ToStep4CheckingSignal(hex)
+          ) {
             await moveTo("step4Checking");
             return;
           }
@@ -313,14 +644,6 @@ export default function ReplaceMedicationScreen() {
 
   const timerLabel = formatTimer(remainingSeconds);
   const isLastMinute = remainingSeconds <= 60;
-  const attachOpacity = animationPhase.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 0.38],
-  });
-  const assembleOpacity = animationPhase.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.18, 0.92],
-  });
 
   const activeStageTitle = useMemo(() => {
     switch (flowStage) {
@@ -333,6 +656,8 @@ export default function ReplaceMedicationScreen() {
         return "Remove the ring from the\neye-drop bottle";
       case "step3":
         return "Attaching the Ring to\nnew Bottle";
+      case "step3Docking":
+        return "Place the assembled Ring\nand bottle onto the Dock";
       default:
         return "";
     }
@@ -353,9 +678,10 @@ export default function ReplaceMedicationScreen() {
       case "step2":
         return (
           <Text style={styles.helpText}>
-            Hold the bottle securely with one hand and <Text style={styles.helpTextBold}>pull{"\n"}the Ring upward</Text>
+            Hold the bottle securely with one hand and{" "}
+            <Text style={styles.helpTextBold}>pull the Ring upward</Text> toward the top of the
+            bottle with the other hand.
             {"\n"}
-            toward the top of the bottle with the other hand.
           </Text>
         );
       case "step3":
@@ -367,6 +693,12 @@ export default function ReplaceMedicationScreen() {
             securely onto the neck portion of the bottle.
           </Text>
         );
+      case "step3Docking":
+        return (
+          <Text style={styles.helpText}>
+            If the Ring sits flush and makes full contact with{"\n"}the Dock, the connection is secure
+          </Text>
+        );
       default:
         return null;
     }
@@ -374,25 +706,106 @@ export default function ReplaceMedicationScreen() {
 
   function renderActiveFlowImage() {
     if (flowStage === "step1") {
-      return <Image source={REMOVE_BOTTLE_IMAGE} style={styles.stepImage} resizeMode="cover" />;
+      return (
+        <>
+          <Animated.Image
+            source={BASELINE_STEP1_PART1_IMAGE}
+            style={[styles.stepImageFrame, { opacity: stepOnePartOneOpacity }]}
+            resizeMode="cover"
+          />
+          <Animated.Image
+            source={BASELINE_STEP1_PART2_IMAGE}
+            style={[styles.stepImageFrame, { opacity: stepOnePartTwoOpacity }]}
+            resizeMode="cover"
+          />
+        </>
+      );
     }
     if (flowStage === "checking1") {
-      return <Image source={CHECK_DOCK_IMAGE} style={styles.stepImage} resizeMode="cover" />;
+      return (
+        <>
+          <Animated.Image
+            source={BASELINE_STEP2_PART1_IMAGE}
+            style={[styles.stepImageFrame, { opacity: stepTwoPartOneOpacity }]}
+            resizeMode="cover"
+          />
+          <Animated.Image
+            source={BASELINE_STEP2_PART2_IMAGE}
+            style={[styles.stepImageFrame, { opacity: stepTwoPartTwoOpacity }]}
+            resizeMode="cover"
+          />
+          <Animated.Image
+            source={BASELINE_STEP2_PART3_IMAGE}
+            style={[styles.stepImageFrame, { opacity: stepTwoPartThreeOpacity }]}
+            resizeMode="cover"
+          />
+          <Animated.Image
+            source={BASELINE_STEP2_PART4_IMAGE}
+            style={[styles.stepImageFrame, { opacity: stepTwoPartFourOpacity }]}
+            resizeMode="cover"
+          />
+        </>
+      );
     }
     if (flowStage === "step2") {
-      return <Image source={REMOVE_RING_IMAGE} style={styles.stepImage} resizeMode="cover" />;
+      return (
+        <>
+          <Animated.Image
+            source={BASELINE_STEP3_PART1_IMAGE}
+            style={[styles.stepImageFrame, { opacity: stepThreePartOneOpacity }]}
+            resizeMode="cover"
+          />
+          <Animated.Image
+            source={BASELINE_STEP3_PART2_IMAGE}
+            style={[styles.stepImageFrame, { opacity: stepThreePartTwoOpacity }]}
+            resizeMode="cover"
+          />
+        </>
+      );
     }
     if (flowStage === "step3") {
       return (
         <>
           <Animated.Image
-            source={ATTACH_NEW_BOTTLE_IMAGE}
-            style={[styles.stepImageFrame, { opacity: attachOpacity }]}
+            source={BASELINE_STEP4_PART1_IMAGE}
+            style={[styles.stepImageFrame, { opacity: stepFourPartOneOpacity }]}
             resizeMode="cover"
           />
           <Animated.Image
-            source={ASSEMBLE_RING_IMAGE}
-            style={[styles.stepImageFrame, { opacity: assembleOpacity }]}
+            source={BASELINE_STEP4_PART2_IMAGE}
+            style={[styles.stepImageFrame, { opacity: stepFourPartTwoOpacity }]}
+            resizeMode="cover"
+          />
+        </>
+      );
+    }
+    if (flowStage === "step3Docking") {
+      return (
+        <>
+          <Animated.Image
+            source={BASELINE_STEP5_PART1_IMAGE}
+            style={[styles.stepImageFrame, { opacity: stepFivePartOneOpacity }]}
+            resizeMode="cover"
+          />
+          <Animated.Image
+            source={BASELINE_STEP5_PART2_IMAGE}
+            style={[styles.stepImageFrame, { opacity: stepFivePartTwoOpacity }]}
+            resizeMode="cover"
+          />
+        </>
+      );
+    }
+    if (flowStage === "step4Checking") {
+      return (
+        <>
+          <Animated.Image
+            source={BASELINE_STEP6_PART1_IMAGE}
+            style={[styles.stepImageFrame, { opacity: stepSixPartOneOpacity }]}
+            resizeMode="cover"
+          />
+          <Animated.Image
+            source={BASELINE_STEP6_PART2_IMAGE}
+            style={[styles.stepImageFrame, { opacity: stepSixPartTwoOpacity }]}
             resizeMode="cover"
           />
         </>
@@ -521,7 +934,9 @@ export default function ReplaceMedicationScreen() {
             <View style={[styles.progressFill, { width: "100%", backgroundColor: "#65B77E" }]} />
           </View>
 
-          <Text style={styles.title}>Your new bottle has been{"\n"}installed and verified</Text>
+          <Text style={[styles.title, styles.successTitle]}>
+            Your new bottle has been{"\n"}installed and verified
+          </Text>
 
           <View style={styles.imagePanel}>
             <Image source={INSTALLED_BOTTLE_IMAGE} style={styles.stepImage} resizeMode="cover" />
@@ -535,7 +950,7 @@ export default function ReplaceMedicationScreen() {
           <VButton
             label="Return to Dashboard"
             onPress={() => router.back()}
-            style={styles.confirmButton}
+            style={[styles.confirmButton, styles.successReturnButton]}
           />
         </View>
     );
@@ -568,7 +983,7 @@ export default function ReplaceMedicationScreen() {
             <View style={[styles.progressFill, { width: `${Math.min(progress, 100)}%`, backgroundColor: "#EF5A5A" }]} />
           </View>
 
-          <Text style={styles.title}>{title}</Text>
+          <Text style={[styles.title, styles.errorTitle]}>{title}</Text>
           <Text style={styles.errorMessage}>{message}</Text>
           {(errorState?.unitHex || errorState?.reasonHex) ? (
             <Text style={styles.codeText}>{`Unit ${errorState?.unitHex ?? "----"} | Reason ${errorState?.reasonHex ?? "----"}`}</Text>
@@ -581,7 +996,7 @@ export default function ReplaceMedicationScreen() {
           <VButton
             label="Start again"
             onPress={() => resetToIntro(true)}
-            style={styles.confirmButton}
+            style={[styles.confirmButton, styles.errorActionButton]}
           />
           <VButton
             label="Help"
@@ -601,7 +1016,7 @@ export default function ReplaceMedicationScreen() {
             }}
             loading={isHelpLoading}
             disabled={isHelpLoading}
-            style={styles.secondaryButton}
+            style={[styles.secondaryButton, styles.errorActionButton]}
             labelStyle={styles.secondaryLabel}
           />
         </View>
@@ -609,6 +1024,8 @@ export default function ReplaceMedicationScreen() {
   }
 
   const stageMeta = getStageMeta(flowStage);
+  const isCheckingDockStage = flowStage === "checking1";
+  const totalSteps = isCheckingDockStage ? 2 : 4;
 
   return renderModalShell(
     <View style={styles.container}>
@@ -622,17 +1039,34 @@ export default function ReplaceMedicationScreen() {
         </View>
 
         <View style={styles.progressHeader}>
-          <Text style={styles.progressLeft}>{`Step ${stageMeta.step} of 4`}</Text>
+          <Text style={styles.progressLeft}>{`Step ${stageMeta.step} of ${totalSteps}`}</Text>
           <Text style={styles.progressRight}>{`${stageMeta.progress}%`}</Text>
         </View>
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${stageMeta.progress}%` }]} />
         </View>
 
-        <Text style={styles.title}>{activeStageTitle}</Text>
+        <Text
+          style={[
+            styles.title,
+            flowStage === "step1" ? styles.step1Title : null,
+            isCheckingDockStage ? styles.checkingTitle : null,
+            flowStage === "step2" ? styles.step2Title : null,
+            flowStage === "step3" || flowStage === "step3Docking" ? styles.step3Title : null,
+            flowStage === "step4Checking" ? styles.step4CheckingTitle : null,
+          ]}
+        >
+          {activeStageTitle}
+        </Text>
 
         {(flowStage === "checking1" || flowStage === "step4Checking") ? (
-          <View style={styles.connectingRow}>
+          <View
+            style={[
+              styles.connectingRow,
+              isCheckingDockStage ? styles.checkingConnectingRowBelowTitle : null,
+              flowStage === "step4Checking" ? styles.step4CheckingConnectingRow : null,
+            ]}
+          >
             <ActivityIndicator size="small" color="#8A98A7" />
             <Text style={styles.connectingText}>Connecting to dock</Text>
           </View>
@@ -753,9 +1187,43 @@ const styles = StyleSheet.create({
     // marginBottom: 24,
     // textAlign: "center",
     color: "#2D3745",
-    fontSize: 24,
+    fontSize: 26,
     lineHeight: 30,
     fontWeight: "700",
+    marginVertical: 16,
+  },
+  step1Title: {
+    textAlign: "center",
+    marginVertical: 26,
+  },
+  checkingTitle: {
+    textAlign: "center",
+    fontSize: 26,
+    marginVertical: 26,
+  },
+  step2Title: {
+    textAlign: "center",
+    marginVertical: 26,
+  },
+  step3Title: {
+    textAlign: "center",
+    marginVertical: 26,
+  },
+  step4CheckingTitle: {
+    textAlign: "center",
+    fontSize: 26,
+    marginTop: 16,
+    marginBottom: 10,
+  },
+  successTitle: {
+    textAlign: "center",
+    fontSize: 26,
+    marginVertical: 26,
+  },
+  errorTitle: {
+    textAlign: "center",
+    fontSize: 26,
+    marginVertical: 26,
   },
   subtitle: {
     color: "#4D5A69",
@@ -824,6 +1292,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
+  checkingConnectingRowBelowTitle: {
+    marginBottom: 26,
+    marginTop: -12,
+    marginRight: 8
+  },
+  step4CheckingConnectingRow: {
+    marginTop: 0,
+    marginBottom: 16,
+  },
   connectingText: {
     color: "#718096",
     fontSize: 16,
@@ -887,6 +1364,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#286B78",
     borderColor: "#286B78",
     borderRadius: 28,
+  },
+  successReturnButton: {
+    marginTop: 24,
+    alignSelf: "center",
+  },
+  errorActionButton: {
+    alignSelf: "center",
   },
   errorMessage: {
     marginTop: 8,

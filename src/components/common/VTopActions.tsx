@@ -191,4 +191,9 @@ const styles = StyleSheet.create({
     fontSize: 42,
     fontWeight: "700",
   },
+  patientIdText: {
+    color: "#F4F5F6",
+    fontSize: 17,
+    fontWeight: "500",
+  }
 });

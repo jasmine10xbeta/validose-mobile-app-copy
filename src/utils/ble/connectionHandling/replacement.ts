@@ -22,6 +22,7 @@ type ReplacementStageSignal =
   | "checking1"
   | "step2"
   | "step3"
+  | "step3Docking"
   | "step4Checking"
   | "success"
   | "error";
@@ -232,8 +233,9 @@ function mapBaseliningStateToSignal(currentState: number): string | null {
   if (currentState <= 0) return toReplacementStageSignal("step1");
   if (currentState === 1) return toReplacementStageSignal("checking1");
   if (currentState === 2) return toReplacementStageSignal("step2");
-  if (currentState === 3) return toReplacementStageSignal("step3");
-  if (currentState === 4 || currentState === 5) return toReplacementStageSignal("step4Checking");
+  if (currentState === 3 || currentState === 4 || currentState === 5) {
+    return toReplacementStageSignal("step4Checking");
+  }
   if (currentState === 6) return toReplacementStageSignal("success");
   if (currentState >= 7) return toReplacementStageSignal("error");
   return null;
@@ -283,12 +285,12 @@ function decodeReplacementFlowFeedbackPacket(packet: MpPacketPayload): {
 }
 
 function maybeAutoFinalizeBaseliningForReplacement(currentState: number): void {
-  if (currentState <= 3 || currentState >= 6) {
+  if (currentState <= 2 || currentState >= 6) {
     resetAutoFinalizeState();
     return;
   }
 
-  if (currentState !== 4 && currentState !== 5) {
+  if (currentState !== 3 && currentState !== 4 && currentState !== 5) {
     return;
   }
 

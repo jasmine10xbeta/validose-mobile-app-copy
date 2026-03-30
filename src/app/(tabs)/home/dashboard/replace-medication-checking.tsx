@@ -253,8 +253,7 @@ const styles = StyleSheet.create({
     marginTop: 56,
     textAlign: "center",
     color: "#2D3745",
-    fontSize: 40 / 2,
-    lineHeight: 48 / 2,
+    fontSize: 26,
     fontWeight: "700",
   },
   connectingRow: {

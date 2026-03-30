@@ -23,7 +23,6 @@ import { showToast, toastConfig } from "@/components/common/VToast";
 import { validoseWhite } from "@/constants/colors";
 import { useAuth, AuthenticationProvider } from "@/providers/auth";
 import { LogProvider } from "@/providers/log";
-import useDevStore from "@/store/dev";
 import useDeviceStore from "@/store/device";
 import { AllowedPaths } from "@/types/navigation";
 import { connectAndSetupDevice } from "@/utils/ble";
@@ -65,15 +64,10 @@ function AppInitializer({
 
     let isCancelled = false;
 
-    const runBackgroundBootstrap = async (
-      devices: any[],
-      isMockMode: boolean
-    ) => {
+    const runBackgroundBootstrap = async (devices: any[]) => {
       try {
         await connectToAllDevices(devices);
-        if (!isMockMode) {
-          await refreshExpiringSchedules();
-        }
+        await refreshExpiringSchedules();
       } catch (error) {
         if (!isCancelled) {
           console.error("Background app bootstrap failed:", error);
@@ -81,34 +75,47 @@ function AppInitializer({
       }
     };
 
-    try {
-      const isMockMode = useDevStore.getState().isMockBleModeEnabled();
+    const initializeApp = async () => {
+      try {
+        // removeAllDevices();                              // UNCOMMENT FOR DEBUGGING AUTH
+        // signOut();                                       // UNCOMMENT FOR DEBUGGING AUTH
 
-      // removeAllDevices();                              // UNCOMMENT FOR DEBUGGING AUTH
-      // signOut();                                       // UNCOMMENT FOR DEBUGGING AUTH
+        // Return to auth screen if user is not signed in
+        if (!user?.access_token) {
+          if (!isCancelled) {
+            redirectTo("/home/auth");
+          }
+          return;
+        }
 
-      // Return to auth screen if user is not signed in
-      if (!user?.access_token && !isMockMode) {
-        redirectTo("/home/auth");
-        return;
+        // Return to pairing screen if no devices are stored
+        const storedDevices = useDeviceStore.getState().devices;
+
+        if (!hasStoredDevices(storedDevices)) {
+          if (!isCancelled) {
+            redirectTo("/home/pairing");
+          }
+          return;
+        }
+
+        if (!isCancelled) {
+          redirectTo("/home/pairing");
+          void runBackgroundBootstrap(storedDevices);
+        }
+      } catch (e) {
+        if (!isCancelled) {
+          console.error("App initialization failed:", e);
+          showToast("error", "App initialization failed", `${e}`);
+          redirectTo("/home/auth");
+        }
+      } finally {
+        if (!isCancelled) {
+          onReady();
+        }
       }
+    };
 
-      // Return to pairing screen if no devices are stored
-      const storedDevices = useDeviceStore.getState().devices;
-      if (!hasStoredDevices(storedDevices)) {
-        redirectTo("/home/pairing");
-        return;
-      }
-
-      redirectTo(isMockMode ? "/home/dashboard" : "/home/pairing");
-      void runBackgroundBootstrap(storedDevices, isMockMode);
-    } catch (e) {
-      console.error("App initialization failed:", e);
-      showToast("error", "App initialization failed", `${e}`);
-      redirectTo("/home/auth");
-    } finally {
-      onReady();
-    }
+    void initializeApp();
 
     return () => {
       isCancelled = true;
