@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.tenxbeta.validose",
-      "buildNumber": "47",
+      "buildNumber": "48",
       "infoPlist": {
         "NSCameraUsageDescription": "Validose needs access to your camera for QRCode"
       },
@@ -33,7 +33,7 @@
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ],
-      "versionCode": 47,
+      "versionCode": 48,
       "package": "com.tenxbeta.validose"
     },
     "web": {
