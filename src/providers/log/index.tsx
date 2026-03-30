@@ -63,14 +63,16 @@ function scheduleEmit() {
 function appendLog(args: unknown[]) {
   const message = sanitizeLogMessage(args.map((arg) => toLogString(arg)).join(" "));
 
-  logBuffer.push({
+  const nextEntry: LogEntry = {
     message,
     timestamp: formatStamp(),
-  });
+  };
 
-  if (logBuffer.length > MAX_LOG_ENTRIES) {
-    logBuffer = logBuffer.slice(logBuffer.length - MAX_LOG_ENTRIES);
-  }
+  const nextBuffer = [...logBuffer, nextEntry];
+  logBuffer =
+    nextBuffer.length > MAX_LOG_ENTRIES
+      ? nextBuffer.slice(nextBuffer.length - MAX_LOG_ENTRIES)
+      : nextBuffer;
 
   scheduleEmit();
 }

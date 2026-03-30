@@ -34,9 +34,6 @@ type DecoratedLogEntry = BleDebugLogEntry & {
   connectBottom: boolean;
 };
 const BUILD_INFO_BADGE_CLEARANCE_PX = 72;
-// const SHOW_ONLY_DOSE_EVENT_PPI = true;
-const SHOW_ONLY_DOSE_EVENT_PPI = false; // Uncomment and disable the line above to render all PPI types.
-const DOSE_EVENT_PPI_TAG = `PPI ${PpiId[PpiId.AD_DOSE_EVENT_REPORT]}`;
 
 function stripLeadingLogTags(message: string): string {
   if (!message) return "";
@@ -296,14 +293,10 @@ export default function BleDebugLogsScreen() {
   }, []);
 
   const orderedLogs = useMemo(() => [...logs].reverse(), [logs]);
-  const visibleLogs = useMemo(
-    () => orderedLogs.filter((entry) => !entry.message.toLowerCase().includes("firmware")),
-    [orderedLogs]
-  );
 
   const decoratedLogs = useMemo<DecoratedLogEntry[]>(
     () =>
-      visibleLogs.map((entry) => {
+      orderedLogs.map((entry) => {
         const { flowKey, flowLabel } = extractFlowInfo(entry.message);
         const { ppiTag, typeTag } = extractPpiTypeTags(entry.message);
         return {
@@ -319,21 +312,11 @@ export default function BleDebugLogsScreen() {
           connectBottom: false,
         };
       }),
-    [visibleLogs]
+    [orderedLogs]
   );
 
-  const ppiFilteredLogs = useMemo<DecoratedLogEntry[]>(() => {
-    if (!SHOW_ONLY_DOSE_EVENT_PPI) {
-      return decoratedLogs;
-    }
-
-    return decoratedLogs.filter(
-      (entry) => entry.ppiTag === null || entry.ppiTag === DOSE_EVENT_PPI_TAG
-    );
-  }, [decoratedLogs]);
-
   const formattedVisibleLogs = useMemo<DecoratedLogEntry[]>(() => {
-    const mapped = ppiFilteredLogs;
+    const mapped = decoratedLogs;
 
     return mapped.map((entry, index, all) => {
       const previous = all[index - 1];
@@ -347,7 +330,7 @@ export default function BleDebugLogsScreen() {
         connectBottom,
       };
     });
-  }, [ppiFilteredLogs]);
+  }, [decoratedLogs]);
 
   async function onShare() {
     await exportLogsToFile(formattedVisibleLogs.map((entry) => entry.formattedMessage));
@@ -376,7 +359,11 @@ export default function BleDebugLogsScreen() {
         </Pressable>
         <Text style={styles.title}>BLE Logs</Text>
         <View style={styles.headerActions}>
-          <Pressable style={styles.headerButton} onPress={onShare} disabled={!visibleLogs.length}>
+          <Pressable
+            style={styles.headerButton}
+            onPress={onShare}
+            disabled={!formattedVisibleLogs.length}
+          >
             <Text style={styles.headerButtonText}>Share</Text>
           </Pressable>
           <Pressable

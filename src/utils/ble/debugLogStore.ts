@@ -21,11 +21,11 @@ export function addBleDebugLog(message: string) {
   };
 
   // Keep logs bounded with a rolling window to avoid UI/memory pressure.
-  bleDebugLogs.push(entry);
-  if (bleDebugLogs.length > MAX_LOG_ENTRIES) {
-    const overflow = bleDebugLogs.length - MAX_LOG_ENTRIES;
-    bleDebugLogs = bleDebugLogs.slice(overflow);
-  }
+  const nextLogs = [...bleDebugLogs, entry];
+  bleDebugLogs =
+    nextLogs.length > MAX_LOG_ENTRIES
+      ? nextLogs.slice(nextLogs.length - MAX_LOG_ENTRIES)
+      : nextLogs;
   emitUpdate();
 }
 
