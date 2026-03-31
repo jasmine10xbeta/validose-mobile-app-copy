@@ -39,8 +39,9 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
   const isNetworkConnected = useNetworkStore((s) => s.isConnected);
 
   const showReplaceMedicationTrigger = shouldShowReplaceMedicationMock();
-  const showReplaceMedicationBanner = true; // Temporary: always show "Tap to replace medication" banner.
-  const showErrorBanner = typeof item.error === "string" && item.error.trim().length > 0;
+  const showReplaceMedicationBanner = true;
+  const hasErrorState = typeof item.error === "string" && item.error.trim().length > 0;
+  const showErrorBanner = false && hasErrorState;
   const noConnection = item.connected !== true || !isNetworkConnected;
   const isDoseDueNow = useMemo(
     () => schedule.some((dose) => getDoseState(dose) === 1),
@@ -50,9 +51,9 @@ export function VMedicationItem({ item, schedule }: VMedicationItemProps) {
     showReplaceMedicationBanner &&
     showReplaceMedicationTrigger &&
     !noConnection &&
-    !showErrorBanner;
+    !hasErrorState;
 
-  const pipeColor = noConnection || showErrorBanner
+  const pipeColor = noConnection || hasErrorState
     ? "#F15050"
     : isDoseDueNow
       ? "#73D0D7"

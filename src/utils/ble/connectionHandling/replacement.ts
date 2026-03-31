@@ -31,6 +31,8 @@ type ReplacementStageSignal =
 const replacementFlowListeners = new Set<ReplacementFlowHexListener>();
 let replacementFlowRegisteredProtocol: ReturnType<typeof getMessageProtocolInstance> | null = null;
 const REPLACEMENT_STAGE_SIGNAL_PREFIX = "stage:";
+const REPLACEMENT_SEND_MAX_ATTEMPTS = 3;
+const REPLACEMENT_SEND_RETRY_DELAY_MS = 75;
 let hasSentValidateMedForActiveFlow = false;
 let hasSentDoseScheduleForActiveFlow = false;
 let isAutoFinalizeInProgressForActiveFlow = false;
@@ -112,50 +114,75 @@ async function sendPpiViaMessageProtocol(
     return false;
   }
 
-  const txReady = await ensureProtocolReadyForDataSend(
-    messageProtocol,
-    context
-  );
-  if (!txReady) {
-    bleLogWarn(`[Replacement] Message protocol TX not ready for ${context}.`);
-    return false;
-  }
-
-  const result = messageProtocol.send(
-    buildPpiPayload(ppi, type, payload)
-  );
-
   const decoded = decodePpiPayload(ppi, type as PpiType, payload).value;
-  bleLog("[MP][TX][Replacement]", {
-    context,
-    ppi,
-    ppiName: PpiId[ppi as PpiId] ?? `PPI_${ppi}`,
-    type,
-    typeName: PpiType[type as PpiType] ?? `TYPE_${type}`,
-    payloadHex: Buffer.from(payload).toString("hex"),
-    decoded,
-    sendResult: result,
-  });
+  for (let attempt = 1; attempt <= REPLACEMENT_SEND_MAX_ATTEMPTS; attempt += 1) {
+    const txReady = await ensureProtocolReadyForDataSend(
+      messageProtocol,
+      context
+    );
+    if (!txReady) {
+      if (attempt >= REPLACEMENT_SEND_MAX_ATTEMPTS) {
+        bleLogWarn(`[Replacement] Message protocol TX not ready for ${context}.`);
+        return false;
+      }
+      await new Promise((resolve) => setTimeout(resolve, REPLACEMENT_SEND_RETRY_DELAY_MS));
+      continue;
+    }
 
-  if (result !== MsgProtError.NONE) {
+    const result = messageProtocol.send(
+      buildPpiPayload(ppi, type, payload)
+    );
+
+    bleLog("[MP][TX][Replacement]", {
+      context,
+      ppi,
+      ppiName: PpiId[ppi as PpiId] ?? `PPI_${ppi}`,
+      type,
+      typeName: PpiType[type as PpiType] ?? `TYPE_${type}`,
+      payloadHex: Buffer.from(payload).toString("hex"),
+      decoded,
+      sendResult: result,
+      attempt,
+      maxAttempts: REPLACEMENT_SEND_MAX_ATTEMPTS,
+    });
+
+    if (result === MsgProtError.NONE) {
+      await messageProtocol.process();
+      const completed = await waitForTxSendable(messageProtocol);
+      if (!completed) {
+        bleLogWarn(`[Replacement] Message protocol TX did not complete for ${context}.`, {
+          ppi,
+          type,
+        });
+      }
+      // Consider queued send successful; completion timeout can be transient.
+      return true;
+    }
+
+    if (result === MsgProtError.BUSY && attempt < REPLACEMENT_SEND_MAX_ATTEMPTS) {
+      bleLogWarn(`[Replacement] Message protocol send busy for ${context}; retrying.`, {
+        ppi,
+        type,
+        result,
+        attempt,
+        maxAttempts: REPLACEMENT_SEND_MAX_ATTEMPTS,
+      });
+      await messageProtocol.process();
+      await new Promise((resolve) => setTimeout(resolve, REPLACEMENT_SEND_RETRY_DELAY_MS));
+      continue;
+    }
+
     bleLogWarn(`[Replacement] Message protocol send failed for ${context}.`, {
       ppi,
       type,
       result,
+      attempt,
+      maxAttempts: REPLACEMENT_SEND_MAX_ATTEMPTS,
     });
     return false;
   }
 
-  await messageProtocol.process();
-  const completed = await waitForTxSendable(messageProtocol);
-  if (!completed) {
-    bleLogWarn(`[Replacement] Message protocol TX did not complete for ${context}.`, {
-      ppi,
-      type,
-    });
-  }
-
-  return completed;
+  return false;
 }
 
 async function writeReplacementViaMessageProtocol(commandByte: number, label: string): Promise<boolean> {
@@ -234,9 +261,7 @@ function mapBaseliningStateToSignal(currentState: number): string | null {
   if (currentState <= 0) return toReplacementStageSignal("step1");
   if (currentState === 1) return toReplacementStageSignal("checking1");
   if (currentState === 2) return toReplacementStageSignal("step2");
-  if (currentState === 3) return toReplacementStageSignal("step3");
-  if (currentState === 4) return toReplacementStageSignal("step3Docking");
-  if (currentState === 5) return toReplacementStageSignal("step4Checking");
+  if (currentState >= 3 && currentState <= 5) return toReplacementStageSignal("step4Checking");
   if (currentState === 6) return toReplacementStageSignal("success");
   if (currentState >= 7) return toReplacementStageSignal("error");
   return null;
@@ -259,11 +284,11 @@ function decodeReplacementFlowFeedbackPacket(packet: MpPacketPayload): {
   decoded: Record<string, unknown>;
 } | null {
   const isBaseliningPacket =
-    packet.ppi === PpiId.AD_START_BASELINING ||
-    packet.ppi === PpiId.AD_BASELINING_FEEDBACK;
+    packet.ppi === PpiId.AD_BASELINING_FEEDBACK ||
+    (packet.ppi === PpiId.AD_START_BASELINING && packet.type === PpiType.PUSH);
   const isCalibrationPacket =
-    packet.ppi === PpiId.AD_START_CALIBRATION ||
-    packet.ppi === PpiId.AD_CALIBRATION_FEEDBACK;
+    packet.ppi === PpiId.AD_CALIBRATION_FEEDBACK ||
+    (packet.ppi === PpiId.AD_START_CALIBRATION && packet.type === PpiType.PUSH);
 
   if (!isBaseliningPacket && !isCalibrationPacket) {
     return null;
@@ -298,7 +323,7 @@ function maybeAutoFinalizeBaseliningForReplacement(currentState: number): void {
     return;
   }
 
-  if (currentState !== 3 && currentState !== 4 && currentState !== 5) {
+  if (currentState < 4 || currentState > 5) {
     return;
   }
 
@@ -306,13 +331,15 @@ function maybeAutoFinalizeBaseliningForReplacement(currentState: number): void {
     return;
   }
 
-  if (hasSentValidateMedForActiveFlow && hasSentDoseScheduleForActiveFlow) {
+  const shouldSendValidateMed = !hasSentValidateMedForActiveFlow;
+  const shouldSendDoseSchedule = !hasSentDoseScheduleForActiveFlow;
+  if (!shouldSendValidateMed && !shouldSendDoseSchedule) {
     return;
   }
 
   isAutoFinalizeInProgressForActiveFlow = true;
   void (async () => {
-    if (!hasSentValidateMedForActiveFlow) {
+    if (shouldSendValidateMed && !hasSentValidateMedForActiveFlow) {
       const validateSent = await writeValidateMedViaMessageProtocol(true);
       if (!validateSent) {
         bleLogWarn("[Replacement] Failed to auto-send Validate Med response.");
@@ -323,16 +350,18 @@ function maybeAutoFinalizeBaseliningForReplacement(currentState: number): void {
       bleLog("[Replacement] Auto-sent Validate Med OK for baselining flow.");
     }
 
-    if (!hasSentDoseScheduleForActiveFlow) {
-      const doseScheduleSent = await writeDoseSchedulePushAViaMessageProtocol();
-      if (!doseScheduleSent) {
-        bleLogWarn("[Replacement] Failed to auto-send Dose Schedule PUSH A after validation.");
-        return;
-      }
-
-      hasSentDoseScheduleForActiveFlow = true;
-      bleLog("[Replacement] Auto-sent Dose Schedule PUSH A for baselining flow.");
+    if (!shouldSendDoseSchedule || hasSentDoseScheduleForActiveFlow || !hasSentValidateMedForActiveFlow) {
+      return;
     }
+
+    const doseScheduleSent = await writeDoseSchedulePushAViaMessageProtocol();
+    if (!doseScheduleSent) {
+      bleLogWarn("[Replacement] Failed to auto-send Dose Schedule PUSH A after validation.");
+      return;
+    }
+
+    hasSentDoseScheduleForActiveFlow = true;
+    bleLog("[Replacement] Auto-sent Dose Schedule PUSH A for baselining flow.");
   })()
     .catch((error) => {
       bleLogWarn("[Replacement] Auto baselining finalize sequence failed.", error);

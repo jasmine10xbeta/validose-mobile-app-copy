@@ -106,6 +106,7 @@ export default function DashboardScreen() {
   const [inboxError, setInboxError] = useState<string | null>(null);
   const [supportRequests, setSupportRequests] = useState<SupportRequest[]>([]);
   const hasAccessToken = Boolean(user?.access_token);
+  const showDashboardLogsButton = true;
   const handleHelpPress = () => router.push("/home/led-info");
 
   useEffect(() => {
@@ -223,15 +224,17 @@ export default function DashboardScreen() {
         personDisabled={!hasAccessToken}
         rightAccessory={
           <View style={styles.topActionCluster}>
-            <TouchableOpacity
-              style={styles.topActionLogsButton}
-              onPress={() => router.push("/logs")}
-              accessibilityRole="button"
-              accessibilityLabel="Open logs"
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Text style={styles.topActionLogsButtonText}>Logs</Text>
-            </TouchableOpacity>
+            {showDashboardLogsButton ? (
+              <TouchableOpacity
+                style={styles.topActionLogsButton}
+                onPress={() => router.push("/logs")}
+                accessibilityRole="button"
+                accessibilityLabel="Open logs"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.topActionLogsButtonText}>Logs</Text>
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity
               style={styles.topActionNotificationButton}
               onPress={handleOpenInbox}

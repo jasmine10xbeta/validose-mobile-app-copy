@@ -34,32 +34,6 @@ type DecoratedLogEntry = BleDebugLogEntry & {
   connectBottom: boolean;
 };
 const BUILD_INFO_BADGE_CLEARANCE_PX = 72;
-const ALLOWED_PPI_TOKENS = [
-  "AD_DOSE_EVENT_REPORT",
-  "AD_START_CALIBRATION",
-  "AD_CALIBRATION_DATA",
-  "AD_CALIBRATION_WEIGHT_PRESENT",
-  "AD_CALIBRATION_FEEDBACK",
-  "AD_DEVELOPMENT_CMD",
-  "AD_CAP_DETECTION_CONFIG",
-  "AD_CAP_DETECTION_SAMPLE_RATE",
-  "AD_CAP_DETECTION_STATUS",
-];
-const ALLOWED_MESSAGE_TOKENS = [
-  "[PPI][INGEST]",
-  "/API/MOBILE/HARDWARE/INGEST",
-  "DOSE EVENT",
-  "DEVELOPMENT_CMD",
-  "START_CALIBRATION_RQ",
-  "STOP_CALIBRATION_RQ",
-  "CALIBRATION_DATA_RQ",
-  "CALIBRATION_WEIGHT_PRESENT_PUSH_TRUE",
-  "CALIBRATION_WEIGHT_PRESENT_PUSH_FALSE",
-  "START_CAP_CALIBRATION_INTERVAL_PUSH",
-  "SET_CAP_DETECTION_CONFIG_PUSH",
-  "CAP_DETECTION",
-  "CALIBRATION",
-];
 
 function stripLeadingLogTags(message: string): string {
   if (!message) return "";
@@ -297,51 +271,6 @@ function getPacketTagStyle(packet: PacketTag) {
   }
 }
 
-type FlowIdentity = {
-  sessionId: string | null;
-  counters: string[];
-};
-
-function extractFlowIdentity(rawMessage: string): FlowIdentity {
-  const sessionMatch =
-    rawMessage.match(/"sessionId"\s*:\s*(\d+)/) ??
-    rawMessage.match(/"session_id"\s*:\s*(\d+)/);
-  const sessionId = sessionMatch?.[1] ?? null;
-
-  const counterRegex =
-    /"(?:pktCounter|pkt_counter|pendingCounter|receivedCounter|pending_counter|received_counter)"\s*:\s*(\d+)/g;
-  const counters: string[] = [];
-  let counterMatch: RegExpExecArray | null;
-  while ((counterMatch = counterRegex.exec(rawMessage)) !== null) {
-    const counter = counterMatch[1];
-    if (counter && !counters.includes(counter)) {
-      counters.push(counter);
-    }
-  }
-
-  return { sessionId, counters };
-}
-
-function isAllowedPrimaryLog(entry: DecoratedLogEntry): boolean {
-  const rawMessageUpper = entry.message.toUpperCase();
-  const ppiTagUpper = (entry.ppiTag ?? "").toUpperCase();
-
-  if (ALLOWED_PPI_TOKENS.some((token) => ppiTagUpper.includes(token))) {
-    return true;
-  }
-
-  return ALLOWED_MESSAGE_TOKENS.some((token) => rawMessageUpper.includes(token));
-}
-
-function isRelatedProtocolLog(entry: DecoratedLogEntry): boolean {
-  if (entry.packet === "ACK" || entry.packet === "NAK" || entry.packet === "SYNC" || entry.packet === "DATA") {
-    return true;
-  }
-
-  const rawMessageUpper = entry.message.toUpperCase();
-  return rawMessageUpper.includes("[PPI][MP]") || rawMessageUpper.includes("[MP]");
-}
-
 export default function BleDebugLogsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -387,61 +316,7 @@ export default function BleDebugLogsScreen() {
   );
 
   const formattedVisibleLogs = useMemo<DecoratedLogEntry[]>(() => {
-    const primaryLogs = decoratedLogs.filter(isAllowedPrimaryLog);
-    const allowedFlowKeys = new Set(primaryLogs.map((entry) => entry.flowKey).filter(Boolean));
-    const allowedSessions = new Set<string>();
-    const allowedCountersBySession = new Map<string, Set<string>>();
-    const allowedCounters = new Set<string>();
-
-    primaryLogs.forEach((entry) => {
-      const identity = extractFlowIdentity(entry.message);
-      identity.counters.forEach((counter) => {
-        allowedCounters.add(counter);
-      });
-
-      if (!identity.sessionId) {
-        return;
-      }
-
-      allowedSessions.add(identity.sessionId);
-      if (!allowedCountersBySession.has(identity.sessionId)) {
-        allowedCountersBySession.set(identity.sessionId, new Set<string>());
-      }
-      const countersForSession = allowedCountersBySession.get(identity.sessionId);
-      identity.counters.forEach((counter) => {
-        countersForSession?.add(counter);
-      });
-    });
-
-    const mapped = decoratedLogs.filter((entry) => {
-      if (isAllowedPrimaryLog(entry)) {
-        return true;
-      }
-
-      if (!isRelatedProtocolLog(entry)) {
-        return false;
-      }
-
-      if (entry.flowKey && allowedFlowKeys.has(entry.flowKey)) {
-        return true;
-      }
-
-      const identity = extractFlowIdentity(entry.message);
-
-      if (identity.sessionId && allowedSessions.has(identity.sessionId)) {
-        const countersForSession = allowedCountersBySession.get(identity.sessionId);
-        if (!identity.counters.length) {
-          return true;
-        }
-        if (countersForSession && identity.counters.some((counter) => countersForSession.has(counter))) {
-          return true;
-        }
-      }
-
-      return identity.counters.some((counter) => allowedCounters.has(counter));
-    });
-
-    return mapped.map((entry, index, all) => {
+    return decoratedLogs.map((entry, index, all) => {
       const previous = all[index - 1];
       const next = all[index + 1];
       const connectTop = Boolean(entry.flowKey && previous?.flowKey === entry.flowKey);
@@ -516,7 +391,7 @@ export default function BleDebugLogsScreen() {
       <ScrollView contentContainerStyle={[styles.logList, { paddingBottom: logListBottomPadding }]}>
         {!formattedVisibleLogs.length ? (
           <Text style={styles.emptyText}>
-            {logs.length ? "No matching allowed-PPI logs yet." : "No logs yet."}
+            No logs yet.
           </Text>
         ) : (
           formattedVisibleLogs.map((entry) => (

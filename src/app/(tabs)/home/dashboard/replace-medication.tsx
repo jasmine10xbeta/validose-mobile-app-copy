@@ -76,7 +76,7 @@ const ACTIVE_FLOW_STAGES: ReplacementStage[] = [
   "step4Checking",
 ];
 const REPLACEMENT_STAGE_SIGNAL_PREFIX = "stage:";
-const REPLACEMENT_FALLBACK_STAGE_ADVANCE_MS = 15000;
+const REPLACEMENT_FALLBACK_STAGE_ADVANCE_MS = 5000;
 const FLOW_STAGE_ORDER: Record<ReplacementStage, number> = {
   intro: 0,
   step1: 1,
@@ -518,22 +518,6 @@ export default function ReplaceMedicationScreen() {
     const timeoutId = setTimeout(() => {
       setFlowStage((currentStage) => {
         const nextStage = currentStage === "step3" ? "step3Docking" : currentStage;
-        flowStageRef.current = nextStage;
-        return nextStage;
-      });
-    }, REPLACEMENT_FALLBACK_STAGE_ADVANCE_MS);
-
-    return () => clearTimeout(timeoutId);
-  }, [flowStage]);
-
-  useEffect(() => {
-    if (flowStage !== "step3Docking") {
-      return;
-    }
-
-    const timeoutId = setTimeout(() => {
-      setFlowStage((currentStage) => {
-        const nextStage = currentStage === "step3Docking" ? "step4Checking" : currentStage;
         flowStageRef.current = nextStage;
         return nextStage;
       });
