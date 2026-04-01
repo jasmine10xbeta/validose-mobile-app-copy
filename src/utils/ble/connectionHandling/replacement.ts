@@ -317,7 +317,7 @@ function decodeReplacementFlowFeedbackPacket(packet: MpPacketPayload): {
   return null;
 }
 
-function maybeAutoFinalizeBaseliningForReplacement(currentState: number): void {
+function tryAutoFinalizeBaseliningInReplacementFlow(currentState: number): void {
   if (currentState <= 2 || currentState >= 6) {
     resetAutoFinalizeState();
     return;
@@ -387,7 +387,7 @@ function handleReplacementFlowPacket(packet: MpPacketPayload): void {
     });
 
     if (feedback.flow === "BASELINING") {
-      maybeAutoFinalizeBaseliningForReplacement(feedback.currentState);
+      tryAutoFinalizeBaseliningInReplacementFlow(feedback.currentState);
     }
 
     const mappedSignal =
