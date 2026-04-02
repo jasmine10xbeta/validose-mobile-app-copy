@@ -20,7 +20,7 @@ import { VText } from "@/components/common/VText";
 import { showToast } from "@/components/common/VToast";
 import useDevStore from "@/store/dev";
 import useDeviceStore from "@/store/device";
-import { connectAndSetupDevice } from "@/utils/ble";
+import { connectAndSetupDeviceWithTimeout } from "@/utils/ble";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
 const SHEET_HEIGHT = SCREEN_HEIGHT * 0.9;
@@ -60,8 +60,10 @@ export function VManualLinkingSheet({
 
     setReconnectingDeviceId(deviceIdentifier);
     try {
-      const connected = await connectAndSetupDevice(deviceIdentifier);
-      if (connected.error) showToast("error", connected.error.toString());
+      const connected = await connectAndSetupDeviceWithTimeout(deviceIdentifier);
+      if (connected.status === "error") {
+        showToast("error", "Connection failed", String(connected.error));
+      }
     } catch (error) {
       showToast(
         "error",
@@ -112,8 +114,8 @@ export function VManualLinkingSheet({
       }
 
       enableMockBleMode();
-      const connected = await connectAndSetupDevice("VAL-OP DEMO");
-      if (connected?.error) {
+      const connected = await connectAndSetupDeviceWithTimeout("VAL-OP DEMO");
+      if (connected.status === "error") {
         showToast("error", "Connection failed", String(connected.error));
         return;
       }
@@ -125,9 +127,9 @@ export function VManualLinkingSheet({
     const isValid = await validateDevice(normalized);
     if (!isValid) return;
 
-    const connected = await connectAndSetupDevice(normalized);
-    if (connected?.error) {
-      showToast("error", connected?.error.toString());
+    const connected = await connectAndSetupDeviceWithTimeout(normalized);
+    if (connected.status === "error") {
+      showToast("error", "Connection failed", String(connected.error));
     }
   }
 

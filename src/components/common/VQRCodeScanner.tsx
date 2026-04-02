@@ -22,7 +22,7 @@ const SHEET_HEIGHT = SCREEN_HEIGHT * 0.90;
 
 interface VQRCodeScannerProps {
   facing?: CameraType;
-  onBarcodeScanned: (result: { data: string }) => void;
+  onBarcodeScanned: (result: { data: string }) => void | Promise<void>;
   onClose: () => void;
   variant?: "full-screen" | "overlay";
   headline?: string;
@@ -66,9 +66,13 @@ export function QRCodeScanner({
 
       setIsProcessing(true);
       Vibration.vibrate(5);
-      onBarcodeScanned(result);
+      Promise.resolve(onBarcodeScanned(result)).catch((error) => {
+        console.warn("[QRCodeScanner] Scan handler failed; closing scanner.", error);
+        setIsProcessing(false);
+        onClose();
+      });
     },
-    [isProcessing, onBarcodeScanned]
+    [isProcessing, onBarcodeScanned, onClose]
   );
 
   useEffect(() => {
@@ -475,7 +479,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    backgroundColor: "#3A3A3A",
     alignItems: "center",
     justifyContent: "center",
   },

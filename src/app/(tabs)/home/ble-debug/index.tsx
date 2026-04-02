@@ -6,9 +6,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
-  type Permission,
-  PermissionsAndroid,
-  Platform,
   ScrollView,
   View,
 } from "react-native";
@@ -47,6 +44,7 @@ import {
   isTxStatusSendable,
   validatePayloadLength,
 } from "@/utils/ble/messageProtocolPpi";
+import { hasAndroidBlePermissions } from "@/utils/permissions/androidRuntime";
 import {
   discoverServicesAndCharacteristics,
   disconnect,
@@ -572,67 +570,16 @@ export default function BleDebugScreen() {
   }
 
   async function ensureAndroidBlePermissions(context: string): Promise<boolean> {
-    if (Platform.OS !== "android") {
-      return true;
-    }
-
-    const androidApi =
-      typeof Platform.Version === "number"
-        ? Platform.Version
-        : Number.parseInt(String(Platform.Version), 10);
-
-    if (!Number.isFinite(androidApi)) {
-      return true;
-    }
-
-    const required: Permission[] = [];
-    if (androidApi >= 31) {
-      required.push(
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT
-      );
-    }
-    if (androidApi >= 23) {
-      required.push(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
-    }
-
-    const permissionsToCheck = Array.from(new Set(required));
-    if (!permissionsToCheck.length) {
-      return true;
-    }
-
     try {
-      const checkResults = await Promise.all(
-        permissionsToCheck.map(async (permission) => ({
-          permission,
-          granted: await PermissionsAndroid.check(permission),
-        }))
-      );
-
-      const missingPermissions = checkResults
-        .filter((entry) => !entry.granted)
-        .map((entry) => entry.permission);
-
-      if (!missingPermissions.length) {
-        return true;
-      }
-
-      const requestResult = await PermissionsAndroid.requestMultiple(missingPermissions);
-      const deniedPermissions = missingPermissions.filter(
-        (permission) => requestResult[permission] !== PermissionsAndroid.RESULTS.GRANTED
-      );
-
-      if (deniedPermissions.length) {
-        addLog(`[PERMISSION][ERR] Android BLE permission denied (${context}).`, {
-          deniedPermissions,
-          requestResult,
-        });
+      const granted = await hasAndroidBlePermissions();
+      if (!granted) {
+        addLog(`[PERMISSION][ERR] Android BLE permission missing (${context}).`);
         return false;
       }
 
       return true;
     } catch (error) {
-      addLog(`[PERMISSION][ERR] Failed to request Android BLE permissions (${context}).`, String(error));
+      addLog(`[PERMISSION][ERR] Failed to check Android BLE permissions (${context}).`, String(error));
       return false;
     }
   }

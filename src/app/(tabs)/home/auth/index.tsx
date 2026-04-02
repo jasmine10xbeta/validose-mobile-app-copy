@@ -1,12 +1,9 @@
-import { useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
-import { useState, useRef, type ReactNode } from "react";
+import { useEffect, useState, useRef, type ReactNode } from "react";
 import {
   StyleSheet,
   View,
   Image,
-  PermissionsAndroid,
-  Platform,
   Pressable,
   Text,
   type ImageSourcePropType,
@@ -22,6 +19,12 @@ import { useAuth } from "@/providers/auth";
 import { onboardWithCode, login } from "@/services/auth";
 import useDevStore from "@/store/dev";
 import { connectAndSetupDevice } from "@/utils/ble";
+import {
+  hasAndroidBlePermissions,
+  hasCameraPermission,
+  hasNotificationPermission,
+  requestOnboardingPermissions,
+} from "@/utils/permissions/androidRuntime";
 
 // Reusable UI block for login messages and button
 function LoginMessageBlock({
@@ -91,52 +94,89 @@ export default function LoginScreen() {
   const router = useRouter();
 
   const hasScannedRef = useRef(false);                      // Prevents duplicate scans
+  const hasRequestedPermissionsRef = useRef(false);
   const { user, isSignedOut, signIn } = useAuth();
   const { matchesBypassKey, enableMockBleMode } = useDevStore();
   const [showCamera, setShowCamera] = useState(false);
-  const [permission, requestPermission] = useCameraPermissions();
+  const [permissionsBootstrapping, setPermissionsBootstrapping] = useState(true);
   const hasAccessToken = Boolean(user?.access_token);
   const handleHelpPress = () => router.push("/home/led-info");
 
-  // Handles runtime permissions for Bluetooth on Android 12+
-  async function requestBluetoothPermissions(): Promise<boolean> {
-    if (Platform.OS !== "android" || Platform.Version < 31) {
-      return true; // Not required for iOS or older Android
-    }
+  useEffect(() => {
+    if (hasRequestedPermissionsRef.current) return;
+    hasRequestedPermissionsRef.current = true;
 
-    try {
-      const granted = await PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-      ]);
+    let isCancelled = false;
 
-      // Check if all requested permissions are granted
-      const allGranted = Object.values(granted).every(
-        (status) => status === PermissionsAndroid.RESULTS.GRANTED
+    const requestPermissionsOnLaunch = async () => {
+      const { cameraGranted, bluetoothGranted, notificationGranted } =
+        await requestOnboardingPermissions();
+      if (isCancelled) return;
+
+      if (!cameraGranted) {
+        showToast(
+          "error",
+          "Camera permission denied",
+          "Please allow camera permission from settings to continue.",
+        );
+      }
+      if (!bluetoothGranted) {
+        showToast(
+          "error",
+          "Bluetooth permission denied",
+          "Please allow Bluetooth permissions from settings to continue.",
+        );
+      }
+      if (!notificationGranted) {
+        showToast(
+          "error",
+          "Notification permission denied",
+          "Please allow notification permission from settings to continue.",
+        );
+      }
+
+      setPermissionsBootstrapping(false);
+    };
+
+    void requestPermissionsOnLaunch();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  async function canProceedWithOnboardingFlow(): Promise<boolean> {
+    const cameraGranted = await hasCameraPermission();
+    if (!cameraGranted) {
+      showToast(
+        "error",
+        "Camera permission denied",
+        "Please allow camera permission from settings to continue.",
       );
-
-      return allGranted;
-    } catch (err) {
-      console.log("Bluetooth permission error", err);
       return false;
     }
-  }
 
-  // UI state: show blank screen while checking permission
-  if (!permission) return <View />;
+    const bluetoothGranted = await hasAndroidBlePermissions();
+    if (!bluetoothGranted) {
+      showToast(
+        "error",
+        "Bluetooth permission denied",
+        "Please allow Bluetooth permissions from settings to continue.",
+      );
+      return false;
+    }
 
-  // UI state: prompt user to grant camera access
-  if (!permission.granted) {
-    return (
-      <LoginMessageBlock
-        message="We need your permission to show the camera"
-        buttonLabel="Grant permission"
-        onPress={requestPermission}
-        onPressHelp={handleHelpPress}
-        personDisabled={!hasAccessToken}
-      />
-    );
+    const notificationsGranted = await hasNotificationPermission();
+    if (!notificationsGranted) {
+      showToast(
+        "error",
+        "Notification permission denied",
+        "Please allow notification permission from settings to continue.",
+      );
+      return false;
+    }
+
+    return true;
   }
 
   // UI state: show reconnect prompt if user is signed out
@@ -167,16 +207,6 @@ export default function LoginScreen() {
 
       if (onboardingCode) {
         if (matchesBypassKey(onboardingCode)) {
-          const bluetoothGranted = await requestBluetoothPermissions();
-          if (!bluetoothGranted) {
-            showToast(
-              "error",
-              "Bluetooth permission denied",
-              "Cannot connect to a device without Bluetooth permissions."
-            );
-            return;
-          }
-
           enableMockBleMode();
           await signIn({
             access_token: "mock-access-token",
@@ -236,15 +266,13 @@ export default function LoginScreen() {
         buttonLabel="Scan QR code"
         onPressDebug={() => router.push("/home/ble-debug/console")}
         onPress={async () => {
-          const cameraPermission = permission.granted ? permission : await requestPermission();
-          if (!cameraPermission?.granted) {
-            showToast(
-              "error",
-              "Camera permission denied",
-              "Cannot proceed without camera."
-            );
+          if (permissionsBootstrapping) {
+            showToast("info", "Permissions required", "Please complete permission prompts first.");
             return;
           }
+
+          const hasAllPermissions = await canProceedWithOnboardingFlow();
+          if (!hasAllPermissions) return;
 
           setShowCamera(true);                              // Launch camera overlay
         }}

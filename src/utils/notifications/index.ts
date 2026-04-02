@@ -219,28 +219,14 @@ async function scheduleDoseNotifications(schedules: Schedule[]) {
 export const updateNotificationsForSchedules = async (
   schedules: Schedule[]
 ) => {
-  const { status, canAskAgain } = await Notifications.getPermissionsAsync();
+  const { status } = await Notifications.getPermissionsAsync();
 
   if (status === "granted") {
     await scheduleDoseNotifications(schedules);
     return;
   }
 
-  if (canAskAgain) {
-    Notifications.requestPermissionsAsync()
-      .then(async ({ status: newStatus }) => {
-        if (newStatus === "granted") {
-          try {
-            await scheduleDoseNotifications(schedules);
-          } catch (err) {
-            console.warn("[Notifications] Failed to schedule after permission granted", err);
-          }
-        }
-      })
-      .catch((err) => {
-        console.warn("[Notifications] Permission prompt failed", err);
-      });
-  }
+  console.warn("[Notifications] Permission not granted; skipping schedule update.");
 };
 
 /**

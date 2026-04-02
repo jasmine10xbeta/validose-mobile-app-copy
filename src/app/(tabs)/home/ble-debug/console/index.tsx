@@ -4,8 +4,6 @@ import { useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  type Permission,
-  PermissionsAndroid,
   Platform,
   Pressable,
   ScrollView,
@@ -16,8 +14,12 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { validoseAqua3, validoseDarkBlue, validoseGrey, validoseWhite } from "@/constants/colors";
-import { connectAndSetupDevice } from "@/utils/ble";
+import {
+  connectAndSetupDeviceWithTimeout,
+  DEFAULT_CONNECT_AND_SETUP_TIMEOUT_MS,
+} from "@/utils/ble";
 import { addBleDebugLog } from "@/utils/ble/debugLogStore";
+import { hasAndroidBlePermissions } from "@/utils/permissions/androidRuntime";
 import {
   getConnectedDevice,
   isDeviceConnected,
@@ -151,51 +153,16 @@ export default function BleDebugConsoleScreen() {
   const isBusy = useMemo(() => isScanning || Boolean(connectingKey), [isScanning, connectingKey]);
 
   const ensureAndroidBlePermissions = useCallback(async (context: string): Promise<boolean> => {
-    if (Platform.OS !== "android") return true;
-
-    const androidApi =
-      typeof Platform.Version === "number"
-        ? Platform.Version
-        : Number.parseInt(String(Platform.Version), 10);
-
-    if (!Number.isFinite(androidApi)) return true;
-
-    const required: Permission[] = [];
-    if (androidApi >= 31) {
-      required.push(
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT
-      );
-    }
-    if (androidApi >= 23) {
-      required.push(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
-    }
-
-    const missing: Permission[] = [];
-    for (const permission of Array.from(new Set(required))) {
-      const granted = await PermissionsAndroid.check(permission);
-      if (!granted) missing.push(permission);
-    }
-
-    if (!missing.length) return true;
-
     try {
-      const result = await PermissionsAndroid.requestMultiple(missing);
-      const denied = missing.filter(
-        (permission) => result[permission] !== PermissionsAndroid.RESULTS.GRANTED
-      );
-
-      if (denied.length) {
-        logDebug(`[DEBUG-CONSOLE][PERMISSION][ERR] Missing permissions (${context}).`, {
-          denied,
-          result,
-        });
+      const granted = await hasAndroidBlePermissions();
+      if (!granted) {
+        logDebug(`[DEBUG-CONSOLE][PERMISSION][ERR] Missing permissions (${context}).`);
         return false;
       }
 
       return true;
     } catch (permissionError) {
-      logDebug(`[DEBUG-CONSOLE][PERMISSION][ERR] Request failed (${context}).`, String(permissionError));
+      logDebug(`[DEBUG-CONSOLE][PERMISSION][ERR] Permission check failed (${context}).`, String(permissionError));
       return false;
     }
   }, []);
@@ -292,7 +259,9 @@ export default function BleDebugConsoleScreen() {
         device,
       });
 
-      const setupResult = await connectAndSetupDevice(connectIdentifier);
+      const setupResult = await connectAndSetupDeviceWithTimeout(connectIdentifier, {
+        timeoutMs: DEFAULT_CONNECT_AND_SETUP_TIMEOUT_MS,
+      });
       logDebug("[DEBUG-CONSOLE][CONNECT] connectAndSetupDevice result", setupResult);
       if (setupResult.status === "error") {
         const message =

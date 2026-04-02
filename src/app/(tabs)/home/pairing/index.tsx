@@ -1,4 +1,3 @@
-import { useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -27,9 +26,22 @@ import { useAuth } from "@/providers/auth";
 import { getValidoseDevices } from "@/services/device";
 import useDevStore from "@/store/dev";
 import useDeviceStore from "@/store/device";
-import { connectAndSetupDevice } from "@/utils/ble";
+import { connectAndSetupDeviceWithTimeout } from "@/utils/ble";
+import {
+  hasAndroidBlePermissions,
+  hasCameraPermission,
+} from "@/utils/permissions/androidRuntime";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
+
+type ScanValidationResult =
+  | { valid: true }
+  | { valid: false; title: string; description?: string };
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error ?? "Connection failed");
+}
 
 const SCAN_SLIDES = [
   {
@@ -88,7 +100,6 @@ export default function PairingScreen() {
   const hasScannedRef = useRef(false);
   const hasFetchedAuthorizedDevicesRef = useRef(false);
   const [showCamera, setShowCamera] = useState(false);
-  const [permission, requestPermission] = useCameraPermissions();
   const [reconnectingDeviceId, setReconnectingDeviceId] = useState<
     string | null
   >(null);
@@ -149,8 +160,42 @@ export default function PairingScreen() {
     }
     closeScanIntro(afterClose);
   };
-  const openCameraFromScanIntro = () => {
+  const closeScanFlowWithToast = (
+    type: Parameters<typeof showToast>[0],
+    title: string,
+    description?: string,
+  ) => {
+    closeActiveScanFlow(() => showToast(type, title, description));
+  };
+  const ensureScanRuntimePermissions = async (): Promise<boolean> => {
+    const cameraGranted = await hasCameraPermission();
+    if (!cameraGranted) {
+      closeScanFlowWithToast(
+        "error",
+        "Camera permission denied",
+        "Please allow camera permission from settings to continue.",
+      );
+      return false;
+    }
+
+    const bluetoothGranted = await hasAndroidBlePermissions();
+    if (!bluetoothGranted) {
+      closeScanFlowWithToast(
+        "error",
+        "Bluetooth permission denied",
+        "Please allow Bluetooth permissions from settings to continue.",
+      );
+      return false;
+    }
+
+    return true;
+  };
+  const openCameraFromScanIntro = async () => {
     setShowManualEntry(false);
+
+    const hasPermissions = await ensureScanRuntimePermissions();
+    if (!hasPermissions) return;
+
     setShowCamera(true);
   };
   const openManualEntryFromScanFlow = (source: "camera" | "intro") => {
@@ -161,7 +206,7 @@ export default function PairingScreen() {
   const returnFromManualEntry = () => {
     setShowManualEntry(false);
     if (manualEntrySource === "camera") {
-      setShowCamera(true);
+      void openCameraFromScanIntro();
     }
   };
 
@@ -290,8 +335,10 @@ export default function PairingScreen() {
     }
     setReconnectingDeviceId(deviceIdentifier);
     try {
-      const connected = await connectAndSetupDevice(deviceIdentifier);
-      if (connected.error) showToast("error", connected.error.toString());
+      const connected = await connectAndSetupDeviceWithTimeout(deviceIdentifier);
+      if (connected.status === "error") {
+        showToast("error", "Connection failed", toErrorMessage(connected.error));
+      }
     } catch (error) {
       showToast(
         "error",
@@ -303,10 +350,10 @@ export default function PairingScreen() {
     }
   }
 
-  async function validateDeviceAddress(scanningResult: string) {
+  async function validateDeviceAddress(scanningResult: string): Promise<ScanValidationResult> {
     try {
       const parsed = scanningResult;
-      if (isMockBleModeEnabled()) return true;
+      if (isMockBleModeEnabled()) return { valid: true };
 
       console.log("[APP] Scanned device name:", parsed);
 
@@ -316,16 +363,14 @@ export default function PairingScreen() {
         !authorizedDevices.some((device) => device.deviceId === parsed)
       ) {
         console.log("[APP] Device not found in list");
-        showToast("error", "Device not assigned to this patient");
-        return false;
+        return { valid: false, title: "Device not assigned to this patient" };
       }
 
       console.log(`[BLE] Connecting with device name: ${parsed}`);
-      return true;
+      return { valid: true };
     } catch (err) {
       console.log(err);
-      showToast("error", "Invalid QR Code", `${err}`);
-      return false;
+      return { valid: false, title: "Invalid QR Code", description: `${err}` };
     }
   }
 
@@ -334,66 +379,70 @@ export default function PairingScreen() {
     if (hasScannedRef.current) return;
 
     hasScannedRef.current = true;
-    const deviceAddress = scanningResult.data?.trim();
-    if (!deviceAddress) {
-      hasScannedRef.current = false;
-      closeActiveScanFlow();
-      showToast("error", "Invalid QR Code");
-      return;
-    }
-
-    if (matchesBypassKey(deviceAddress)) {
-      if (isMockBleModeEnabled()) {
-        disableMockBleMode();
-        hasScannedRef.current = false;
-        closeActiveScanFlow();
-        showToast("success", "Pairing mode reset");
+    try {
+      const deviceAddress = scanningResult.data?.trim();
+      if (!deviceAddress) {
+        closeScanFlowWithToast("error", "Invalid QR Code");
         return;
       }
 
-      enableMockBleMode();
-      const connected = await connectAndSetupDevice("VAL-OP DEMO");
-      hasScannedRef.current = false;
-      closeActiveScanFlow();
-
-      if (connected?.error) {
-        showToast("error", "Connection failed", String(connected.error));
+      const hasBlePermissions = await hasAndroidBlePermissions();
+      if (!hasBlePermissions) {
+        closeScanFlowWithToast(
+          "error",
+          "Bluetooth permission denied",
+          "Please allow Bluetooth permissions from settings to continue.",
+        );
         return;
       }
 
-      router.push("/home/dashboard");
-      return;
-    }
+      if (matchesBypassKey(deviceAddress)) {
+        if (isMockBleModeEnabled()) {
+          disableMockBleMode();
+          closeScanFlowWithToast("success", "Pairing mode reset");
+          return;
+        }
 
-    const isValid = await validateDeviceAddress(deviceAddress);
-    if (isValid) {
-      const connected = await connectAndSetupDevice(deviceAddress);
-      if (connected?.error) showToast("error", connected?.error.toString());
-    }
+        enableMockBleMode();
+        const connected = await connectAndSetupDeviceWithTimeout("VAL-OP DEMO");
+        if (connected.status === "error") {
+          closeScanFlowWithToast("error", "Connection failed", toErrorMessage(connected.error));
+          return;
+        }
 
-    hasScannedRef.current = false;
-    closeActiveScanFlow();
+        closeActiveScanFlow(() => {
+          router.push("/home/dashboard");
+        });
+        return;
+      }
+
+      const validation = await validateDeviceAddress(deviceAddress);
+      if (!validation.valid) {
+        closeScanFlowWithToast("error", validation.title, validation.description);
+        return;
+      }
+
+      const connected = await connectAndSetupDeviceWithTimeout(deviceAddress);
+      if (connected.status === "error") {
+        closeScanFlowWithToast(
+          "error",
+          "Connection failed",
+          toErrorMessage(connected.error),
+        );
+        return;
+      }
+
+      closeActiveScanFlow();
+    } catch (error) {
+      closeScanFlowWithToast(
+        "error",
+        "Scan failed",
+        toErrorMessage(error),
+      );
+    } finally {
+      hasScannedRef.current = false;
+    }
   };
-
-  if (!permission) return <View />;
-
-  if (!permission.granted) {
-    return (
-      <SafeAreaView style={styles.alignContent}>
-        <VTopActions
-          style={styles.topActions}
-          onPressHelp={handleHelpPress}
-          personDisabled={!hasAccessToken}
-        />
-        <View style={styles.pairingContainer}>
-          <VText textVariant="Body">
-            We need your permission to show the camera
-          </VText>
-          <VButton onPress={requestPermission} label="Grant permission" />
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   return (
     <>
